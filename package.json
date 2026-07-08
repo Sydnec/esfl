@@ -1,0 +1,22 @@
+{
+  "name": "esfl",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.10.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @esfl/contracts build && pnpm --parallel --filter './apps/**' dev",
+    "dev:infra": "docker compose -f docker-compose.dev.yml up -d",
+    "build": "pnpm -r build",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "test": "pnpm -r --if-present test"
+  },
+  "devDependencies": {
+    "eslint": "^9.0.0",
+    "prettier": "^3.0.0",
+    "typescript-eslint": "^8.0.0"
+  }
+}
