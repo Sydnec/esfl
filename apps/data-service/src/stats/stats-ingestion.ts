@@ -2,74 +2,13 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
 import { GameId, QUEUES, StatsIngestedEvent } from '@esfl/contracts';
 import { Queue } from 'bullmq';
-import type { Match, Prisma } from '../../generated/client';
+import type { Match } from '../../generated/client';
 import { PrismaService } from '../prisma.service';
-
-/** Ligne de stats retournée par un provider, indexée sur nos ids internes. */
-export interface ProviderStatLine {
-  playerId: string;
-  raw: Prisma.InputJsonValue;
-  normalized: Prisma.InputJsonValue;
-}
-
-/**
- * Adapter de stats détaillées par jeu. Implémentations prévues :
- * - cs2 : Grid.gg Open Access (nécessite GRID_API_KEY, candidature gratuite)
- * - valorant : VLR.gg (API communautaire non officielle, ex: vlrggapi auto-hébergée)
- * - lol : Leaguepedia Cargo API (publique)
- * - rl : Octane zsr API (publique, https://zsr.octane.gg)
- * Le défi principal est le rapprochement des entités (noms de joueurs/équipes
- * externes → ids Pandascore locaux) : à traiter provider par provider.
- */
-export interface GameStatsProvider {
-  readonly source: string;
-  readonly gameId: GameId;
-  fetchStats(match: Match): Promise<ProviderStatLine[] | null>;
-}
-
-@Injectable()
-export class GridStatsProvider implements GameStatsProvider {
-  readonly source = 'grid';
-  readonly gameId = 'cs2' as const;
-
-  async fetchStats(_match: Match): Promise<ProviderStatLine[] | null> {
-    // TODO : brancher Grid.gg Open Access une fois la clé obtenue (GRID_API_KEY).
-    return null;
-  }
-}
-
-@Injectable()
-export class VlrStatsProvider implements GameStatsProvider {
-  readonly source = 'vlr';
-  readonly gameId = 'valorant' as const;
-
-  async fetchStats(_match: Match): Promise<ProviderStatLine[] | null> {
-    // TODO : scraper/API VLR.gg (rapprochement par noms d'équipes + date).
-    return null;
-  }
-}
-
-@Injectable()
-export class LeaguepediaStatsProvider implements GameStatsProvider {
-  readonly source = 'leaguepedia';
-  readonly gameId = 'lol' as const;
-
-  async fetchStats(_match: Match): Promise<ProviderStatLine[] | null> {
-    // TODO : Cargo API Leaguepedia (table ScoreboardPlayers).
-    return null;
-  }
-}
-
-@Injectable()
-export class OctaneStatsProvider implements GameStatsProvider {
-  readonly source = 'octane';
-  readonly gameId = 'rl' as const;
-
-  async fetchStats(_match: Match): Promise<ProviderStatLine[] | null> {
-    // TODO : zsr.octane.gg /matches (rapprochement par équipes + date).
-    return null;
-  }
-}
+import { GridStatsProvider } from './grid.provider';
+import { LeaguepediaStatsProvider } from './leaguepedia.provider';
+import { OctaneStatsProvider } from './octane.provider';
+import type { GameStatsProvider, MatchContext } from './provider';
+import { VlrStatsProvider } from './vlr.provider';
 
 @Injectable()
 export class StatsIngestionService {
@@ -88,24 +27,35 @@ export class StatsIngestionService {
   }
 
   /**
-   * Tente d'obtenir les stats détaillées d'un match terminé puis publie
-   * stats.ingested. Si des stats existent déjà (seed, run précédent),
-   * publie directement.
+   * Récupère les stats détaillées d'un match terminé et publie stats.ingested.
+   * Lève si les stats ne sont pas encore publiées par la source externe :
+   * le job BullMQ `ingest-stats` retentera avec backoff exponentiel.
    */
-  async ingestForMatch(match: Match): Promise<void> {
-    const existing = await this.prisma.playerMatchStats.count({ where: { matchId: match.id } });
+  async ingestForMatchId(matchId: string): Promise<void> {
+    const match = await this.prisma.match.findUnique({ where: { id: matchId } });
+    if (!match) {
+      this.logger.warn(`ingest-stats : match inconnu ${matchId}`);
+      return;
+    }
+
+    const existing = await this.prisma.playerMatchStats.count({ where: { matchId } });
     if (existing > 0) {
       await this.publish(match, 'existing');
       return;
     }
 
     const provider = this.providers.find((candidate) => candidate.gameId === match.gameId);
-    const lines = provider ? await provider.fetchStats(match) : null;
-    if (!provider || !lines || lines.length === 0) {
-      this.logger.warn(
-        `Pas de stats disponibles pour le match ${match.id} (${match.gameId}) — provider à brancher`,
-      );
+    if (!provider) {
+      this.logger.warn(`Aucun provider de stats pour ${match.gameId} (match ${matchId})`);
       return;
+    }
+
+    const context = await this.loadContext(match);
+    const lines = await provider.fetchStats(match, context);
+    if (!lines || lines.length === 0) {
+      throw new Error(
+        `Stats indisponibles pour le match ${matchId} via ${provider.source} — nouvelle tentative planifiée`,
+      );
     }
 
     for (const line of lines) {
@@ -122,7 +72,21 @@ export class StatsIngestionService {
         update: { raw: line.raw, normalized: line.normalized, source: provider.source },
       });
     }
+    this.logger.log(`${lines.length} lignes de stats ${provider.source} pour le match ${matchId}`);
     await this.publish(match, provider.source);
+  }
+
+  private async loadContext(match: Match): Promise<MatchContext> {
+    const teamIds = [match.teamAId, match.teamBId].filter((id): id is string => Boolean(id));
+    const [teams, players] = await Promise.all([
+      this.prisma.team.findMany({ where: { id: { in: teamIds } } }),
+      this.prisma.player.findMany({ where: { teamId: { in: teamIds } } }),
+    ]);
+    return {
+      teamA: teams.find((team) => team.id === match.teamAId) ?? null,
+      teamB: teams.find((team) => team.id === match.teamBId) ?? null,
+      players,
+    };
   }
 
   private async publish(match: Match, source: string): Promise<void> {

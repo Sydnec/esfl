@@ -63,4 +63,13 @@ export class DataClient {
   listPlayers(competitionIds: string[]): Promise<DataPlayer[]> {
     return this.get<DataPlayer[]>('/data/players', { competitionIds: competitionIds.join(',') });
   }
+
+  /** Demande (sans attendre) une synchro immédiate d'une compétition. */
+  triggerCompetitionSync(competitionId: string): void {
+    fetch(`${this.baseUrl}/data/admin/sync-competition/${competitionId}`, {
+      method: 'POST',
+    }).catch(() => {
+      // best effort : le cycle planifié rattrapera
+    });
+  }
 }

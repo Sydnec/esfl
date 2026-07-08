@@ -28,7 +28,7 @@ export class LeaguesService {
     // Valide que chaque compétition existe dans le référentiel.
     await Promise.all(input.competitionIds.map((id) => this.data.getCompetition(id)));
 
-    return this.prisma.league.create({
+    const league = await this.prisma.league.create({
       data: {
         name: input.name,
         inviteCode: generateInviteCode(),
@@ -42,6 +42,21 @@ export class LeaguesService {
       },
       include: { competitions: true, members: true },
     });
+    // Fire-and-forget : le data-service synchronise matchs + rosters sans
+    // attendre le prochain cycle planifié.
+    for (const competitionId of input.competitionIds) {
+      this.data.triggerCompetitionSync(competitionId);
+    }
+    return league;
+  }
+
+  /** Compétitions suivies par au moins une ligue — consommé par le data-service. */
+  async followedCompetitionIds(): Promise<string[]> {
+    const rows = await this.prisma.leagueCompetition.findMany({
+      select: { competitionId: true },
+      distinct: ['competitionId'],
+    });
+    return rows.map((row) => row.competitionId);
   }
 
   myLeagues(userId: string) {
@@ -94,6 +109,7 @@ export class LeaguesService {
       create: { leagueId, competitionId },
       update: {},
     });
+    this.data.triggerCompetitionSync(competitionId);
     return this.getForMember(leagueId, userId);
   }
 }

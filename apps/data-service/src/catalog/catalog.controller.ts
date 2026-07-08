@@ -78,4 +78,27 @@ export class CatalogController {
     await this.ingestionQueue.add(job, {});
     return { enqueued: job };
   }
+
+  /** Sync immédiat d'une compétition (appelé par le fantasy-service à l'ajout). */
+  @Post('admin/sync-competition/:id')
+  async triggerCompetitionSync(@Param('id') competitionId: string) {
+    await this.ingestionQueue.add('sync-competition', { competitionId });
+    return { enqueued: 'sync-competition', competitionId };
+  }
+
+  /** Relance la récupération de stats d'un match (avec retries planifiés). */
+  @Post('admin/ingest-stats/:matchId')
+  async triggerIngestStats(@Param('matchId') matchId: string) {
+    await this.ingestionQueue.add(
+      'ingest-stats',
+      { matchId },
+      {
+        attempts: 8,
+        backoff: { type: 'exponential', delay: 15 * 60 * 1000 },
+        removeOnComplete: 500,
+        removeOnFail: 1000,
+      },
+    );
+    return { enqueued: 'ingest-stats', matchId };
+  }
 }

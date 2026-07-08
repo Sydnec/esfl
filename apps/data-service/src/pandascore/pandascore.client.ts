@@ -5,10 +5,16 @@ import type { PSMatch, PSSerie, PSTeam } from './pandascore.types';
 
 const BASE_URL = 'https://api.pandascore.co';
 const PER_PAGE = 100;
+/** Espacement minimal entre deux requêtes : ~900 req/h max, sous le quota gratuit de 1000/h. */
+const MIN_REQUEST_SPACING_MS = 4_000;
 
 @Injectable()
 export class PandascoreClient {
   private readonly logger = new Logger(PandascoreClient.name);
+  /** File séquentielle : chaque requête attend la précédente + l'espacement minimal. */
+  private queue: Promise<unknown> = Promise.resolve();
+  private lastRequestAt = 0;
+  private requestTimestamps: number[] = [];
 
   constructor(private readonly config: ConfigService) {}
 
@@ -17,7 +23,29 @@ export class PandascoreClient {
     return Boolean(this.config.get<string>('PANDASCORE_TOKEN'));
   }
 
-  async get<T>(path: string, params: Record<string, string | number> = {}): Promise<T> {
+  /** Nombre de requêtes émises sur la dernière heure glissante. */
+  get requestsLastHour(): number {
+    const cutoff = Date.now() - 3_600_000;
+    this.requestTimestamps = this.requestTimestamps.filter((ts) => ts > cutoff);
+    return this.requestTimestamps.length;
+  }
+
+  get<T>(path: string, params: Record<string, string | number> = {}): Promise<T> {
+    const run = this.queue.then(async () => {
+      const wait = this.lastRequestAt + MIN_REQUEST_SPACING_MS - Date.now();
+      if (wait > 0) {
+        await new Promise((resolve) => setTimeout(resolve, wait));
+      }
+      this.lastRequestAt = Date.now();
+      this.requestTimestamps.push(this.lastRequestAt);
+      return this.fetchOnce<T>(path, params);
+    });
+    // La file continue même si une requête échoue.
+    this.queue = run.catch(() => undefined);
+    return run;
+  }
+
+  private async fetchOnce<T>(path: string, params: Record<string, string | number>): Promise<T> {
     const url = new URL(`${BASE_URL}${path}`);
     for (const [key, value] of Object.entries(params)) {
       url.searchParams.set(key, String(value));
@@ -26,10 +54,10 @@ export class PandascoreClient {
       headers: { Authorization: `Bearer ${this.config.getOrThrow('PANDASCORE_TOKEN')}` },
     });
     if (response.status === 429) {
-      // Free tier : 1000 req/h. On attend une minute puis on retente une fois.
+      // Quota atteint malgré le throttle : on attend une minute puis on retente une fois.
       this.logger.warn(`Rate limit Pandascore atteint sur ${path}, retry dans 60s`);
       await new Promise((resolve) => setTimeout(resolve, 60_000));
-      return this.get<T>(path, params);
+      return this.fetchOnce<T>(path, params);
     }
     if (!response.ok) {
       throw new ServiceUnavailableException(`Pandascore ${path} → ${response.status}`);

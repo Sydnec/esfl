@@ -8,11 +8,13 @@
     "start:prod": "node dist/main.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "seed": "ts-node --transpile-only prisma/seed.ts"
+    "seed": "ts-node --transpile-only prisma/seed.ts",
+    "test": "vitest run"
   },
   "dependencies": {
     "@esfl/contracts": "workspace:*",
     "@nestjs/bullmq": "^11.0.0",
+    "cheerio": "^1.0.0",
     "@nestjs/common": "^11.0.0",
     "@nestjs/config": "^4.0.0",
     "@nestjs/core": "^11.0.0",
@@ -29,6 +31,7 @@
     "@types/node": "^24.0.0",
     "prisma": "^6.0.0",
     "ts-node": "^10.9.2",
-    "typescript": "^5.8.0"
+    "typescript": "^5.8.0",
+    "vitest": "^3.0.0"
   }
 }

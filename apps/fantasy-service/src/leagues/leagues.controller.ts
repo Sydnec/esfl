@@ -78,13 +78,22 @@ export class LeaguesController {
   }
 }
 
-/** Endpoints internes (réseau privé) consommés par le scoring-service. */
+/** Endpoints internes (réseau privé) consommés par les autres services. */
 @Controller('fantasy/internal')
 export class InternalController {
-  constructor(private readonly rosters: RostersService) {}
+  constructor(
+    private readonly rosters: RostersService,
+    private readonly leagues: LeaguesService,
+  ) {}
 
   @Get('rosters')
   rostersForDate(@Query('date') date: string) {
     return this.rosters.listRostersForDate(date);
+  }
+
+  /** Compétitions suivies par au moins une ligue (ciblage de l'ingestion). */
+  @Get('followed-competitions')
+  followedCompetitions() {
+    return this.leagues.followedCompetitionIds();
   }
 }

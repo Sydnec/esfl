@@ -3,10 +3,11 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { GAME_IDS, GameId, MatchFinishedEvent, QUEUES } from '@esfl/contracts';
 import type { Competition } from '../../generated/client';
 import { Queue } from 'bullmq';
+import { FantasyClient } from '../fantasy-client/fantasy.client';
 import { PandascoreClient } from '../pandascore/pandascore.client';
 import type { PSMatch, PSSerie, PSTeamRef } from '../pandascore/pandascore.types';
 import { PrismaService } from '../prisma.service';
-import { StatsIngestionService } from '../stats/stats-ingestion';
+import { INGESTION_QUEUE } from './ingestion.processor';
 
 @Injectable()
 export class IngestionService {
@@ -15,8 +16,9 @@ export class IngestionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly pandascore: PandascoreClient,
+    private readonly fantasyClient: FantasyClient,
     @InjectQueue(QUEUES.MATCH_FINISHED) private readonly matchFinishedQueue: Queue,
-    private readonly statsIngestion: StatsIngestionService,
+    @InjectQueue(INGESTION_QUEUE) private readonly ingestionQueue: Queue,
   ) {}
 
   /** Upsert des séries en cours/à venir de tous les jeux. */
@@ -46,12 +48,27 @@ export class IngestionService {
     }
   }
 
-  /** Compétitions actives = sans date de fin ou terminées depuis moins de 3 jours. */
-  async syncAllActiveMatches(): Promise<void> {
+  /**
+   * Compétitions à synchroniser en continu : suivies par au moins une ligue
+   * ET actives (sans date de fin ou terminées depuis moins de 3 jours).
+   * Le ciblage sur les compétitions suivies est ce qui protège le quota
+   * Pandascore : le référentiel complet peut contenir des centaines de séries.
+   */
+  private async followedActiveCompetitions() {
+    const followed = await this.fantasyClient.followedCompetitionIds();
+    if (followed === null) {
+      this.logger.warn('Compétitions suivies indisponibles — cycle de sync sauté');
+      return [];
+    }
+    if (followed.length === 0) return [];
     const cutoff = new Date(Date.now() - 3 * 24 * 3600 * 1000);
-    const competitions = await this.prisma.competition.findMany({
-      where: { OR: [{ endAt: null }, { endAt: { gte: cutoff } }] },
+    return this.prisma.competition.findMany({
+      where: { id: { in: followed }, OR: [{ endAt: null }, { endAt: { gte: cutoff } }] },
     });
+  }
+
+  async syncAllActiveMatches(): Promise<void> {
+    const competitions = await this.followedActiveCompetitions();
     for (const competition of competitions) {
       try {
         await this.syncMatchesForCompetition(competition.id);
@@ -103,11 +120,7 @@ export class IngestionService {
   }
 
   async syncAllActiveRosters(): Promise<void> {
-    const cutoff = new Date(Date.now() - 3 * 24 * 3600 * 1000);
-    const competitions = await this.prisma.competition.findMany({
-      where: { OR: [{ endAt: null }, { endAt: { gte: cutoff } }] },
-      select: { id: true, name: true },
-    });
+    const competitions = await this.followedActiveCompetitions();
     for (const competition of competitions) {
       try {
         await this.syncRostersForCompetition(competition.id);
@@ -115,6 +128,12 @@ export class IngestionService {
         this.logger.error(`syncRosters ${competition.name} : ${String(error)}`);
       }
     }
+  }
+
+  /** Sync ciblé d'une compétition (déclenché quand une ligue l'ajoute). */
+  async syncCompetition(competitionId: string): Promise<void> {
+    await this.syncMatchesForCompetition(competitionId);
+    await this.syncRostersForCompetition(competitionId);
   }
 
   private upsertCompetition(game: GameId, serie: PSSerie): Promise<Competition> {
@@ -217,7 +236,26 @@ export class IngestionService {
         where: { id: saved.id },
         data: { finishedEventSent: true },
       });
-      await this.statsIngestion.ingestForMatch(saved);
+      // Stats uniquement pour les fins de match récentes : quand une ligue
+      // ajoute une compétition en cours, ses matchs déjà anciens n'auront
+      // jamais de roster — inutile de dépenser du budget API pour eux.
+      const finishedAt = saved.endAt ?? saved.beginAt ?? saved.scheduledAt;
+      const isRecent =
+        finishedAt && Date.now() - finishedAt.getTime() < 48 * 3600 * 1000;
+      if (isRecent) {
+        // Les sources externes publient parfois avec des heures de retard :
+        // retries espacés de 15 min → ~31h de couverture.
+        await this.ingestionQueue.add(
+          'ingest-stats',
+          { matchId: saved.id },
+          {
+            attempts: 8,
+            backoff: { type: 'exponential', delay: 15 * 60 * 1000 },
+            removeOnComplete: 500,
+            removeOnFail: 1000,
+          },
+        );
+      }
     }
   }
 
