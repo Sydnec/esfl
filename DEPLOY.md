@@ -65,8 +65,14 @@ service (`prisma migrate deploy`). L'ingestion Pandascore démarre seule si
 git pull && docker compose up -d --build
 ```
 
-## Suivi restant
+## État des sources de stats (2026-07-08)
 
-- Brancher les providers de stats détaillées (`apps/data-service/src/stats/stats-ingestion.ts`) :
-  Grid.gg (CS2), VLR.gg (Valorant), Leaguepedia (LoL), Octane zsr (RL).
-  Sans eux, les points ne peuvent être calculés qu'à partir de stats déjà présentes en base.
+Providers implémentés dans `apps/data-service/src/stats/` (déclenchés sur fin de match
+< 48h, retries backoff 15 min ×8, throttle par hôte) :
+
+| Jeu | Source | État |
+|---|---|---|
+| Valorant | Scraper VLR.gg | ✅ validé en réel |
+| LoL | Leaguepedia Cargo | ✅ implémenté (attention : rate limit Fandom agressif) |
+| CS2 | Grid.gg GraphQL | ⚠️ nécessite une clé avec l'accès Open Access **activé** (sinon PERMISSION_DENIED) |
+| RL | Octane zsr | ❌ l'API zsr.octane.gg est hors service — source alternative à trouver |

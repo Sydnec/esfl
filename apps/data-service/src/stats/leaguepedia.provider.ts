@@ -126,9 +126,11 @@ export class LeaguepediaStatsProvider implements GameStatsProvider {
     url.searchParams.set('limit', '500');
     url.searchParams.set('tables', 'ScoreboardGames=SG,ScoreboardPlayers=SP');
     url.searchParams.set('join_on', 'SG.GameId=SP.GameId');
+    // NB : les noms de champs Cargo utilisent des underscores (« Gamelength Number »
+    // → Gamelength_Number) ; un espace provoque une MWException côté Fandom.
     url.searchParams.set(
       'fields',
-      'SP.Link,SP.Kills,SP.Deaths,SP.Assists,SP.CS,SP.PlayerWin,SP.Team,SG.Team1,SG.Team2,SG.Gamelength Number=Gamelength',
+      'SP.Link,SP.Kills,SP.Deaths,SP.Assists,SP.CS,SP.PlayerWin,SP.Team,SG.Team1,SG.Team2,SG.Gamelength_Number=Gamelength',
     );
     url.searchParams.set(
       'where',
