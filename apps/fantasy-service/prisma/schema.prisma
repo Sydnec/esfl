@@ -1,0 +1,96 @@
+generator client {
+  provider = "prisma-client-js"
+  // Output local à l'app : évite que les services s'écrasent mutuellement
+  // le client généré dans le store pnpm partagé.
+  output   = "../generated/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("FANTASY_DATABASE_URL")
+}
+
+model League {
+  id            String   @id @default(cuid())
+  name          String
+  inviteCode    String   @unique @map("invite_code")
+  /** Id utilisateur (schéma auth, pas de FK inter-schémas). */
+  ownerId       String   @map("owner_id")
+  rosterSize    Int      @default(5) @map("roster_size")
+  /** N : journées de verrouillage après un pick. */
+  lockMatchDays Int      @default(2) @map("lock_match_days")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  members       LeagueMember[]
+  competitions  LeagueCompetition[]
+  matchDays     MatchDay[]
+  rosters       Roster[]
+
+  @@map("leagues")
+}
+
+model LeagueMember {
+  leagueId String   @map("league_id")
+  userId   String   @map("user_id")
+  role     String // owner | member
+  joinedAt DateTime @default(now()) @map("joined_at")
+  league   League   @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+
+  @@id([leagueId, userId])
+  @@index([userId])
+  @@map("league_members")
+}
+
+model LeagueCompetition {
+  leagueId      String   @map("league_id")
+  /** Id compétition (schéma data, pas de FK inter-schémas). */
+  competitionId String   @map("competition_id")
+  addedAt       DateTime @default(now()) @map("added_at")
+  league        League   @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+
+  @@id([leagueId, competitionId])
+  @@map("league_competitions")
+}
+
+model MatchDay {
+  id           String   @id @default(cuid())
+  leagueId     String   @map("league_id")
+  /** Date calendaire Europe/Paris au format YYYY-MM-DD. */
+  date         String
+  /** Deadline de soumission des rosters : coup d'envoi du premier match suivi. */
+  firstMatchAt DateTime @map("first_match_at")
+  league       League   @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  rosters      Roster[]
+
+  @@unique([leagueId, date])
+  @@map("match_days")
+}
+
+model Roster {
+  id          String   @id @default(cuid())
+  leagueId    String   @map("league_id")
+  matchDayId  String   @map("match_day_id")
+  userId      String   @map("user_id")
+  submittedAt DateTime @default(now()) @map("submitted_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  league      League   @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  matchDay    MatchDay @relation(fields: [matchDayId], references: [id], onDelete: Cascade)
+  picks       RosterPick[]
+
+  @@unique([matchDayId, userId])
+  @@index([leagueId, userId])
+  @@map("rosters")
+}
+
+model RosterPick {
+  id       String @id @default(cuid())
+  rosterId String @map("roster_id")
+  /** Id joueur pro (schéma data, pas de FK inter-schémas). */
+  playerId String @map("player_id")
+  gameId   String @map("game_id")
+  roster   Roster @relation(fields: [rosterId], references: [id], onDelete: Cascade)
+
+  @@unique([rosterId, playerId])
+  @@index([playerId])
+  @@map("roster_picks")
+}

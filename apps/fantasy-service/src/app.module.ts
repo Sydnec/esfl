@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { HealthController } from './health.controller';
+import { LeaguesModule } from './leagues/leagues.module';
 
 @Module({
   imports: [
@@ -8,6 +9,7 @@ import { HealthController } from './health.controller';
       isGlobal: true,
       envFilePath: ['.env', '../../.env'],
     }),
+    LeaguesModule,
   ],
   controllers: [HealthController],
 })

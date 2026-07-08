@@ -8,3 +8,4 @@ allowBuilds:
   '@prisma/client': true
   '@prisma/engines': true
   msgpackr-extract: true
+  esbuild: true
