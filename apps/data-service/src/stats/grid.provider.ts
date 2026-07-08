@@ -5,8 +5,9 @@ import { buildPlayerIndex, matchPlayer, teamNamesMatch } from './matching';
 import { politeFetch } from './polite-fetch';
 import type { GameStatsProvider, MatchContext, ProviderStatLine } from './provider';
 
-const CENTRAL_DATA_URL = 'https://api.grid.gg/central-data/graphql';
-const SERIES_STATE_URL = 'https://api.grid.gg/live-data-feed/series-state/graphql';
+// Hôte Open Platform (api-op) : les clés Open Access n'ont aucun droit sur api.grid.gg.
+const CENTRAL_DATA_URL = 'https://api-op.grid.gg/central-data/graphql';
+const SERIES_STATE_URL = 'https://api-op.grid.gg/live-data-feed/series-state/graphql';
 
 export interface GridSeriesStateTeam {
   name?: string;

@@ -74,5 +74,5 @@ Providers implémentés dans `apps/data-service/src/stats/` (déclenchés sur fi
 |---|---|---|
 | Valorant | Scraper VLR.gg | ✅ validé en réel |
 | LoL | Leaguepedia Cargo | ✅ implémenté (attention : rate limit Fandom agressif) |
-| CS2 | Grid.gg GraphQL | ⚠️ nécessite une clé avec l'accès Open Access **activé** (sinon PERMISSION_DENIED) |
+| CS2 | Grid.gg GraphQL (hôte Open Platform `api-op.grid.gg`) | ✅ validé en réel |
 | RL | Octane zsr | ❌ l'API zsr.octane.gg est hors service — source alternative à trouver |
