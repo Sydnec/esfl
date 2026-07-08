@@ -6,7 +6,8 @@ services:
       POSTGRES_PASSWORD: esfl
       POSTGRES_DB: esfl
     ports:
-      - '5432:5432'
+      # 5433 côté hôte : le 5432 local est déjà occupé par un autre postgres
+      - '5433:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
