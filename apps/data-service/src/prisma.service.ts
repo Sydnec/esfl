@@ -5,7 +5,7 @@ import { PrismaClient } from '../generated/client';
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
   constructor(config: ConfigService) {
-    super({ datasourceUrl: config.getOrThrow<string>('AUTH_DATABASE_URL') });
+    super({ datasourceUrl: config.getOrThrow<string>('DATA_DATABASE_URL') });
   }
 
   async onModuleInit() {

@@ -17,7 +17,7 @@ import {
   RegisterInput,
   registerInputSchema,
 } from '@esfl/contracts';
-import type { User } from '@prisma/client';
+import type { User } from '../../generated/client';
 import type { Request, Response } from 'express';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { AccessTokenGuard, AuthenticatedRequest } from './access-token.guard';

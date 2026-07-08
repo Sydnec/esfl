@@ -10,10 +10,10 @@ export const GAME_LABELS: Record<GameId, string> = {
   rl: 'Rocket League',
 };
 
-/** Slugs des jeux côté Pandascore (videogame.slug). */
-export const PANDASCORE_GAME_SLUGS: Record<GameId, string> = {
-  cs2: 'cs-go',
+/** Préfixes de chemin de l'API Pandascore par jeu (ex: /csgo/series). */
+export const PANDASCORE_PATHS: Record<GameId, string> = {
+  cs2: 'csgo',
   valorant: 'valorant',
-  lol: 'league-of-legends',
+  lol: 'lol',
   rl: 'rl',
 };

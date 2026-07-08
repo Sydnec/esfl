@@ -1,0 +1,117 @@
+generator client {
+  provider = "prisma-client-js"
+  // Output local à l'app : évite que les services s'écrasent mutuellement
+  // le client généré dans le store pnpm partagé.
+  output   = "../generated/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATA_DATABASE_URL")
+}
+
+model Competition {
+  id           String    @id @default(cuid())
+  pandascoreId Int       @unique @map("pandascore_id")
+  gameId       String    @map("game_id")
+  name         String
+  slug         String?
+  tier         String?
+  beginAt      DateTime? @map("begin_at")
+  endAt        DateTime? @map("end_at")
+  imageUrl     String?   @map("image_url")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  matches      Match[]
+  teams        CompetitionTeam[]
+
+  @@index([gameId])
+  @@map("competitions")
+}
+
+model Team {
+  id           String  @id @default(cuid())
+  pandascoreId Int     @unique @map("pandascore_id")
+  gameId       String  @map("game_id")
+  name         String
+  acronym      String?
+  imageUrl     String? @map("image_url")
+  players      Player[]
+  competitions CompetitionTeam[]
+
+  @@index([gameId])
+  @@map("teams")
+}
+
+model CompetitionTeam {
+  competitionId String      @map("competition_id")
+  teamId        String      @map("team_id")
+  competition   Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  team          Team        @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@id([competitionId, teamId])
+  @@map("competition_teams")
+}
+
+model Player {
+  id           String  @id @default(cuid())
+  pandascoreId Int     @unique @map("pandascore_id")
+  gameId       String  @map("game_id")
+  /** Pseudo du joueur pro. */
+  name         String
+  firstName    String? @map("first_name")
+  lastName     String? @map("last_name")
+  imageUrl     String? @map("image_url")
+  role         String?
+  teamId       String? @map("team_id")
+  team         Team?   @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  stats        PlayerMatchStats[]
+
+  @@index([gameId])
+  @@index([teamId])
+  @@map("players")
+}
+
+model Match {
+  id            String      @id @default(cuid())
+  pandascoreId  Int         @unique @map("pandascore_id")
+  gameId        String      @map("game_id")
+  competitionId String      @map("competition_id")
+  competition   Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  name          String
+  status        String // not_started | running | finished | canceled
+  scheduledAt   DateTime?   @map("scheduled_at")
+  beginAt       DateTime?   @map("begin_at")
+  endAt         DateTime?   @map("end_at")
+  teamAId       String?     @map("team_a_id")
+  teamBId       String?     @map("team_b_id")
+  scoreA        Int?        @map("score_a")
+  scoreB        Int?        @map("score_b")
+  winnerTeamId  String?     @map("winner_team_id")
+  /** true une fois l'événement match.finished publié (idempotence). */
+  finishedEventSent Boolean @default(false) @map("finished_event_sent")
+  stats         PlayerMatchStats[]
+
+  @@index([competitionId])
+  @@index([status])
+  @@index([scheduledAt])
+  @@map("matches")
+}
+
+model PlayerMatchStats {
+  id         String   @id @default(cuid())
+  matchId    String   @map("match_id")
+  playerId   String   @map("player_id")
+  gameId     String   @map("game_id")
+  /** Provider d'origine : pandascore, grid, vlr, leaguepedia, octane, seed. */
+  source     String
+  raw        Json
+  normalized Json
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  match      Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  player     Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([matchId, playerId])
+  @@map("player_match_stats")
+}

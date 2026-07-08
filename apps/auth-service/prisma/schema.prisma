@@ -1,5 +1,8 @@
 generator client {
   provider = "prisma-client-js"
+  // Output local à l'app : évite que les services s'écrasent mutuellement
+  // le client généré dans le store pnpm partagé.
+  output   = "../generated/client"
 }
 
 datasource db {

@@ -3,7 +3,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import type { AccessTokenPayload } from '@esfl/contracts';
-import type { User } from '@prisma/client';
+import type { User } from '../../generated/client';
 import { PrismaService } from '../prisma.service';
 
 export interface IssuedRefreshToken {

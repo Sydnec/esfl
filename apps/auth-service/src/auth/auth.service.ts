@@ -1,6 +1,6 @@
 import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
 import type { OAuthProvider, PublicUser, RegisterInput } from '@esfl/contracts';
-import type { User } from '@prisma/client';
+import type { User } from '../../generated/client';
 import * as argon2 from 'argon2';
 import { PrismaService } from '../prisma.service';
 
