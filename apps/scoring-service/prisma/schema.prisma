@@ -1,0 +1,41 @@
+generator client {
+  provider = "prisma-client-js"
+  // Output local à l'app : évite que les services s'écrasent mutuellement
+  // le client généré dans le store pnpm partagé.
+  output   = "../generated/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("SCORING_DATABASE_URL")
+}
+
+/** Points fantasy d'un joueur pro sur un match. Recalcul idempotent. */
+model FantasyPoints {
+  id         String   @id @default(cuid())
+  matchId    String   @map("match_id")
+  playerId   String   @map("player_id")
+  gameId     String   @map("game_id")
+  points     Float
+  /** Détail par composante (transparence dans l'UI). */
+  breakdown  Json
+  computedAt DateTime @updatedAt @map("computed_at")
+
+  @@unique([matchId, playerId])
+  @@index([playerId])
+  @@map("fantasy_points")
+}
+
+/** Score total du roster d'un utilisateur sur une journée de ligue. */
+model RosterScore {
+  id           String   @id @default(cuid())
+  rosterId     String   @unique @map("roster_id")
+  leagueId     String   @map("league_id")
+  userId       String   @map("user_id")
+  matchDayDate String   @map("match_day_date")
+  points       Float
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@index([leagueId])
+  @@map("roster_scores")
+}

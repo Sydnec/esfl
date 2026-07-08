@@ -6,6 +6,7 @@ import { Queue } from 'bullmq';
 import { PandascoreClient } from '../pandascore/pandascore.client';
 import type { PSMatch, PSSerie, PSTeamRef } from '../pandascore/pandascore.types';
 import { PrismaService } from '../prisma.service';
+import { StatsIngestionService } from '../stats/stats-ingestion';
 
 @Injectable()
 export class IngestionService {
@@ -15,6 +16,7 @@ export class IngestionService {
     private readonly prisma: PrismaService,
     private readonly pandascore: PandascoreClient,
     @InjectQueue(QUEUES.MATCH_FINISHED) private readonly matchFinishedQueue: Queue,
+    private readonly statsIngestion: StatsIngestionService,
   ) {}
 
   /** Upsert des séries en cours/à venir de tous les jeux. */
@@ -215,6 +217,7 @@ export class IngestionService {
         where: { id: saved.id },
         data: { finishedEventSent: true },
       });
+      await this.statsIngestion.ingestForMatch(saved);
     }
   }
 
