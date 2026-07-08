@@ -1,0 +1,173 @@
+.main {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: var(--space-4) var(--space-3);
+}
+
+.headerRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.title {
+  font-size: 1.5rem;
+}
+
+.invite {
+  font-size: 0.875rem;
+  color: var(--color-muted);
+}
+
+.settings {
+  color: var(--color-muted);
+  font-size: 0.875rem;
+  margin-top: var(--space-1);
+}
+
+.columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-5);
+  margin-top: var(--space-4);
+}
+
+@media (max-width: 720px) {
+  .columns {
+    grid-template-columns: 1fr;
+  }
+}
+
+.sectionTitle {
+  font-size: 1.125rem;
+  margin: var(--space-4) 0 var(--space-2);
+}
+
+.sectionTitle:first-child {
+  margin-top: 0;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9375rem;
+}
+
+.table th,
+.table td {
+  text-align: left;
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.table th {
+  color: var(--color-muted);
+  font-weight: 500;
+  font-size: 0.8125rem;
+}
+
+.me td {
+  font-weight: 600;
+}
+
+.members,
+.competitions {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: 0.9375rem;
+}
+
+.ownerTag {
+  color: var(--color-muted);
+  font-size: 0.8125rem;
+}
+
+.addForm {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.select {
+  flex: 1;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-1);
+  font: inherit;
+  background: var(--color-bg);
+  color: var(--color-text);
+  min-width: 0;
+}
+
+.addButton {
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius);
+  background: var(--color-bg);
+  color: var(--color-accent);
+  padding: var(--space-1) var(--space-2);
+}
+
+.addButton:disabled {
+  opacity: 0.5;
+}
+
+.days {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.day {
+  display: flex;
+  justify-content: space-between;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-2);
+  color: var(--color-text);
+}
+
+.dayMeta {
+  color: var(--color-muted);
+  font-size: 0.875rem;
+}
+
+.matches {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: 0.875rem;
+}
+
+.match {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.matchGame {
+  color: var(--color-muted);
+  min-width: 120px;
+}
+
+.matchDate {
+  color: var(--color-muted);
+  white-space: nowrap;
+}
+
+.empty {
+  color: var(--color-muted);
+  font-size: 0.9375rem;
+}
+
+.error {
+  color: var(--color-danger);
+  margin-top: var(--space-2);
+}

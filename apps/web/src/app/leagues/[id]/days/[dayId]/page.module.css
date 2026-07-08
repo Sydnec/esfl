@@ -1,0 +1,127 @@
+.main {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: var(--space-4) var(--space-3);
+}
+
+.back {
+  font-size: 0.875rem;
+}
+
+.headerRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.title {
+  font-size: 1.5rem;
+}
+
+.deadline {
+  color: var(--color-muted);
+  font-size: 0.875rem;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.counter {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.search {
+  flex: 1;
+  min-width: 200px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-2);
+  font: inherit;
+}
+
+.submit {
+  border: none;
+  border-radius: var(--radius);
+  background: var(--color-accent);
+  color: var(--color-accent-text);
+  padding: var(--space-2) var(--space-3);
+}
+
+.submit:disabled {
+  opacity: 0.5;
+}
+
+.gameSection {
+  margin-top: var(--space-4);
+}
+
+.gameTitle {
+  font-size: 0.875rem;
+  color: var(--color-muted);
+  text-transform: uppercase;
+  margin-bottom: var(--space-2);
+}
+
+.players {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--space-2);
+}
+
+.player {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg);
+  color: var(--color-text);
+  padding: var(--space-2);
+  text-align: left;
+}
+
+.player.selected {
+  border-color: var(--color-accent);
+  background: var(--color-surface);
+}
+
+.player.locked {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.playerName {
+  font-weight: 600;
+}
+
+.playerMeta {
+  color: var(--color-muted);
+  font-size: 0.8125rem;
+}
+
+.lockTag {
+  color: var(--color-danger);
+  font-size: 0.75rem;
+}
+
+.error {
+  color: var(--color-danger);
+  margin-top: var(--space-2);
+}
+
+.saved {
+  color: var(--color-accent);
+  margin-top: var(--space-2);
+}

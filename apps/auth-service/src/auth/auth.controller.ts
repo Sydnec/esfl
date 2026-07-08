@@ -4,6 +4,7 @@ import {
   Get,
   NotFoundException,
   Post,
+  Query,
   Req,
   Res,
   UnauthorizedException,
@@ -87,6 +88,11 @@ export class AuthController {
     }
     res.clearCookie(REFRESH_COOKIE, { path: '/auth' });
     return { ok: true };
+  }
+
+  @Get('users')
+  users(@Query('ids') ids?: string) {
+    return this.authService.listPublicUsers(ids ? ids.split(',').filter(Boolean) : []);
   }
 
   @Get('me')

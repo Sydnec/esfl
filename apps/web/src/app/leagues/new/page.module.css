@@ -1,0 +1,91 @@
+.main {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: var(--space-4) var(--space-3);
+}
+
+.title {
+  font-size: 1.5rem;
+  margin-bottom: var(--space-4);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.row {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.row > * {
+  flex: 1;
+}
+
+.label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: 0.875rem;
+  color: var(--color-muted);
+}
+
+.input {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-2);
+  font: inherit;
+  color: var(--color-text);
+  width: 100%;
+}
+
+.sectionTitle {
+  font-size: 1.125rem;
+  margin-bottom: var(--space-2);
+}
+
+.gameGroup {
+  margin-top: var(--space-3);
+}
+
+.gameTitle {
+  font-size: 0.875rem;
+  color: var(--color-muted);
+  text-transform: uppercase;
+  margin-bottom: var(--space-1);
+}
+
+.competitions {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.competition {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.submit {
+  border: none;
+  border-radius: var(--radius);
+  background: var(--color-accent);
+  color: var(--color-accent-text);
+  padding: var(--space-2);
+}
+
+.submit:disabled {
+  opacity: 0.6;
+}
+
+.error {
+  color: var(--color-danger);
+  font-size: 0.875rem;
+}

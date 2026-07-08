@@ -61,6 +61,15 @@ export class AuthService {
     return this.prisma.user.findUnique({ where: { id } });
   }
 
+  /** Pseudos publics par id (classements, listes de membres). */
+  listPublicUsers(ids: string[]): Promise<Array<{ id: string; username: string }>> {
+    if (ids.length === 0) return Promise.resolve([]);
+    return this.prisma.user.findMany({
+      where: { id: { in: ids.slice(0, 200) } },
+      select: { id: true, username: true },
+    });
+  }
+
   /**
    * Connexion OAuth : retrouve le compte lié, sinon rattache par email,
    * sinon crée un nouvel utilisateur avec un pseudo dérivé du profil.

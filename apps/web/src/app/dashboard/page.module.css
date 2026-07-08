@@ -1,10 +1,10 @@
 .main {
   max-width: 720px;
   margin: 0 auto;
-  padding: var(--space-5) var(--space-3);
+  padding: var(--space-4) var(--space-3);
 }
 
-.header {
+.headerRow {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -14,15 +14,40 @@
   font-size: 1.5rem;
 }
 
-.logout {
-  border: 1px solid var(--color-border);
+.createLink {
+  border: 1px solid var(--color-accent);
   border-radius: var(--radius);
-  background: var(--color-bg);
-  color: var(--color-text);
   padding: var(--space-1) var(--space-2);
 }
 
-.section {
+.leagues {
+  list-style: none;
+  margin-top: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.league {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-text);
+}
+
+.leagueName {
+  font-weight: 600;
+}
+
+.leagueMeta {
+  color: var(--color-muted);
+  font-size: 0.875rem;
+}
+
+.joinSection {
   margin-top: var(--space-5);
 }
 
@@ -31,6 +56,34 @@
   margin-bottom: var(--space-2);
 }
 
+.joinForm {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.input {
+  flex: 1;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-2);
+  font: inherit;
+}
+
+.submit {
+  border: none;
+  border-radius: var(--radius);
+  background: var(--color-accent);
+  color: var(--color-accent-text);
+  padding: var(--space-2) var(--space-3);
+}
+
 .empty {
   color: var(--color-muted);
+  margin-top: var(--space-3);
+}
+
+.error {
+  color: var(--color-danger);
+  font-size: 0.875rem;
+  margin-top: var(--space-2);
 }
