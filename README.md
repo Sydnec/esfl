@@ -35,6 +35,16 @@ pnpm dev                    # tous les services + le front
 - Front : http://localhost:3000
 - Gateway : http://localhost:4000/health
 
+## Tests
+
+```bash
+pnpm test    # vitest : logique de lock (fantasy) + calculateurs de points (scoring)
+```
+
+## Déploiement
+
+Voir [DEPLOY.md](DEPLOY.md) — backend Docker Compose sur VPS (Caddy TLS), frontend Vercel.
+
 ## Sources de données
 
 - **Pandascore** — planning, résultats, équipes, joueurs (free tier 1000 req/h)

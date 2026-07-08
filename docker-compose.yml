@@ -1,0 +1,125 @@
+# Stack de production sur le VPS : infra + les 5 services + reverse proxy TLS.
+# Le frontend (apps/web) est déployé séparément sur Vercel.
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: esfl
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      POSTGRES_DB: esfl
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U esfl']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  gateway:
+    build:
+      context: .
+      args: { SERVICE: gateway }
+    environment:
+      PORT: 4000
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?}
+      FRONTEND_URL: ${FRONTEND_URL:?}
+      AUTH_SERVICE_URL: http://auth-service:4001
+      DATA_SERVICE_URL: http://data-service:4002
+      FANTASY_SERVICE_URL: http://fantasy-service:4003
+      SCORING_SERVICE_URL: http://scoring-service:4004
+    depends_on: [auth-service, data-service, fantasy-service, scoring-service]
+    restart: unless-stopped
+
+  auth-service:
+    build:
+      context: .
+      args: { SERVICE: auth-service }
+    environment:
+      PORT: 4001
+      AUTH_DATABASE_URL: postgresql://esfl:${POSTGRES_PASSWORD:?}@postgres:5432/esfl?schema=auth
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?}
+      FRONTEND_URL: ${FRONTEND_URL:?}
+      OAUTH_CALLBACK_BASE_URL: ${OAUTH_CALLBACK_BASE_URL:?}
+      DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:-}
+      DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      COOKIE_SAMESITE: ${COOKIE_SAMESITE:-none}
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: unless-stopped
+
+  data-service:
+    build:
+      context: .
+      args: { SERVICE: data-service }
+    environment:
+      PORT: 4002
+      DATA_DATABASE_URL: postgresql://esfl:${POSTGRES_PASSWORD:?}@postgres:5432/esfl?schema=data
+      REDIS_URL: redis://redis:6379
+      PANDASCORE_TOKEN: ${PANDASCORE_TOKEN:-}
+      GRID_API_KEY: ${GRID_API_KEY:-}
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    restart: unless-stopped
+
+  fantasy-service:
+    build:
+      context: .
+      args: { SERVICE: fantasy-service }
+    environment:
+      PORT: 4003
+      FANTASY_DATABASE_URL: postgresql://esfl:${POSTGRES_PASSWORD:?}@postgres:5432/esfl?schema=fantasy
+      DATA_SERVICE_URL: http://data-service:4002
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: unless-stopped
+
+  scoring-service:
+    build:
+      context: .
+      args: { SERVICE: scoring-service }
+    environment:
+      PORT: 4004
+      SCORING_DATABASE_URL: postgresql://esfl:${POSTGRES_PASSWORD:?}@postgres:5432/esfl?schema=scoring
+      REDIS_URL: redis://redis:6379
+      DATA_SERVICE_URL: http://data-service:4002
+      FANTASY_SERVICE_URL: http://fantasy-service:4003
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - '80:80'
+      - '443:443'
+    environment:
+      API_DOMAIN: ${API_DOMAIN:?}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [gateway]
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  caddy_data:
+  caddy_config:
