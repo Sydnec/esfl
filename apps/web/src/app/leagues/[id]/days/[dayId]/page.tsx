@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { GAME_IDS, GAME_LABELS, GameId } from '@esfl/contracts';
 import { useAuth } from '@/components/AuthProvider';
+import { Avatar } from '@/components/Avatar';
 import { ApiError } from '@/lib/api';
 import type { PickBoard } from '@/lib/types';
 import styles from './page.module.css';
@@ -174,15 +175,21 @@ export default function PickPage() {
                           onClick={() => !player.locked && toggle(player.id)}
                           disabled={player.locked || board.matchDay.deadlinePassed}
                         >
-                          <span className={styles.playerName}>{player.name}</span>
-                          <span className={styles.playerMeta}>
-                            {player.role ?? 'joueur'}
+                          <Avatar
+                            src={player.imageUrl}
+                            fallbackSrc={player.team?.imageUrl}
+                            label={player.name}
+                            size={36}
+                          />
+                          <span className={styles.playerText}>
+                            <span className={styles.playerName}>{player.name}</span>
+                            <span className={styles.playerMeta}>{player.role ?? 'joueur'}</span>
+                            {player.locked && (
+                              <span className={styles.lockTag}>
+                                verrouillé{player.lockedUntil ? ` → ${player.lockedUntil}` : ''}
+                              </span>
+                            )}
                           </span>
-                          {player.locked && (
-                            <span className={styles.lockTag}>
-                              verrouillé{player.lockedUntil ? ` → ${player.lockedUntil}` : ''}
-                            </span>
-                          )}
                         </button>
                       </li>
                     );

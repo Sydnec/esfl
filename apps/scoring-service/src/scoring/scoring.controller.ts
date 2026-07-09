@@ -29,14 +29,28 @@ export class ScoringController {
 
   @Get('leagues/:id/leaderboard')
   async leaderboard(@Param('id') leagueId: string, @Req() req: Request) {
-    await this.assertMember(leagueId, userIdFrom(req));
+    await this.memberLeague(leagueId, userIdFrom(req));
     return this.scoring.leaderboard(leagueId);
   }
 
   @Get('leagues/:id/days/:date')
   async dayScores(@Param('id') leagueId: string, @Param('date') date: string, @Req() req: Request) {
-    await this.assertMember(leagueId, userIdFrom(req));
+    await this.memberLeague(leagueId, userIdFrom(req));
     return this.scoring.dayScores(leagueId, date);
+  }
+
+  /** Meilleures perfs des joueurs pros d'une journée (compétitions de la ligue). */
+  @Get('leagues/:id/days/:date/top-players')
+  async topPlayers(
+    @Param('id') leagueId: string,
+    @Param('date') date: string,
+    @Req() req: Request,
+  ) {
+    const league = await this.memberLeague(leagueId, userIdFrom(req));
+    return this.scoring.topPlayers(
+      league.competitions.map((entry) => entry.competitionId),
+      date,
+    );
   }
 
   @Get('players')
@@ -50,9 +64,11 @@ export class ScoringController {
     return this.scoring.computeForMatch(matchId);
   }
 
-  private async assertMember(leagueId: string, userId: string) {
-    if (!(await this.fantasy.isMember(leagueId, userId))) {
+  private async memberLeague(leagueId: string, userId: string) {
+    const league = await this.fantasy.leagueForUser(leagueId, userId);
+    if (!league) {
       throw new ForbiddenException('Tu n’es pas membre de cette ligue');
     }
+    return league;
   }
 }

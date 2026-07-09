@@ -70,24 +70,45 @@ export class ScoringService {
       const leagueId = roster.league.id;
       if (!dayMatchesByLeague.has(leagueId)) {
         const competitionIds = roster.league.competitions.map((entry) => entry.competitionId);
-        const from = new Date(`${date}T00:00:00Z`);
-        from.setUTCHours(from.getUTCHours() - 12);
-        const to = new Date(`${date}T23:59:59Z`);
-        to.setUTCHours(to.getUTCHours() + 12);
-        const matches = await this.data.listMatches(competitionIds, from, to);
-        dayMatchesByLeague.set(
-          leagueId,
-          matches
-            .filter((m) => {
-              const start = m.beginAt ?? m.scheduledAt;
-              return start && parisDate(new Date(start)) === date;
-            })
-            .map((m) => m.id),
-        );
+        dayMatchesByLeague.set(leagueId, await this.matchIdsForDate(competitionIds, date));
       }
       updated += await this.scoreRoster(roster, date, dayMatchesByLeague.get(leagueId) ?? []);
     }
     return updated;
+  }
+
+  /** Ids des matchs d'une date Europe/Paris pour un ensemble de compétitions. */
+  private async matchIdsForDate(competitionIds: string[], date: string): Promise<string[]> {
+    if (competitionIds.length === 0) return [];
+    const from = new Date(`${date}T00:00:00Z`);
+    from.setUTCHours(from.getUTCHours() - 12);
+    const to = new Date(`${date}T23:59:59Z`);
+    to.setUTCHours(to.getUTCHours() + 12);
+    const matches = await this.data.listMatches(competitionIds, from, to);
+    return matches
+      .filter((m) => {
+        const start = m.beginAt ?? m.scheduledAt;
+        return start && parisDate(new Date(start)) === date;
+      })
+      .map((m) => m.id);
+  }
+
+  /** Meilleures performances des joueurs pros sur une journée d'une ligue. */
+  async topPlayers(competitionIds: string[], date: string, take = 10) {
+    const matchIds = await this.matchIdsForDate(competitionIds, date);
+    if (matchIds.length === 0) return [];
+    const rows = await this.prisma.fantasyPoints.groupBy({
+      by: ['playerId'],
+      where: { matchId: { in: matchIds } },
+      _sum: { points: true },
+    });
+    return rows
+      .map((row) => ({
+        playerId: row.playerId,
+        points: Math.round((row._sum.points ?? 0) * 100) / 100,
+      }))
+      .sort((a, b) => b.points - a.points)
+      .slice(0, take);
   }
 
   private async scoreRoster(

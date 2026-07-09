@@ -1,0 +1,19 @@
+.image {
+  border-radius: var(--radius-full);
+  object-fit: contain;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.placeholder {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-full);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-muted);
+  font-weight: 600;
+  flex-shrink: 0;
+}

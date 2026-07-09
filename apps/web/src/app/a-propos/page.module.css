@@ -1,0 +1,38 @@
+.main {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: var(--space-5) var(--space-3) var(--space-6);
+}
+
+.title {
+  font-size: 1.75rem;
+  margin-bottom: var(--space-4);
+}
+
+.section {
+  margin-top: var(--space-4);
+}
+
+.sectionTitle {
+  font-size: 1.125rem;
+  margin-bottom: var(--space-2);
+}
+
+.text {
+  color: var(--color-text);
+  margin-bottom: var(--space-2);
+}
+
+.games {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.game {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  padding: var(--space-1) var(--space-2);
+}

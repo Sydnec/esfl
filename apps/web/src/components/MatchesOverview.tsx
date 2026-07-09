@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { GAME_IDS, GAME_LABELS, GameId } from '@esfl/contracts';
 import { request } from '@/lib/api';
-import type { Competition, MatchSummary } from '@/lib/types';
+import type { Competition, MatchSummary, TeamRef } from '@/lib/types';
+import { Avatar } from './Avatar';
 import styles from './MatchesOverview.module.css';
 
 /** Compétitions décochées par l'utilisateur (les nouvelles restent visibles par défaut). */
@@ -30,19 +31,32 @@ function formatDate(iso: string | null): string {
 }
 
 /** Tag court de l'équipe (MDR, G2…), replié sur le nom complet si absent. */
-function teamTag(team: { name: string; acronym: string | null } | null): string {
+function teamTag(team: TeamRef | null): string {
   return team?.acronym || team?.name || '?';
+}
+
+function TeamChip({ team }: { team: TeamRef | null }) {
+  return (
+    <span className={styles.teamChip}>
+      <Avatar src={team?.imageUrl} label={teamTag(team)} size={18} />
+      {teamTag(team)}
+    </span>
+  );
 }
 
 function MatchRow({ match }: { match: MatchSummary }) {
   return (
     <li className={styles.match}>
       <span className={styles.matchGame}>{GAME_LABELS[match.gameId]}</span>
-      <span className={styles.matchTeams} title={`${match.teamA?.name ?? '?'} vs ${match.teamB?.name ?? '?'}`}>
-        {teamTag(match.teamA)} vs {teamTag(match.teamB)}
+      <span
+        className={styles.matchTeams}
+        title={`${match.teamA?.name ?? '?'} vs ${match.teamB?.name ?? '?'}`}
+      >
+        <TeamChip team={match.teamA} />
+        <span className={styles.vs}>vs</span>
+        <TeamChip team={match.teamB} />
         {match.status === 'finished' && (
           <strong className={styles.score}>
-            {' '}
             {match.scoreA} : {match.scoreB}
           </strong>
         )}

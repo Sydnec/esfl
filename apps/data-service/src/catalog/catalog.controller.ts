@@ -63,6 +63,11 @@ export class CatalogController {
     return this.catalog.listPlayers(parseIds(competitionIds));
   }
 
+  @Get('players/by-ids')
+  playersByIds(@Query('ids') ids?: string) {
+    return this.catalog.listPlayersByIds(parseIds(ids));
+  }
+
   @Get('stats')
   stats(@Query('matchIds') matchIds?: string) {
     return this.catalog.listStats(parseIds(matchIds));

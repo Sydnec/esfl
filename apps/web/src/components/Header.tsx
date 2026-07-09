@@ -11,7 +11,8 @@ export function Header() {
   const pathname = usePathname();
 
   return (
-    <header className={styles.header}>
+    <header className={styles.bar}>
+      <div className={styles.header}>
       <div className={styles.left}>
         <Link href="/" className={styles.brand}>
           ESFL
@@ -28,6 +29,12 @@ export function Header() {
               Mes ligues
             </Link>
           )}
+          <Link
+            href="/a-propos"
+            className={pathname.startsWith('/a-propos') ? styles.active : styles.link}
+          >
+            À propos
+          </Link>
         </nav>
       </div>
       <nav className={styles.nav}>
@@ -45,6 +52,7 @@ export function Header() {
           <Link href="/login">Se connecter</Link>
         )}
       </nav>
+      </div>
     </header>
   );
 }

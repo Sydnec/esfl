@@ -63,8 +63,17 @@ export class CatalogService {
     const teamIds = [...new Set(entries.map((entry) => entry.teamId))];
     return this.prisma.player.findMany({
       where: { teamId: { in: teamIds } },
-      include: { team: { select: { id: true, name: true, acronym: true } } },
+      include: { team: { select: { id: true, name: true, acronym: true, imageUrl: true } } },
       orderBy: [{ gameId: 'asc' }, { name: 'asc' }],
+    });
+  }
+
+  /** Résolution de joueurs par ids (noms, équipes, images) — pour les tops de journée. */
+  listPlayersByIds(ids: string[]) {
+    if (ids.length === 0) return [];
+    return this.prisma.player.findMany({
+      where: { id: { in: ids.slice(0, 100) } },
+      include: { team: { select: { id: true, name: true, acronym: true, imageUrl: true } } },
     });
   }
 

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { GAME_LABELS } from '@esfl/contracts';
 import { useAuth } from '@/components/AuthProvider';
+import { Avatar } from '@/components/Avatar';
 import { ApiError, request } from '@/lib/api';
 import type {
   Competition,
@@ -12,9 +13,16 @@ import type {
   League,
   MatchDaySummary,
   MatchSummary,
+  PlayerRef,
   PublicUserRef,
+  TopPlayerEntry,
 } from '@/lib/types';
 import styles from './page.module.css';
+
+interface TopPerf {
+  points: number;
+  player: PlayerRef | null;
+}
 
 export default function LeaguePage() {
   const { id } = useParams<{ id: string }>();
@@ -27,6 +35,8 @@ export default function LeaguePage() {
   const [catalog, setCatalog] = useState<Competition[]>([]);
   const [usernames, setUsernames] = useState<Map<string, string>>(new Map());
   const [matches, setMatches] = useState<MatchSummary[]>([]);
+  const [topPerfs, setTopPerfs] = useState<TopPerf[]>([]);
+  const [topPerfsDate, setTopPerfsDate] = useState<string | null>(null);
   const [addCompetitionId, setAddCompetitionId] = useState('');
   const [error, setError] = useState<string | null>(null);
 
@@ -55,6 +65,26 @@ export default function LeaguePage() {
       setCatalog(allCompetitions);
       setUsernames(new Map(members.map((member) => [member.id, member.username])));
       setMatches(planning.slice(0, 20));
+
+      // Meilleures perfs de la dernière journée passée.
+      const lastPassed = days.filter((day) => day.deadlinePassed).at(-1);
+      if (lastPassed) {
+        setTopPerfsDate(lastPassed.date);
+        const top = await authedFetch<TopPlayerEntry[]>(
+          `/scoring/leagues/${id}/days/${lastPassed.date}/top-players`,
+        );
+        if (top.length > 0) {
+          const players = await request<PlayerRef[]>(
+            `/data/players/by-ids?ids=${top.map((entry) => entry.playerId).join(',')}`,
+          );
+          const byId = new Map(players.map((player) => [player.id, player]));
+          setTopPerfs(
+            top.map((entry) => ({ points: entry.points, player: byId.get(entry.playerId) ?? null })),
+          );
+        } else {
+          setTopPerfs([]);
+        }
+      }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Chargement impossible');
     }
@@ -142,6 +172,37 @@ export default function LeaguePage() {
             </table>
           )}
 
+          {topPerfsDate && (
+            <>
+              <h2 className={styles.sectionTitle}>Meilleures perfs — {topPerfsDate}</h2>
+              {topPerfs.length === 0 ? (
+                <p className={styles.empty}>Pas encore de points calculés sur cette journée.</p>
+              ) : (
+                <ol className={styles.topPerfs}>
+                  {topPerfs.map((perf, index) => (
+                    <li key={perf.player?.id ?? index} className={styles.topPerf}>
+                      <span className={styles.topRank}>{index + 1}</span>
+                      <Avatar
+                        src={perf.player?.imageUrl}
+                        fallbackSrc={perf.player?.team?.imageUrl}
+                        label={perf.player?.name ?? '?'}
+                        size={28}
+                      />
+                      <span className={styles.topName}>
+                        {perf.player?.name ?? 'Joueur inconnu'}
+                        <span className={styles.topTeam}>
+                          {' '}
+                          {perf.player?.team?.acronym || perf.player?.team?.name || ''}
+                        </span>
+                      </span>
+                      <span className={styles.topPoints}>{perf.points} pts</span>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </>
+          )}
+
           <h2 className={styles.sectionTitle}>Membres ({league.members?.length ?? 0})</h2>
           <ul className={styles.members}>
             {(league.members ?? []).map((member) => (
@@ -225,8 +286,22 @@ export default function LeaguePage() {
               {matches.map((match) => (
                 <li key={match.id} className={styles.match}>
                   <span className={styles.matchGame}>{GAME_LABELS[match.gameId]}</span>
-                  <span title={`${match.teamA?.name ?? '?'} vs ${match.teamB?.name ?? '?'}`}>
-                    {match.teamA?.acronym || match.teamA?.name || '?'} vs{' '}
+                  <span
+                    className={styles.matchTeams}
+                    title={`${match.teamA?.name ?? '?'} vs ${match.teamB?.name ?? '?'}`}
+                  >
+                    <Avatar
+                      src={match.teamA?.imageUrl}
+                      label={match.teamA?.acronym || match.teamA?.name || '?'}
+                      size={16}
+                    />
+                    {match.teamA?.acronym || match.teamA?.name || '?'}
+                    <span className={styles.vs}>vs</span>
+                    <Avatar
+                      src={match.teamB?.imageUrl}
+                      label={match.teamB?.acronym || match.teamB?.name || '?'}
+                      size={16}
+                    />
                     {match.teamB?.acronym || match.teamB?.name || '?'}
                     {match.status === 'finished' && ` — ${match.scoreA} : ${match.scoreB}`}
                   </span>

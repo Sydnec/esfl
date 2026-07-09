@@ -27,7 +27,7 @@ export interface DataPlayer {
   name: string;
   role: string | null;
   imageUrl: string | null;
-  team: { id: string; name: string; acronym: string | null } | null;
+  team: { id: string; name: string; acronym: string | null; imageUrl: string | null } | null;
 }
 
 /** Client REST interne vers le data-service (référentiel esport). */

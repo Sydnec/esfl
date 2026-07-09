@@ -31,13 +31,20 @@ export interface MatchDaySummary {
   myRosterSubmitted: boolean;
 }
 
+export interface TeamRef {
+  id: string;
+  name: string;
+  acronym: string | null;
+  imageUrl: string | null;
+}
+
 export interface BoardPlayer {
   id: string;
   gameId: GameId;
   name: string;
   role: string | null;
   imageUrl: string | null;
-  team: { id: string; name: string; acronym: string | null } | null;
+  team: TeamRef | null;
   locked: boolean;
   lockedUntil: string | null;
 }
@@ -73,12 +80,26 @@ export interface MatchSummary {
   name: string;
   scoreA: number | null;
   scoreB: number | null;
-  teamA: { name: string; acronym: string | null } | null;
-  teamB: { name: string; acronym: string | null } | null;
+  teamA: TeamRef | null;
+  teamB: TeamRef | null;
   competition: { id: string; name: string; gameId: GameId };
 }
 
 export interface PublicUserRef {
   id: string;
   username: string;
+}
+
+export interface TopPlayerEntry {
+  playerId: string;
+  points: number;
+}
+
+export interface PlayerRef {
+  id: string;
+  gameId: GameId;
+  name: string;
+  role: string | null;
+  imageUrl: string | null;
+  team: TeamRef | null;
 }

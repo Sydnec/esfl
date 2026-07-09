@@ -29,11 +29,18 @@ export class FantasyClient {
     return (await response.json()) as FantasyRoster[];
   }
 
-  /** Vérifie l'appartenance à la ligue en déléguant au fantasy-service. */
-  async isMember(leagueId: string, userId: string): Promise<boolean> {
+  /**
+   * Détail de la ligue vu par cet utilisateur — sert à la fois de contrôle
+   * d'appartenance (null si non membre) et de source des compétitions suivies.
+   */
+  async leagueForUser(
+    leagueId: string,
+    userId: string,
+  ): Promise<{ id: string; competitions: Array<{ competitionId: string }> } | null> {
     const response = await fetch(`${this.baseUrl}/fantasy/leagues/${leagueId}`, {
       headers: { 'x-user-id': userId },
     });
-    return response.ok;
+    if (!response.ok) return null;
+    return (await response.json()) as { id: string; competitions: Array<{ competitionId: string }> };
   }
 }
