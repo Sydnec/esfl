@@ -10,6 +10,12 @@ export interface Competition {
   imageUrl: string | null;
 }
 
+/** Compétition avec ses équipes engagées (page détail compétition). */
+export interface CompetitionDetail extends Competition {
+  slug: string | null;
+  teams: Array<{ competitionId: string; teamId: string; team: TeamRef }>;
+}
+
 export interface League {
   id: string;
   name: string;

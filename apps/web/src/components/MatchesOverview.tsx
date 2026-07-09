@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { GAME_IDS, GAME_SHORT_LABELS, GameId } from '@esfl/contracts';
 import { request } from '@/lib/api';
 import type { Competition, MatchSummary } from '@/lib/types';
@@ -123,7 +124,14 @@ export function MatchesOverview() {
               <h3 className={styles.gameTitle}>{GAME_SHORT_LABELS[gameId]}</h3>
               {[...byCompetition.values()].map((competitionMatches) => (
                 <div key={competitionMatches[0].competition.id} className={styles.compGroup}>
-                  <h4 className={styles.compTitle}>{competitionMatches[0].competition.name}</h4>
+                  <h4 className={styles.compTitle}>
+                    <Link
+                      className={styles.compTitleLink}
+                      href={`/competitions/${competitionMatches[0].competition.id}`}
+                    >
+                      {competitionMatches[0].competition.name}
+                    </Link>
+                  </h4>
                   <MatchGrid matches={displayOrder(competitionMatches)} />
                 </div>
               ))}

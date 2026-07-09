@@ -9,6 +9,15 @@
   font-size: 0.9375rem;
 }
 
+.competitionLink {
+  color: inherit;
+}
+
+.competitionLink:hover {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
 .scoreboard {
   position: relative;
   border: 1px solid var(--color-border);

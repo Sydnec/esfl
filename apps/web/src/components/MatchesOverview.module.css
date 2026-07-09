@@ -75,6 +75,15 @@
   margin-bottom: var(--space-1);
 }
 
+.compTitleLink {
+  color: inherit;
+}
+
+.compTitleLink:hover {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
 .empty {
   color: var(--color-muted);
   font-size: 0.9375rem;

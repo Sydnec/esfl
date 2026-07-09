@@ -82,7 +82,10 @@ export default function MatchPage() {
   return (
     <main className={styles.main}>
       <p className={styles.context}>
-        {GAME_LABELS[match.gameId]} · {match.competition.name}
+        {GAME_LABELS[match.gameId]} ·{' '}
+        <Link className={styles.competitionLink} href={`/competitions/${match.competition.id}`}>
+          {match.competition.name}
+        </Link>
         {match.name ? ` · ${match.name}` : ''}
       </p>
 
