@@ -2,7 +2,13 @@ import { Injectable, Logger } from '@nestjs/common';
 import type { Match, Player, Prisma } from '../../generated/client';
 import { buildPlayerIndex, matchPlayer, teamNamesMatch } from './matching';
 import { politeFetch } from './polite-fetch';
-import type { GameStatsProvider, MatchContext, ProviderStatLine } from './provider';
+import type {
+  GameStatsProvider,
+  MatchContext,
+  ProviderGameInfo,
+  ProviderResult,
+  ProviderStatLine,
+} from './provider';
 
 const API_URL = 'https://lol.fandom.com/api.php';
 
@@ -18,6 +24,8 @@ export interface LeaguepediaRow {
   Team1?: string;
   Team2?: string;
   Gamelength?: string;
+  GameId?: string;
+  GameNumber?: string;
 }
 
 /** Retire la désambiguïsation Leaguepedia : "Faker (Lee Sang-hyeok)" → "Faker". */
@@ -100,13 +108,50 @@ export function mapLeaguepediaRows(
   return lines;
 }
 
+/** Manches LoL : « score » = total de kills de chaque équipe sur la game. */
+export function mapLeaguepediaGames(
+  rows: LeaguepediaRow[],
+  teamAName: string,
+  teamBName: string,
+): ProviderGameInfo[] {
+  const matchRows = rows.filter((row) => {
+    const team1 = row.Team1 ?? '';
+    const team2 = row.Team2 ?? '';
+    return (
+      (teamNamesMatch(team1, teamAName) && teamNamesMatch(team2, teamBName)) ||
+      (teamNamesMatch(team1, teamBName) && teamNamesMatch(team2, teamAName))
+    );
+  });
+  const byGame = new Map<string, LeaguepediaRow[]>();
+  for (const row of matchRows) {
+    const key = row.GameId ?? `${row.GameNumber ?? '?'}`;
+    byGame.set(key, [...(byGame.get(key) ?? []), row]);
+  }
+  const games: ProviderGameInfo[] = [];
+  let fallbackPosition = 0;
+  for (const gameRows of byGame.values()) {
+    fallbackPosition += 1;
+    const killsFor = (teamName: string) =>
+      gameRows
+        .filter((row) => teamNamesMatch(row.Team ?? '', teamName))
+        .reduce((sum, row) => sum + Number(row.Kills ?? 0), 0);
+    games.push({
+      position: Number(gameRows[0].GameNumber ?? fallbackPosition) || fallbackPosition,
+      map: null,
+      scoreA: killsFor(teamAName),
+      scoreB: killsFor(teamBName),
+    });
+  }
+  return games.sort((a, b) => a.position - b.position);
+}
+
 @Injectable()
 export class LeaguepediaStatsProvider implements GameStatsProvider {
   readonly source = 'leaguepedia';
   readonly gameId = 'lol' as const;
   private readonly logger = new Logger(LeaguepediaStatsProvider.name);
 
-  async fetchStats(match: Match, context: MatchContext): Promise<ProviderStatLine[] | null> {
+  async fetchStats(match: Match, context: MatchContext): Promise<ProviderResult | null> {
     if (!context.teamA || !context.teamB) return null;
     const reference = match.beginAt ?? match.scheduledAt;
     if (!reference) return null;
@@ -130,7 +175,7 @@ export class LeaguepediaStatsProvider implements GameStatsProvider {
     // → Gamelength_Number) ; un espace provoque une MWException côté Fandom.
     url.searchParams.set(
       'fields',
-      'SP.Link,SP.Kills,SP.Deaths,SP.Assists,SP.CS,SP.PlayerWin,SP.Team,SG.Team1,SG.Team2,SG.Gamelength_Number=Gamelength',
+      'SP.Link,SP.Kills,SP.Deaths,SP.Assists,SP.CS,SP.PlayerWin,SP.Team,SG.Team1,SG.Team2,SG.Gamelength_Number=Gamelength,SG.GameId=GameId,SG.N_GameInMatch=GameNumber',
     );
     url.searchParams.set(
       'where',
@@ -159,6 +204,9 @@ export class LeaguepediaStatsProvider implements GameStatsProvider {
       );
       return null;
     }
-    return lines;
+    return {
+      lines,
+      games: mapLeaguepediaGames(rows, context.teamA.name, context.teamB.name),
+    };
   }
 }

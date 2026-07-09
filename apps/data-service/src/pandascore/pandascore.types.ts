@@ -45,6 +45,8 @@ export interface PSGame {
   position: number;
   status: string;
   finished: boolean;
+  /** Durée de la manche en secondes (souvent null avant la fin). */
+  length: number | null;
   winner: { id: number | null; type: string } | null;
 }
 

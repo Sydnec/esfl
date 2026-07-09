@@ -2,7 +2,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
 import { GameId, QUEUES, StatsIngestedEvent } from '@esfl/contracts';
 import { Queue } from 'bullmq';
-import type { Match } from '../../generated/client';
+import type { Match, Prisma } from '../../generated/client';
 import { PrismaService } from '../prisma.service';
 import { GridStatsProvider } from './grid.provider';
 import { LeaguepediaStatsProvider } from './leaguepedia.provider';
@@ -51,14 +51,14 @@ export class StatsIngestionService {
     }
 
     const context = await this.loadContext(match);
-    const lines = await provider.fetchStats(match, context);
-    if (!lines || lines.length === 0) {
+    const result = await provider.fetchStats(match, context);
+    if (!result || result.lines.length === 0) {
       throw new Error(
-        `Stats indisponibles pour le match ${matchId} via ${provider.source} — nouvelle tentative planifiée`,
+        `Stats indisponibles pour le match ${matchId} via ${provider.source}, nouvelle tentative planifiée`,
       );
     }
 
-    for (const line of lines) {
+    for (const line of result.lines) {
       await this.prisma.playerMatchStats.upsert({
         where: { matchId_playerId: { matchId: match.id, playerId: line.playerId } },
         create: {
@@ -72,8 +72,38 @@ export class StatsIngestionService {
         update: { raw: line.raw, normalized: line.normalized, source: provider.source },
       });
     }
-    this.logger.log(`${lines.length} lignes de stats ${provider.source} pour le match ${matchId}`);
+    if (result.games?.length) {
+      await this.mergeGamesSummary(match, result.games);
+    }
+    this.logger.log(
+      `${result.lines.length} lignes de stats ${provider.source} pour le match ${matchId}`,
+    );
     await this.publish(match, provider.source);
+  }
+
+  /** Fusionne le détail des manches du provider (map, scores) avec celui de Pandascore (winner, durée). */
+  private async mergeGamesSummary(
+    match: Match,
+    providerGames: Array<{ position: number; map?: string | null; scoreA?: number | null; scoreB?: number | null }>,
+  ): Promise<void> {
+    const existing = Array.isArray(match.gamesSummary)
+      ? (match.gamesSummary as Array<Record<string, unknown>>)
+      : [];
+    const byPosition = new Map(existing.map((entry) => [Number(entry.position), { ...entry }]));
+    for (const game of providerGames) {
+      const entry = byPosition.get(game.position) ?? { position: game.position, winner: null };
+      if (game.map != null) entry.map = game.map;
+      if (game.scoreA != null) entry.scoreA = game.scoreA;
+      if (game.scoreB != null) entry.scoreB = game.scoreB;
+      byPosition.set(game.position, entry);
+    }
+    const merged = [...byPosition.values()].sort(
+      (a, b) => Number(a.position) - Number(b.position),
+    );
+    await this.prisma.match.update({
+      where: { id: match.id },
+      data: { gamesSummary: merged as unknown as Prisma.InputJsonValue },
+    });
   }
 
   private async loadContext(match: Match): Promise<MatchContext> {

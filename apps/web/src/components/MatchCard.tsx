@@ -32,6 +32,15 @@ export function MatchCard({ match }: { match: MatchSummary }) {
   return (
     <li>
       <Link href={`/matches/${match.id}`} className={styles.card}>
+        <span className={styles.meta}>
+          {running ? (
+            <span><span className={styles.live}>●</span> {formatKickoff(match.scheduledAt)}<span style={{ opacity: 0 }}>●</span></span>
+          ) : match.status === 'finished' ? (
+            'Terminé'
+          ) : (
+            formatKickoff(match.scheduledAt)
+          )}
+        </span>
         <span className={styles.row}>
           <TeamSide team={match.teamA} side="A" />
           <span className={styles.center}>
@@ -46,15 +55,6 @@ export function MatchCard({ match }: { match: MatchSummary }) {
             )}
           </span>
           <TeamSide team={match.teamB} side="B" />
-        </span>
-        <span className={styles.meta}>
-          {running ? (
-            <span className={styles.live}>● live</span>
-          ) : match.status === 'finished' ? (
-            'Terminé'
-          ) : (
-            formatKickoff(match.scheduledAt)
-          )}
         </span>
       </Link>
     </li>

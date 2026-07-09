@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import type { Match, Player, Prisma } from '../../generated/client';
 import { buildPlayerIndex, matchPlayer, teamNamesMatch } from './matching';
 import { politeFetch } from './polite-fetch';
-import type { GameStatsProvider, MatchContext, ProviderStatLine } from './provider';
+import type { GameStatsProvider, MatchContext, ProviderResult, ProviderStatLine } from './provider';
 
 const BASE_URL = 'https://zsr.octane.gg';
 
@@ -73,7 +73,7 @@ export class OctaneStatsProvider implements GameStatsProvider {
   readonly gameId = 'rl' as const;
   private readonly logger = new Logger(OctaneStatsProvider.name);
 
-  async fetchStats(match: Match, context: MatchContext): Promise<ProviderStatLine[] | null> {
+  async fetchStats(match: Match, context: MatchContext): Promise<ProviderResult | null> {
     if (!context.teamA || !context.teamB) return null;
     const reference = match.beginAt ?? match.scheduledAt;
     if (!reference) return null;
@@ -99,6 +99,6 @@ export class OctaneStatsProvider implements GameStatsProvider {
       this.logger.warn(`Octane : aucun joueur rapproché pour le match ${match.id}`);
       return null;
     }
-    return lines;
+    return { lines };
   }
 }

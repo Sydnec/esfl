@@ -43,6 +43,10 @@ export interface TeamRef {
 export interface GameSummaryEntry {
   position: number;
   winner: 'A' | 'B' | null;
+  map?: string | null;
+  scoreA?: number | null;
+  scoreB?: number | null;
+  lengthSec?: number | null;
 }
 
 export interface BoardPlayer {

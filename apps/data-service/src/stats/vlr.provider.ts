@@ -3,7 +3,13 @@ import * as cheerio from 'cheerio';
 import type { Match, Player, Prisma } from '../../generated/client';
 import { buildPlayerIndex, matchPlayer, teamNamesMatch } from './matching';
 import { politeFetch } from './polite-fetch';
-import type { GameStatsProvider, MatchContext, ProviderStatLine } from './provider';
+import type {
+  GameStatsProvider,
+  MatchContext,
+  ProviderGameInfo,
+  ProviderResult,
+  ProviderStatLine,
+} from './provider';
 
 const BASE_URL = 'https://www.vlr.gg';
 const RESULT_PAGES_TO_SCAN = 3;
@@ -77,13 +83,56 @@ export function mapVlrMatchHtml(html: string, players: Player[]): ProviderStatLi
   return lines;
 }
 
+/**
+ * Manches VLR : chaque bloc « header » de map contient le nom de la map et
+ * les scores des deux équipes (gauche = équipe du header principal gauche).
+ */
+export function mapVlrGames(
+  html: string,
+  teamAName: string,
+  teamBName: string,
+): ProviderGameInfo[] {
+  const $ = cheerio.load(html);
+  const games: ProviderGameInfo[] = [];
+  $('.vm-stats-game-header').each((index, header) => {
+    const mapName = $(header)
+      .find('.map')
+      .first()
+      .text()
+      .trim()
+      .split('\n')[0]
+      .replace(/PICK/i, '')
+      .trim();
+    const scores = $(header)
+      .find('.score')
+      .map((_i, el) => Number($(el).text().trim()))
+      .get()
+      .filter((value) => Number.isFinite(value));
+    const names = $(header)
+      .find('.team-name')
+      .map((_i, el) => $(el).text().trim())
+      .get();
+    if (scores.length < 2 || names.length < 2) return;
+    const leftIsA = teamNamesMatch(names[0], teamAName);
+    const leftIsB = teamNamesMatch(names[0], teamBName);
+    if (!leftIsA && !leftIsB) return;
+    games.push({
+      position: index + 1,
+      map: mapName || null,
+      scoreA: leftIsA ? scores[0] : scores[1],
+      scoreB: leftIsA ? scores[1] : scores[0],
+    });
+  });
+  return games;
+}
+
 @Injectable()
 export class VlrStatsProvider implements GameStatsProvider {
   readonly source = 'vlr';
   readonly gameId = 'valorant' as const;
   private readonly logger = new Logger(VlrStatsProvider.name);
 
-  async fetchStats(match: Match, context: MatchContext): Promise<ProviderStatLine[] | null> {
+  async fetchStats(match: Match, context: MatchContext): Promise<ProviderResult | null> {
     if (!context.teamA || !context.teamB) return null;
 
     const matchPath = await this.findMatchPath(context.teamA.name, context.teamB.name);
@@ -99,12 +148,13 @@ export class VlrStatsProvider implements GameStatsProvider {
       this.logger.warn(`VLR ${matchPath} → ${response.status}`);
       return null;
     }
-    const lines = mapVlrMatchHtml(await response.text(), context.players);
+    const html = await response.text();
+    const lines = mapVlrMatchHtml(html, context.players);
     if (lines.length === 0) {
       this.logger.warn(`VLR : structure de page inattendue ou aucun joueur rapproché (${matchPath})`);
       return null;
     }
-    return lines;
+    return { lines, games: mapVlrGames(html, context.teamA.name, context.teamB.name) };
   }
 
   /** Scanne les pages de résultats récents et retrouve le lien du match par noms d'équipes. */

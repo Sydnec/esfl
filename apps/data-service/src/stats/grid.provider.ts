@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import type { Match, Player, Prisma } from '../../generated/client';
 import { buildPlayerIndex, matchPlayer, teamNamesMatch } from './matching';
 import { politeFetch } from './polite-fetch';
-import type { GameStatsProvider, MatchContext, ProviderStatLine } from './provider';
+import type { GameStatsProvider, MatchContext, ProviderResult, ProviderStatLine } from './provider';
 
 // Hôte Open Platform (api-op) : les clés Open Access n'ont aucun droit sur api.grid.gg.
 const CENTRAL_DATA_URL = 'https://api-op.grid.gg/central-data/graphql';
@@ -19,9 +19,37 @@ export interface GridSeriesStateTeam {
   }>;
 }
 
+export interface GridSeriesStateGame {
+  sequenceNumber?: number;
+  map?: { name?: string } | null;
+  teams?: Array<{ name?: string; score?: number }>;
+  finished?: boolean;
+}
+
 export interface GridSeriesState {
   finished?: boolean;
   teams?: GridSeriesStateTeam[];
+  games?: GridSeriesStateGame[];
+}
+
+/** Manches Grid → détail map + score, côté A/B résolu par noms d'équipes. */
+export function mapGridGames(
+  state: GridSeriesState,
+  teamAName: string,
+  teamBName: string,
+): Array<{ position: number; map: string | null; scoreA: number | null; scoreB: number | null }> {
+  return (state.games ?? [])
+    .filter((game) => game.finished !== false && game.sequenceNumber)
+    .map((game) => {
+      const teamA = (game.teams ?? []).find((team) => teamNamesMatch(team.name ?? '', teamAName));
+      const teamB = (game.teams ?? []).find((team) => teamNamesMatch(team.name ?? '', teamBName));
+      return {
+        position: game.sequenceNumber as number,
+        map: game.map?.name ?? null,
+        scoreA: teamA?.score ?? null,
+        scoreB: teamB?.score ?? null,
+      };
+    });
 }
 
 /** Mappe l'état final d'une série Grid vers nos stats CS2 normalisées. */
@@ -57,7 +85,7 @@ export class GridStatsProvider implements GameStatsProvider {
 
   constructor(private readonly config: ConfigService) {}
 
-  async fetchStats(match: Match, context: MatchContext): Promise<ProviderStatLine[] | null> {
+  async fetchStats(match: Match, context: MatchContext): Promise<ProviderResult | null> {
     const apiKey = this.config.get<string>('GRID_API_KEY');
     if (!apiKey) {
       this.logger.warn('GRID_API_KEY absent : pas de stats CS2');
@@ -82,6 +110,7 @@ export class GridStatsProvider implements GameStatsProvider {
         seriesState(id: $id) {
           finished
           teams { name players { name kills deaths killAssistsGiven } }
+          games { sequenceNumber finished map { name } teams { name score } }
         }
       }`,
       { id: seriesId },
@@ -95,7 +124,10 @@ export class GridStatsProvider implements GameStatsProvider {
       this.logger.warn(`Grid : aucun joueur rapproché pour le match ${match.id}`);
       return null;
     }
-    return lines;
+    return {
+      lines,
+      games: mapGridGames(state.seriesState, context.teamA.name, context.teamB.name),
+    };
   }
 
   private async findSeriesId(

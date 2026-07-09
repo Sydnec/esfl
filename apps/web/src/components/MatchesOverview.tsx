@@ -22,16 +22,9 @@ function loadExcluded(): Set<string> {
   }
 }
 
-/** Ordre d'affichage : live d'abord, puis à venir (proches en premier), puis terminés (récents en premier). */
+/** Tri chronologique par heure de début au sein de chaque section. */
 function displayOrder(matches: MatchSummary[]): MatchSummary[] {
-  const rank = (match: MatchSummary) =>
-    match.status === 'running' ? 0 : match.status === 'not_started' ? 1 : 2;
-  return [...matches].sort((a, b) => {
-    if (rank(a) !== rank(b)) return rank(a) - rank(b);
-    const timeA = a.scheduledAt ?? '';
-    const timeB = b.scheduledAt ?? '';
-    return rank(a) === 2 ? timeB.localeCompare(timeA) : timeA.localeCompare(timeB);
-  });
+  return [...matches].sort((a, b) => (a.scheduledAt ?? '').localeCompare(b.scheduledAt ?? ''));
 }
 
 export function MatchesOverview() {

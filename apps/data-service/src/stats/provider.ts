@@ -16,13 +16,27 @@ export interface ProviderStatLine {
   normalized: Prisma.InputJsonValue;
 }
 
+/** Détail d'une manche quand la source le connaît (map, score par équipe). */
+export interface ProviderGameInfo {
+  position: number;
+  map?: string | null;
+  scoreA?: number | null;
+  scoreB?: number | null;
+}
+
+export interface ProviderResult {
+  lines: ProviderStatLine[];
+  /** Enrichissement des manches (fusionné dans match.gamesSummary). */
+  games?: ProviderGameInfo[];
+}
+
 /**
  * Adapter de stats détaillées par jeu. Contrat : retourner null (ou lever)
- * si les stats ne sont pas encore disponibles — le job ingest-stats retentera
+ * si les stats ne sont pas encore disponibles, le job ingest-stats retentera
  * avec backoff. Chaque provider utilise politeFetch (1 req/s par hôte).
  */
 export interface GameStatsProvider {
   readonly source: string;
   readonly gameId: GameId;
-  fetchStats(match: Match, context: MatchContext): Promise<ProviderStatLine[] | null>;
+  fetchStats(match: Match, context: MatchContext): Promise<ProviderResult | null>;
 }

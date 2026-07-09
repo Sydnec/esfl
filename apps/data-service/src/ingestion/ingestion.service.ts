@@ -237,10 +237,11 @@ export class IngestionService {
     const status = match.status === 'postponed' ? 'not_started' : match.status;
     // Manches gagnées : winner.id pandascore → côté A ou B du match local.
     const gamesSummary = (match.games ?? [])
-      .filter((g) => g.finished)
+      .filter((g) => g.finished || g.status === 'running')
       .sort((a, b) => a.position - b.position)
       .map((g) => ({
         position: g.position,
+        lengthSec: g.length,
         winner:
           g.winner?.id && g.winner.id === opponents[0]?.id
             ? 'A'

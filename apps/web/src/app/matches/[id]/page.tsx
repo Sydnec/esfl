@@ -7,13 +7,7 @@ import { Avatar } from '@/components/Avatar';
 import { request } from '@/lib/api';
 import { flagEmoji } from '@/lib/flags';
 import { formatKickoff } from '@/lib/format';
-import type {
-  FantasyPointsLine,
-  MatchStatsLine,
-  MatchSummary,
-  PlayerRef,
-  TeamRef,
-} from '@/lib/types';
+import type { FantasyPointsLine, MatchStatsLine, MatchSummary, PlayerRef } from '@/lib/types';
 import styles from './page.module.css';
 
 const POLL_INTERVAL_MS = 30_000;
@@ -55,21 +49,10 @@ function formatStat(value: number | boolean | null | undefined): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
-function TeamHeader({ team, side }: { team: TeamRef | null; side: 'A' | 'B' }) {
-  if (!team) {
-    return <span className={styles.tbd}>TBD</span>;
-  }
-  return (
-    <span className={`${styles.teamHeader} ${side === 'B' ? styles.reverse : ''}`}>
-      <Avatar src={team.imageUrl} label={team.name} size={40} />
-      <span className={styles.teamNameBlock}>
-        <span className={styles.teamName}>
-          {team.name} {flagEmoji(team.location)}
-        </span>
-        {team.acronym && <span className={styles.teamTag}>{team.acronym}</span>}
-      </span>
-    </span>
-  );
+/** Durée d'une manche : « 32 min ». */
+function formatLength(lengthSec: number | null | undefined): string {
+  if (!lengthSec) return '';
+  return `${Math.round(lengthSec / 60)} min`;
 }
 
 export default function MatchPage() {
@@ -139,39 +122,66 @@ export default function MatchPage() {
       </p>
 
       <div className={styles.scoreboard}>
-        <TeamHeader team={match.teamA} side="A" />
-        <div className={styles.center}>
-          {match.bestOf && <span className={styles.bestOf}>BO{match.bestOf}</span>}
-          <span className={styles.bigScore}>
-            {finished || running ? `${match.scoreA ?? 0} vs ${match.scoreB ?? 0}` : 'vs'}
-          </span>
-          <span className={styles.when}>
-            {running ? (
-              <span className={styles.live}>● live</span>
-            ) : finished ? (
-              'Terminé'
+        {/* Live/stream en haut à droite : cliquable quand un stream existe. */}
+        <span className={styles.corner}>
+          {running &&
+            (match.streamUrl ? (
+              <a className={styles.liveLink} href={match.streamUrl} target="_blank" rel="noreferrer">
+                ● live
+              </a>
             ) : (
-              formatKickoff(match.scheduledAt)
-            )}
+              <span className={styles.live}>● live</span>
+            ))}
+        </span>
+
+        {/* Grille symétrique à emplacements fixes : logo · nom/tag · drapeau
+            vs drapeau · nom/tag · logo (les cases restent en place même vides). */}
+        <div className={styles.teamsRow}>
+          <span className={styles.slotLogo}>
+            {match.teamA && <Avatar src={match.teamA.imageUrl} label={match.teamA.name} size={40} />}
+          </span>
+          <span className={styles.slotName}>
+            <span className={styles.teamName}>{match.teamA?.name ?? 'TBD'} <span className={styles.slotFlag}>{flagEmoji(match.teamA?.location)}</span></span>
+            {match.teamA?.acronym && <span className={styles.teamTag}>{match.teamA.acronym}</span>}
+          </span>
+          <span className={styles.center}>
+            {match.bestOf && <span className={styles.bestOf}>BO{match.bestOf}</span>}
+            <span className={styles.bigScore}>
+              {finished || running ? `${match.scoreA ?? 0} vs ${match.scoreB ?? 0}` : 'vs'}
+            </span>
+            <span className={styles.when}>
+              {finished ? 'Terminé' : running ? 'En cours' : formatKickoff(match.scheduledAt)}
+            </span>
+          </span>
+          <span className={`${styles.slotName} ${styles.slotNameRight}`}>
+            <span className={styles.teamName}><span className={styles.slotFlag}>{flagEmoji(match.teamB?.location)}</span> {match.teamB?.name ?? 'TBD'}</span>
+            {match.teamB?.acronym && <span className={styles.teamTag}>{match.teamB.acronym}</span>}
+          </span>
+          <span className={styles.slotLogo}>
+            {match.teamB && <Avatar src={match.teamB.imageUrl} label={match.teamB.name} size={40} />}
           </span>
         </div>
-        <TeamHeader team={match.teamB} side="B" />
       </div>
 
       {games.length > 0 && (
         <ul className={styles.games}>
           {games.map((game) => (
             <li key={game.position} className={styles.game}>
-              M{game.position} : {game.winner === 'A' ? tagA : game.winner === 'B' ? tagB : '·'}
+              <span className={styles.gameName}>
+                M{game.position}
+                {game.map ? ` · ${game.map}` : ''}
+              </span>
+              <span className={styles.gameScore}>
+                {game.scoreA != null && game.scoreB != null
+                  ? `${game.scoreA} vs ${game.scoreB}${match.gameId === 'lol' ? ' kills' : ''}`
+                  : game.winner
+                    ? `victoire ${game.winner === 'A' ? tagA : tagB}`
+                    : 'en cours'}
+              </span>
+              <span className={styles.gameLength}>{formatLength(game.lengthSec)}</span>
             </li>
           ))}
         </ul>
-      )}
-
-      {match.streamUrl && !finished && (
-        <a className={styles.stream} href={match.streamUrl} target="_blank" rel="noreferrer">
-          Regarder le stream
-        </a>
       )}
 
       {finished && stats.length > 0 && (
