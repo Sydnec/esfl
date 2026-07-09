@@ -216,6 +216,13 @@ export class ScoringService {
     await this.prisma.rosterScore.deleteMany({ where: { userId } });
   }
 
+  /** Purge des scores d'une ligue supprimée, ou d'un membre qui la quitte. */
+  async removeLeagueScores(leagueId: string, userId?: string): Promise<void> {
+    await this.prisma.rosterScore.deleteMany({
+      where: { leagueId, ...(userId ? { userId } : {}) },
+    });
+  }
+
   /** Points fantasy d'une liste de joueurs (détail par match). */
   playerPoints(playerIds: string[]) {
     if (playerIds.length === 0) return [];

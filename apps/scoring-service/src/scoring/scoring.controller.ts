@@ -82,6 +82,23 @@ export class ScoringController {
     return { ok: true };
   }
 
+  /** Nettoyage à la suppression d'une ligue (appel interne). */
+  @Delete('internal/leagues/:leagueId')
+  async removeLeague(@Param('leagueId') leagueId: string) {
+    await this.scoring.removeLeagueScores(leagueId);
+    return { ok: true };
+  }
+
+  /** Nettoyage au départ d'un membre d'une ligue (appel interne). */
+  @Delete('internal/leagues/:leagueId/users/:userId')
+  async removeLeagueMember(
+    @Param('leagueId') leagueId: string,
+    @Param('userId') userId: string,
+  ) {
+    await this.scoring.removeLeagueScores(leagueId, userId);
+    return { ok: true };
+  }
+
   private async memberLeague(leagueId: string, userId: string) {
     const league = await this.fantasy.leagueForUser(leagueId, userId);
     if (!league) {
