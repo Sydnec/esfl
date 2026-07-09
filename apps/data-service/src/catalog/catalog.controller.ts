@@ -69,6 +69,18 @@ export class CatalogController {
     return this.catalog.listPlayersByIds(parseIds(ids));
   }
 
+  // Déclaré après players/by-ids : Nest matche dans l'ordre, sinon « by-ids »
+  // serait capturé comme un :id.
+  @Get('players/:id')
+  player(@Param('id') id: string) {
+    return this.catalog.getPlayer(id);
+  }
+
+  @Get('players/:id/matches')
+  playerMatches(@Param('id') id: string) {
+    return this.catalog.listPlayerMatches(id);
+  }
+
   @Get('stats')
   stats(@Query('matchIds') matchIds?: string) {
     return this.catalog.listStats(parseIds(matchIds));

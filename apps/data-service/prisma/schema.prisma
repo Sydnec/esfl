@@ -123,5 +123,6 @@ model PlayerMatchStats {
   player     Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
 
   @@unique([matchId, playerId])
+  @@index([playerId])
   @@map("player_match_stats")
 }

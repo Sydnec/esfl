@@ -77,6 +77,49 @@ export class CatalogService {
     });
   }
 
+  /** Fiche d'un joueur pro avec son équipe complète (page détail joueur). */
+  async getPlayer(id: string) {
+    const player = await this.prisma.player.findUnique({
+      where: { id },
+      include: { team: true },
+    });
+    if (!player) {
+      throw new NotFoundException('Joueur introuvable');
+    }
+    return player;
+  }
+
+  /** Historique d'un joueur : ses stats jointes aux matchs (équipes résolues). */
+  async listPlayerMatches(playerId: string) {
+    const lines = await this.prisma.playerMatchStats.findMany({
+      where: { playerId },
+      include: {
+        match: { include: { competition: { select: { id: true, name: true, gameId: true } } } },
+      },
+      orderBy: { match: { scheduledAt: 'desc' } },
+      take: 100,
+    });
+
+    // teamA/teamB sont des ids sans relation Prisma : on résout en une requête.
+    const teamIds = [
+      ...new Set(
+        lines
+          .flatMap((line) => [line.match.teamAId, line.match.teamBId])
+          .filter((id): id is string => !!id),
+      ),
+    ];
+    const teams = await this.prisma.team.findMany({ where: { id: { in: teamIds } } });
+    const byId = new Map(teams.map((team) => [team.id, team]));
+    return lines.map(({ raw: _raw, match, ...line }) => ({
+      ...line,
+      match: {
+        ...match,
+        teamA: match.teamAId ? (byId.get(match.teamAId) ?? null) : null,
+        teamB: match.teamBId ? (byId.get(match.teamBId) ?? null) : null,
+      },
+    }));
+  }
+
   /** Résolution de joueurs par ids (noms, équipes, images) — pour les tops de journée. */
   listPlayersByIds(ids: string[]) {
     if (ids.length === 0) return [];
