@@ -1,5 +1,5 @@
-import Link from 'next/link';
 import { GAME_LABELS } from '@esfl/contracts';
+import { HomeCta } from '@/components/HomeCta';
 import { MatchesOverview } from '@/components/MatchesOverview';
 import styles from './page.module.css';
 
@@ -19,14 +19,7 @@ export default function HomePage() {
           </li>
         ))}
       </ul>
-      <div className={styles.actions}>
-        <Link href="/register" className={styles.cta}>
-          Créer un compte
-        </Link>
-        <Link href="/login" className={styles.secondary}>
-          Se connecter
-        </Link>
-      </div>
+      <HomeCta />
       <MatchesOverview />
     </main>
   );

@@ -225,8 +225,9 @@ export default function LeaguePage() {
               {matches.map((match) => (
                 <li key={match.id} className={styles.match}>
                   <span className={styles.matchGame}>{GAME_LABELS[match.gameId]}</span>
-                  <span>
-                    {match.teamA?.name ?? '?'} vs {match.teamB?.name ?? '?'}
+                  <span title={`${match.teamA?.name ?? '?'} vs ${match.teamB?.name ?? '?'}`}>
+                    {match.teamA?.acronym || match.teamA?.name || '?'} vs{' '}
+                    {match.teamB?.acronym || match.teamB?.name || '?'}
                     {match.status === 'finished' && ` — ${match.scoreA} : ${match.scoreB}`}
                   </span>
                   <span className={styles.matchDate}>

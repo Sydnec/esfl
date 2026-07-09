@@ -146,13 +146,22 @@ export default function PickPage() {
         return (
           <section key={gameId} className={styles.gameSection}>
             <h2 className={styles.gameTitle}>{GAME_LABELS[gameId]}</h2>
-            {teams.map((teamPlayers) => (
-              <div key={teamPlayers[0].team?.id ?? 'sans-equipe'} className={styles.teamGroup}>
-                <h3 className={styles.teamTitle}>
+            {teams.map((teamPlayers) => {
+              const selectedInTeam = teamPlayers.filter((p) => selected.has(p.id)).length;
+              return (
+              <details
+                key={teamPlayers[0].team?.id ?? 'sans-equipe'}
+                className={styles.teamGroup}
+                open
+              >
+                <summary className={styles.teamTitle}>
                   {teamPlayers[0].team
                     ? `${teamPlayers[0].team.acronym ? `${teamPlayers[0].team.acronym} — ` : ''}${teamPlayers[0].team.name}`
                     : 'Sans équipe'}
-                </h3>
+                  {selectedInTeam > 0 && (
+                    <span className={styles.teamCount}> · {selectedInTeam} sélectionné(s)</span>
+                  )}
+                </summary>
                 <ul className={styles.players}>
                   {teamPlayers.map((player) => {
                     const isSelected = selected.has(player.id);
@@ -179,8 +188,9 @@ export default function PickPage() {
                     );
                   })}
                 </ul>
-              </div>
-            ))}
+              </details>
+              );
+            })}
           </section>
         );
       })}

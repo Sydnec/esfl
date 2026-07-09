@@ -29,12 +29,17 @@ function formatDate(iso: string | null): string {
   });
 }
 
+/** Tag court de l'équipe (MDR, G2…), replié sur le nom complet si absent. */
+function teamTag(team: { name: string; acronym: string | null } | null): string {
+  return team?.acronym || team?.name || '?';
+}
+
 function MatchRow({ match }: { match: MatchSummary }) {
   return (
     <li className={styles.match}>
       <span className={styles.matchGame}>{GAME_LABELS[match.gameId]}</span>
-      <span className={styles.matchTeams}>
-        {match.teamA?.name ?? '?'} vs {match.teamB?.name ?? '?'}
+      <span className={styles.matchTeams} title={`${match.teamA?.name ?? '?'} vs ${match.teamB?.name ?? '?'}`}>
+        {teamTag(match.teamA)} vs {teamTag(match.teamB)}
         {match.status === 'finished' && (
           <strong className={styles.score}>
             {' '}

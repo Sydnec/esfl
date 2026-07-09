@@ -1,19 +1,35 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from './AuthProvider';
 import styles from './Header.module.css';
 
 export function Header() {
   const { user, logout } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
 
   return (
     <header className={styles.header}>
-      <Link href={user ? '/dashboard' : '/'} className={styles.brand}>
-        ESFL
-      </Link>
+      <div className={styles.left}>
+        <Link href="/" className={styles.brand}>
+          ESFL
+        </Link>
+        <nav className={styles.links}>
+          <Link href="/" className={pathname === '/' ? styles.active : styles.link}>
+            Accueil
+          </Link>
+          {user && (
+            <Link
+              href="/dashboard"
+              className={pathname.startsWith('/dashboard') ? styles.active : styles.link}
+            >
+              Mes ligues
+            </Link>
+          )}
+        </nav>
+      </div>
       <nav className={styles.nav}>
         {user ? (
           <>
