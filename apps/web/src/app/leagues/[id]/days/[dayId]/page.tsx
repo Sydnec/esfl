@@ -167,7 +167,7 @@ export default function PickPage() {
                   {teamPlayers.map((player) => {
                     const isSelected = selected.has(player.id);
                     return (
-                      <li key={player.id}>
+                      <li key={player.id} className={styles.playerItem}>
                         <button
                           className={`${styles.player} ${isSelected ? styles.selected : ''} ${
                             player.locked ? styles.locked : ''
@@ -191,6 +191,9 @@ export default function PickPage() {
                             )}
                           </span>
                         </button>
+                        <Link className={styles.playerSheet} href={`/players/${player.id}`}>
+                          fiche
+                        </Link>
                       </li>
                     );
                   })}

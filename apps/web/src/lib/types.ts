@@ -132,3 +132,12 @@ export interface PlayerRef {
   nationality: string | null;
   team: TeamRef | null;
 }
+
+/** Ligne d'historique d'un joueur : ses stats + le match joint (page joueur). */
+export interface PlayerMatchHistoryLine {
+  id: string;
+  matchId: string;
+  source: string;
+  normalized: Record<string, number | boolean | null>;
+  match: MatchSummary;
+}

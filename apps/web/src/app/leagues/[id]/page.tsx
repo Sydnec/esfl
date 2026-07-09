@@ -281,7 +281,13 @@ export default function LeaguePage() {
                         size={28}
                       />
                       <span className={styles.topName}>
-                        {perf.player?.name ?? 'Joueur inconnu'}
+                        {perf.player ? (
+                          <Link className={styles.topNameLink} href={`/players/${perf.player.id}`}>
+                            {perf.player.name}
+                          </Link>
+                        ) : (
+                          'Joueur inconnu'
+                        )}
                         <span className={styles.topTeam}>
                           {' '}
                           {perf.player?.team?.acronym || perf.player?.team?.name || ''}

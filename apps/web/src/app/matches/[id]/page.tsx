@@ -1,53 +1,18 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { GAME_LABELS, GameId } from '@esfl/contracts';
+import { GAME_LABELS } from '@esfl/contracts';
 import { Avatar } from '@/components/Avatar';
 import { request } from '@/lib/api';
 import { flagEmoji } from '@/lib/flags';
 import { formatKickoff } from '@/lib/format';
+import { formatStat, STAT_COLUMNS } from '@/lib/stat-columns';
 import type { FantasyPointsLine, MatchStatsLine, MatchSummary, PlayerRef } from '@/lib/types';
 import styles from './page.module.css';
 
 const POLL_INTERVAL_MS = 30_000;
-
-/** Colonnes de stats par jeu (clé du normalized + libellé court). */
-const STAT_COLUMNS: Record<GameId, Array<{ key: string; label: string }>> = {
-  cs2: [
-    { key: 'kills', label: 'K' },
-    { key: 'deaths', label: 'D' },
-    { key: 'assists', label: 'A' },
-    { key: 'adr', label: 'ADR' },
-  ],
-  valorant: [
-    { key: 'kills', label: 'K' },
-    { key: 'deaths', label: 'D' },
-    { key: 'assists', label: 'A' },
-    { key: 'acs', label: 'ACS' },
-    { key: 'firstKills', label: 'FK' },
-  ],
-  lol: [
-    { key: 'kills', label: 'K' },
-    { key: 'deaths', label: 'D' },
-    { key: 'assists', label: 'A' },
-    { key: 'csPerMin', label: 'CS/min' },
-    { key: 'win', label: 'Résultat' },
-  ],
-  rl: [
-    { key: 'goals', label: 'Buts' },
-    { key: 'assists', label: 'Passes' },
-    { key: 'saves', label: 'Arrêts' },
-    { key: 'shots', label: 'Tirs' },
-    { key: 'score', label: 'Score' },
-  ],
-};
-
-function formatStat(value: number | boolean | null | undefined): string {
-  if (value === null || value === undefined) return '·';
-  if (typeof value === 'boolean') return value ? 'V' : 'D';
-  return Number.isInteger(value) ? String(value) : value.toFixed(1);
-}
 
 /** Durée d'une manche : « 32 min ». */
 function formatLength(lengthSec: number | null | undefined): string {
@@ -211,14 +176,16 @@ export default function MatchPage() {
                       const player = players.get(line.playerId);
                       return (
                         <tr key={line.playerId}>
-                          <td className={styles.playerCell}>
-                            <Avatar
-                              src={player?.imageUrl}
-                              fallbackSrc={player?.team?.imageUrl}
-                              label={player?.name ?? '?'}
-                              size={24}
-                            />
-                            {player?.name ?? 'Inconnu'} {flagEmoji(player?.nationality)}
+                          <td>
+                            <Link className={styles.playerCell} href={`/players/${line.playerId}`}>
+                              <Avatar
+                                src={player?.imageUrl}
+                                fallbackSrc={player?.team?.imageUrl}
+                                label={player?.name ?? '?'}
+                                size={24}
+                              />
+                              {player?.name ?? 'Inconnu'} {flagEmoji(player?.nationality)}
+                            </Link>
                           </td>
                           {columns.map((column) => (
                             <td key={column.key}>{formatStat(line.normalized[column.key])}</td>

@@ -1,0 +1,130 @@
+.main {
+  max-width: 840px;
+  margin: 0 auto;
+  padding: var(--space-4) var(--space-3) var(--space-6);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  padding: var(--space-4);
+}
+
+.identity {
+  min-width: 0;
+}
+
+.name {
+  font-size: 1.375rem;
+  margin: 0;
+}
+
+.meta {
+  color: var(--color-muted);
+  font-size: 0.9375rem;
+  margin: 2px 0 0;
+}
+
+.team {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 0.9375rem;
+  margin: var(--space-1) 0 0;
+}
+
+.summary {
+  display: flex;
+  gap: var(--space-3);
+  margin: var(--space-3) 0 0;
+}
+
+.summaryItem {
+  flex: 1;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-2) var(--space-3);
+}
+
+.summaryItem dt {
+  color: var(--color-muted);
+  font-size: 0.8125rem;
+}
+
+.summaryItem dd {
+  margin: 2px 0 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--color-accent);
+}
+
+.empty {
+  margin-top: var(--space-4);
+  color: var(--color-muted);
+}
+
+.historySection {
+  margin-top: var(--space-5);
+}
+
+.historyTitle {
+  font-size: 1.125rem;
+  margin-bottom: var(--space-3);
+}
+
+.tableWrap {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9375rem;
+}
+
+.table th,
+.table td {
+  text-align: left;
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.table th {
+  color: var(--color-muted);
+  font-weight: 500;
+  font-size: 0.8125rem;
+}
+
+.matchLink {
+  color: var(--color-accent);
+}
+
+.matchLink:hover {
+  text-decoration: underline;
+}
+
+.competitionCell {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.opponentCell {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.score {
+  color: var(--color-muted);
+}
+
+.points {
+  color: var(--color-accent);
+  font-weight: 600;
+}
