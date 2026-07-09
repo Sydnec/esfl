@@ -4,7 +4,7 @@ import { GAME_LABELS } from '@esfl/contracts';
 import styles from './page.module.css';
 
 export const metadata: Metadata = {
-  title: 'Comment ça marche — ESFL',
+  title: 'Comment ça marche · ESFL',
 };
 
 export default function AboutPage() {
@@ -17,7 +17,7 @@ export default function AboutPage() {
         <p className={styles.text}>
           ESFL est une fantasy league esport <strong>multigaming</strong> qui se joue entre amis,
           en ligues privées. Chaque journée de match, tu composes un roster de joueurs
-          professionnels issus des compétitions que ta ligue suit — tous jeux confondus, sans
+          professionnels issus des compétitions que ta ligue suit, tous jeux confondus, sans
           budget ni quota par jeu : trois joueurs de LoL et deux de CS2 dans le même roster,
           c&apos;est permis.
         </p>
@@ -28,7 +28,7 @@ export default function AboutPage() {
         <p className={styles.text}>
           La subtilité : une fois aligné, un joueur pro est <strong>verrouillé</strong> pendant
           les journées suivantes (configurable par ligue). Impossible de spammer la superstar
-          tous les jours — il faut doser, anticiper le calendrier et connaître la profondeur des
+          tous les jours, il faut doser, anticiper le calendrier et connaître la profondeur des
           effectifs.
         </p>
       </section>

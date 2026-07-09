@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
 import {
   AddCompetitionInput,
   addCompetitionInputSchema,
@@ -95,5 +95,12 @@ export class InternalController {
   @Get('followed-competitions')
   followedCompetitions() {
     return this.leagues.followedCompetitionIds();
+  }
+
+  /** Nettoyage à la suppression d'un compte (transfert des ligues possédées). */
+  @Delete('users/:userId')
+  async removeUser(@Param('userId') userId: string) {
+    await this.leagues.removeUser(userId);
+    return { ok: true };
   }
 }

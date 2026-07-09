@@ -21,6 +21,8 @@ export interface PSTeamRef {
   name: string;
   acronym: string | null;
   image_url: string | null;
+  /** Code pays ISO2. */
+  location: string | null;
 }
 
 export interface PSPlayerRef {
@@ -30,10 +32,26 @@ export interface PSPlayerRef {
   last_name: string | null;
   image_url: string | null;
   role: string | null;
+  /** Code pays ISO2. */
+  nationality: string | null;
 }
 
 export interface PSTeam extends PSTeamRef {
   players: PSPlayerRef[];
+}
+
+export interface PSGame {
+  id: number;
+  position: number;
+  status: string;
+  finished: boolean;
+  winner: { id: number | null; type: string } | null;
+}
+
+export interface PSStream {
+  language: string | null;
+  official: boolean;
+  raw_url: string | null;
 }
 
 export interface PSMatch {
@@ -45,6 +63,9 @@ export interface PSMatch {
   end_at: string | null;
   serie_id: number;
   winner_id: number | null;
+  number_of_games: number | null;
   opponents: Array<{ type: string; opponent: PSTeamRef }>;
   results: Array<{ team_id: number; score: number }>;
+  games: PSGame[] | null;
+  streams_list: PSStream[] | null;
 }

@@ -82,10 +82,19 @@ export class CatalogService {
     return this.prisma.playerMatchStats.findMany({ where: { matchId: { in: matchIds } } });
   }
 
-  getMatch(id: string) {
-    return this.prisma.match.findUnique({
+  /** Détail d'un match avec équipes résolues (page match). */
+  async getMatch(id: string) {
+    const match = await this.prisma.match.findUnique({
       where: { id },
       include: { competition: true },
     });
+    if (!match) return null;
+    const teamIds = [match.teamAId, match.teamBId].filter((value): value is string => !!value);
+    const teams = await this.prisma.team.findMany({ where: { id: { in: teamIds } } });
+    return {
+      ...match,
+      teamA: teams.find((team) => team.id === match.teamAId) ?? null,
+      teamB: teams.find((team) => team.id === match.teamBId) ?? null,
+    };
   }
 }

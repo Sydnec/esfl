@@ -50,6 +50,35 @@ export class LeaguesService {
     return league;
   }
 
+  /**
+   * Suppression d'un utilisateur (appel interne depuis auth-service) :
+   * ses ligues sont transférées au plus ancien autre membre (supprimées s'il
+   * était seul), ses rosters et participations sont effacés.
+   */
+  async removeUser(userId: string): Promise<void> {
+    const ownedLeagues = await this.prisma.league.findMany({
+      where: { ownerId: userId },
+      include: { members: { orderBy: { joinedAt: 'asc' } } },
+    });
+    for (const league of ownedLeagues) {
+      const heir = league.members.find((member) => member.userId !== userId);
+      if (!heir) {
+        await this.prisma.league.delete({ where: { id: league.id } });
+        continue;
+      }
+      await this.prisma.league.update({
+        where: { id: league.id },
+        data: { ownerId: heir.userId },
+      });
+      await this.prisma.leagueMember.update({
+        where: { leagueId_userId: { leagueId: league.id, userId: heir.userId } },
+        data: { role: 'owner' },
+      });
+    }
+    await this.prisma.roster.deleteMany({ where: { userId } });
+    await this.prisma.leagueMember.deleteMany({ where: { userId } });
+  }
+
   /** Compétitions suivies par au moins une ligue — consommé par le data-service. */
   async followedCompetitionIds(): Promise<string[]> {
     const rows = await this.prisma.leagueCompetition.findMany({

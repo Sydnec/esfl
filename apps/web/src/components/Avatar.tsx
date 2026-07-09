@@ -26,7 +26,7 @@ export function Avatar({ src, fallbackSrc, label, size = 32 }: AvatarProps) {
         style={{ width: size, height: size, fontSize: Math.max(10, size * 0.38) }}
         aria-hidden
       >
-        {label.slice(0, 2).toUpperCase()}
+        {label.slice(0, 1).toUpperCase()}
       </span>
     );
   }

@@ -14,6 +14,9 @@ model User {
   id            String         @id @default(cuid())
   email         String         @unique
   username      String         @unique
+  /** Image de profil stockée en base (petite, ≤ 2 Mo). */
+  avatar        Bytes?
+  avatarMime    String?        @map("avatar_mime")
   createdAt     DateTime       @default(now()) @map("created_at")
   updatedAt     DateTime       @updatedAt @map("updated_at")
   credential    Credential?

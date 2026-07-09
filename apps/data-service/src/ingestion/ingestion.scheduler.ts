@@ -35,7 +35,12 @@ export class IngestionScheduler implements OnModuleInit {
     await this.queue.upsertJobScheduler('sync-rosters', { every: 24 * 3600 * 1000 }, {
       name: 'sync-rosters',
     });
-    this.logger.log('Jobs d’ingestion planifiés (séries 12h, matchs 15min, rosters 24h)');
+    await this.queue.upsertJobScheduler('sync-live', { every: 3 * 60 * 1000 }, {
+      name: 'sync-live',
+    });
+    this.logger.log(
+      'Jobs d’ingestion planifiés (séries 12h, matchs 15min, live 3min, rosters 24h)',
+    );
 
     // Premier démarrage : peuple le catalogue sans attendre le cycle de 12h.
     const competitions = await this.prisma.competition.count();

@@ -14,6 +14,10 @@ interface AuthContextValue {
   logout: () => Promise<void>;
   /** Requête authentifiée : rafraîchit la session et réessaie une fois sur 401. */
   authedFetch: <T>(path: string, init?: RequestInit) => Promise<T>;
+  /** Met à jour l'utilisateur en mémoire (après édition du profil). */
+  applyUser: (user: PublicUser) => void;
+  /** Vide la session locale (après suppression de compte). */
+  clearSession: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -24,7 +28,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   // Single-flight : tous les appelants (mount initial, retries 401 parallèles)
-  // partagent la même promesse de refresh — jamais deux refresh concurrents.
+  // partagent la même promesse de refresh : jamais deux refresh concurrents.
   const refreshPromiseRef = useRef<Promise<Awaited<ReturnType<typeof authApi.refresh>>> | null>(
     null,
   );
@@ -89,9 +93,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [sharedRefresh],
   );
 
+  const applyUser = useCallback((next: PublicUser) => setUser(next), []);
+  const clearSession = useCallback(() => {
+    setUser(null);
+    setAccessToken(null);
+  }, []);
+
   const value = useMemo(
-    () => ({ user, accessToken, loading, login, register, logout, authedFetch }),
-    [user, accessToken, loading, login, register, logout, authedFetch],
+    () => ({
+      user,
+      accessToken,
+      loading,
+      login,
+      register,
+      logout,
+      authedFetch,
+      applyUser,
+      clearSession,
+    }),
+    [user, accessToken, loading, login, register, logout, authedFetch, applyUser, clearSession],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

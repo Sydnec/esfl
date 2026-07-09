@@ -4,7 +4,7 @@ import { Header } from '@/components/Header';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'ESFL — Esport Fantasy League',
+  title: 'ESFL · Esport Fantasy League',
   description: 'Fantasy league esport multigaming : CS2, Valorant, LoL, Rocket League.',
 };
 

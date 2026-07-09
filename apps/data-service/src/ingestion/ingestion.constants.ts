@@ -6,5 +6,6 @@ export type IngestionJobName =
   | 'sync-series'
   | 'sync-matches'
   | 'sync-rosters'
+  | 'sync-live'
   | 'sync-competition'
   | 'ingest-stats';

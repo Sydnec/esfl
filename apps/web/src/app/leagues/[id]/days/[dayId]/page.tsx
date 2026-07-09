@@ -98,7 +98,7 @@ export default function PickPage() {
         <h1 className={styles.title}>Journée du {board.matchDay.date}</h1>
         <span className={styles.deadline}>
           {board.matchDay.deadlinePassed
-            ? 'Deadline passée — roster figé'
+            ? 'Deadline passée : roster figé'
             : `Deadline : ${deadline.toLocaleString('fr-FR', {
                 day: '2-digit',
                 month: '2-digit',
@@ -157,7 +157,7 @@ export default function PickPage() {
               >
                 <summary className={styles.teamTitle}>
                   {teamPlayers[0].team
-                    ? `${teamPlayers[0].team.acronym ? `${teamPlayers[0].team.acronym} — ` : ''}${teamPlayers[0].team.name}`
+                    ? `${teamPlayers[0].team.acronym ? `${teamPlayers[0].team.acronym} · ` : ''}${teamPlayers[0].team.name}`
                     : 'Sans équipe'}
                   {selectedInTeam > 0 && (
                     <span className={styles.teamCount}> · {selectedInTeam} sélectionné(s)</span>

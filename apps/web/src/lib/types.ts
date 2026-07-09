@@ -36,6 +36,13 @@ export interface TeamRef {
   name: string;
   acronym: string | null;
   imageUrl: string | null;
+  /** Code pays ISO2 pour le drapeau. */
+  location?: string | null;
+}
+
+export interface GameSummaryEntry {
+  position: number;
+  winner: 'A' | 'B' | null;
 }
 
 export interface BoardPlayer {
@@ -83,11 +90,28 @@ export interface MatchSummary {
   teamA: TeamRef | null;
   teamB: TeamRef | null;
   competition: { id: string; name: string; gameId: GameId };
+  bestOf?: number | null;
+  streamUrl?: string | null;
+  gamesSummary?: GameSummaryEntry[] | null;
+}
+
+export interface MatchStatsLine {
+  playerId: string;
+  gameId: GameId;
+  source: string;
+  normalized: Record<string, number | boolean | null>;
+}
+
+export interface FantasyPointsLine {
+  playerId: string;
+  matchId: string;
+  points: number;
 }
 
 export interface PublicUserRef {
   id: string;
   username: string;
+  avatarUrl: string | null;
 }
 
 export interface TopPlayerEntry {
@@ -101,5 +125,6 @@ export interface PlayerRef {
   name: string;
   role: string | null;
   imageUrl: string | null;
+  nationality: string | null;
   team: TeamRef | null;
 }

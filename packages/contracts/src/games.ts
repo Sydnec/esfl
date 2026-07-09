@@ -10,6 +10,14 @@ export const GAME_LABELS: Record<GameId, string> = {
   rl: 'Rocket League',
 };
 
+/** Libellés courts pour les affichages condensés. */
+export const GAME_SHORT_LABELS: Record<GameId, string> = {
+  cs2: 'CS',
+  valorant: 'Valo',
+  lol: 'LoL',
+  rl: 'RL',
+};
+
 /** Préfixes de chemin de l'API Pandascore par jeu (ex: /csgo/series). */
 export const PANDASCORE_PATHS: Record<GameId, string> = {
   cs2: 'csgo',

@@ -163,6 +163,11 @@ export class ScoringService {
     });
   }
 
+  /** Purge des scores d'un utilisateur supprimé. */
+  async removeUserScores(userId: string): Promise<void> {
+    await this.prisma.rosterScore.deleteMany({ where: { userId } });
+  }
+
   /** Points fantasy d'une liste de joueurs (détail par match). */
   playerPoints(playerIds: string[]) {
     if (playerIds.length === 0) return [];

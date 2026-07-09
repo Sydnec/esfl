@@ -5,9 +5,17 @@ import type { Competition } from '../../generated/client';
 import { Queue } from 'bullmq';
 import { FantasyClient } from '../fantasy-client/fantasy.client';
 import { PandascoreClient } from '../pandascore/pandascore.client';
-import type { PSMatch, PSSerie, PSTeamRef } from '../pandascore/pandascore.types';
+import type { PSMatch, PSSerie, PSStream, PSTeamRef } from '../pandascore/pandascore.types';
 import { PrismaService } from '../prisma.service';
 import { INGESTION_QUEUE } from './ingestion.processor';
+
+/** Stream à afficher : français en priorité, sinon le flux officiel. */
+function pickStream(streams: PSStream[] | null): string | null {
+  if (!streams?.length) return null;
+  const french = streams.find((s) => s.language?.toLowerCase().startsWith('fr') && s.raw_url);
+  if (french?.raw_url) return french.raw_url;
+  return streams.find((s) => s.official && s.raw_url)?.raw_url ?? null;
+}
 
 @Injectable()
 export class IngestionService {
@@ -106,12 +114,14 @@ export class IngestionService {
             lastName: player.last_name,
             imageUrl: player.image_url,
             role: player.role,
+            nationality: player.nationality,
             teamId: localTeam.id,
           },
           update: {
             name: player.name,
             imageUrl: player.image_url,
             role: player.role,
+            nationality: player.nationality,
             teamId: localTeam.id,
           },
         });
@@ -134,6 +144,31 @@ export class IngestionService {
   async syncCompetition(competitionId: string): Promise<void> {
     await this.syncMatchesForCompetition(competitionId);
     await this.syncRostersForCompetition(competitionId);
+  }
+
+  /**
+   * Fenêtre « live » : 1 requête par compétition suivie sur [-12h, +6h] pour
+   * détecter rapidement débuts et fins de match (cadence 3 min, quota tenu).
+   */
+  async syncLiveWindow(): Promise<void> {
+    const competitions = await this.followedActiveCompetitions();
+    const from = new Date(Date.now() - 12 * 3600 * 1000);
+    const to = new Date(Date.now() + 6 * 3600 * 1000);
+    for (const competition of competitions) {
+      try {
+        const matches = await this.pandascore.listMatchesInWindow(
+          competition.gameId as GameId,
+          competition.pandascoreId,
+          from,
+          to,
+        );
+        for (const match of matches) {
+          await this.upsertMatch(competition, match);
+        }
+      } catch (error) {
+        this.logger.error(`syncLive ${competition.name} : ${String(error)}`);
+      }
+    }
   }
 
   private upsertCompetition(game: GameId, serie: PSSerie): Promise<Competition> {
@@ -163,8 +198,14 @@ export class IngestionService {
         name: ref.name,
         acronym: ref.acronym,
         imageUrl: ref.image_url,
+        location: ref.location,
       },
-      update: { name: ref.name, acronym: ref.acronym, imageUrl: ref.image_url },
+      update: {
+        name: ref.name,
+        acronym: ref.acronym,
+        imageUrl: ref.image_url,
+        location: ref.location,
+      },
     });
     await this.prisma.competitionTeam.upsert({
       where: { competitionId_teamId: { competitionId, teamId: team.id } },
@@ -194,35 +235,43 @@ export class IngestionService {
       : null;
 
     const status = match.status === 'postponed' ? 'not_started' : match.status;
+    // Manches gagnées : winner.id pandascore → côté A ou B du match local.
+    const gamesSummary = (match.games ?? [])
+      .filter((g) => g.finished)
+      .sort((a, b) => a.position - b.position)
+      .map((g) => ({
+        position: g.position,
+        winner:
+          g.winner?.id && g.winner.id === opponents[0]?.id
+            ? 'A'
+            : g.winner?.id && g.winner.id === opponents[1]?.id
+              ? 'B'
+              : null,
+      }));
+    const shared = {
+      name: match.name,
+      status,
+      scheduledAt: match.scheduled_at ? new Date(match.scheduled_at) : null,
+      beginAt: match.begin_at ? new Date(match.begin_at) : null,
+      endAt: match.end_at ? new Date(match.end_at) : null,
+      teamAId: teamAId ?? null,
+      teamBId: teamBId ?? null,
+      scoreA: scoreFor(teamAId),
+      scoreB: scoreFor(teamBId),
+      winnerTeamId: winnerTeam?.id ?? null,
+      bestOf: match.number_of_games,
+      streamUrl: pickStream(match.streams_list),
+      gamesSummary,
+    };
     const saved = await this.prisma.match.upsert({
       where: { pandascoreId: match.id },
       create: {
         pandascoreId: match.id,
         gameId: game,
         competitionId: competition.id,
-        name: match.name,
-        status,
-        scheduledAt: match.scheduled_at ? new Date(match.scheduled_at) : null,
-        beginAt: match.begin_at ? new Date(match.begin_at) : null,
-        endAt: match.end_at ? new Date(match.end_at) : null,
-        teamAId: teamAId ?? null,
-        teamBId: teamBId ?? null,
-        scoreA: scoreFor(teamAId),
-        scoreB: scoreFor(teamBId),
-        winnerTeamId: winnerTeam?.id ?? null,
+        ...shared,
       },
-      update: {
-        name: match.name,
-        status,
-        scheduledAt: match.scheduled_at ? new Date(match.scheduled_at) : null,
-        beginAt: match.begin_at ? new Date(match.begin_at) : null,
-        endAt: match.end_at ? new Date(match.end_at) : null,
-        teamAId: teamAId ?? null,
-        teamBId: teamBId ?? null,
-        scoreA: scoreFor(teamAId),
-        scoreB: scoreFor(teamBId),
-        winnerTeamId: winnerTeam?.id ?? null,
-      },
+      update: shared,
     });
 
     if (saved.status === 'finished' && !saved.finishedEventSent) {

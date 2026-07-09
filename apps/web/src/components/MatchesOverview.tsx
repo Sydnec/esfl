@@ -1,14 +1,17 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { GAME_IDS, GAME_LABELS, GameId } from '@esfl/contracts';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { GAME_IDS, GAME_SHORT_LABELS, GameId } from '@esfl/contracts';
 import { request } from '@/lib/api';
+import { formatKickoff } from '@/lib/format';
 import type { Competition, MatchSummary, TeamRef } from '@/lib/types';
 import { Avatar } from './Avatar';
 import styles from './MatchesOverview.module.css';
 
 /** Compétitions décochées par l'utilisateur (les nouvelles restent visibles par défaut). */
 const FILTER_STORAGE_KEY = 'esfl.competitionFilter.excluded';
+const POLL_INTERVAL_MS = 60_000;
 
 function loadExcluded(): Set<string> {
   if (typeof window === 'undefined') return new Set();
@@ -19,52 +22,72 @@ function loadExcluded(): Set<string> {
   }
 }
 
-function formatDate(iso: string | null): string {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleString('fr-FR', {
-    weekday: 'short',
-    day: '2-digit',
-    month: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
-/** Tag court de l'équipe (MDR, G2…), replié sur le nom complet si absent. */
 function teamTag(team: TeamRef | null): string {
-  return team?.acronym || team?.name || '?';
+  return team?.acronym || team?.name || 'TBD';
 }
 
 function TeamChip({ team }: { team: TeamRef | null }) {
+  if (!team) {
+    return <span className={styles.tbd}>TBD</span>;
+  }
   return (
-    <span className={styles.teamChip}>
-      <Avatar src={team?.imageUrl} label={teamTag(team)} size={18} />
+    <span className={styles.teamChip} title={team.name}>
+      <Avatar src={team.imageUrl} label={team.name} size={18} />
       {teamTag(team)}
     </span>
   );
 }
 
-function MatchRow({ match }: { match: MatchSummary }) {
+export function MatchRow({ match }: { match: MatchSummary }) {
+  const finished = match.status === 'finished';
+  const running = match.status === 'running';
   return (
-    <li className={styles.match}>
-      <span className={styles.matchGame}>{GAME_LABELS[match.gameId]}</span>
-      <span
-        className={styles.matchTeams}
-        title={`${match.teamA?.name ?? '?'} vs ${match.teamB?.name ?? '?'}`}
-      >
-        <TeamChip team={match.teamA} />
-        <span className={styles.vs}>vs</span>
-        <TeamChip team={match.teamB} />
-        {match.status === 'finished' && (
-          <strong className={styles.score}>
-            {match.scoreA} : {match.scoreB}
-          </strong>
-        )}
-      </span>
-      <span className={styles.matchMeta}>
-        {match.competition.name} · {formatDate(match.scheduledAt)}
-      </span>
+    <li>
+      <Link href={`/matches/${match.id}`} className={styles.match}>
+        <span className={styles.matchTeams}>
+          <TeamChip team={match.teamA} />
+          {finished && <strong className={styles.score}>{match.scoreA}</strong>}
+          <span className={styles.vs}>vs</span>
+          {finished && <strong className={styles.score}>{match.scoreB}</strong>}
+          <TeamChip team={match.teamB} />
+        </span>
+        <span className={styles.matchMeta}>
+          {running ? <span className={styles.live}>● live</span> : formatKickoff(match.scheduledAt)}
+        </span>
+      </Link>
     </li>
+  );
+}
+
+/** Liste groupée jeu → compétition, sans répéter l'info sur chaque ligne. */
+function GroupedMatches({ matches }: { matches: MatchSummary[] }) {
+  return (
+    <>
+      {GAME_IDS.map((gameId: GameId) => {
+        const ofGame = matches.filter((match) => match.gameId === gameId);
+        if (ofGame.length === 0) return null;
+        const byCompetition = new Map<string, MatchSummary[]>();
+        for (const match of ofGame) {
+          const key = match.competition.id;
+          byCompetition.set(key, [...(byCompetition.get(key) ?? []), match]);
+        }
+        return (
+          <div key={gameId} className={styles.gameGroup}>
+            <h3 className={styles.gameTitle}>{GAME_SHORT_LABELS[gameId]}</h3>
+            {[...byCompetition.values()].map((competitionMatches) => (
+              <div key={competitionMatches[0].competition.id} className={styles.compGroup}>
+                <h4 className={styles.compTitle}>{competitionMatches[0].competition.name}</h4>
+                <ul className={styles.matches}>
+                  {competitionMatches.map((match) => (
+                    <MatchRow key={match.id} match={match} />
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        );
+      })}
+    </>
   );
 }
 
@@ -75,20 +98,26 @@ export function MatchesOverview() {
   const [error, setError] = useState<string | null>(null);
   const [filterOpen, setFilterOpen] = useState(false);
 
-  useEffect(() => {
-    setExcluded(loadExcluded());
+  const loadMatches = useCallback(() => {
     const from = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
     const to = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
-    Promise.all([
-      request<Competition[]>('/data/competitions'),
-      request<MatchSummary[]>(`/data/matches?from=${from}&to=${to}`),
-    ])
-      .then(([comps, ms]) => {
-        setCompetitions(comps);
-        setMatches(ms);
-      })
+    return request<MatchSummary[]>(`/data/matches?from=${from}&to=${to}`)
+      .then(setMatches)
       .catch(() => setError('Planning indisponible pour le moment'));
   }, []);
+
+  useEffect(() => {
+    setExcluded(loadExcluded());
+    request<Competition[]>('/data/competitions')
+      .then(setCompetitions)
+      .catch(() => undefined);
+    void loadMatches();
+    // Actualisation périodique : les débuts/fins de match apparaissent sans reload.
+    const interval = setInterval(() => {
+      if (!document.hidden) void loadMatches();
+    }, POLL_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [loadMatches]);
 
   function toggleCompetition(id: string) {
     setExcluded((current) => {
@@ -105,19 +134,23 @@ export function MatchesOverview() {
     [matches, excluded],
   );
   const now = Date.now();
-  const running = visible.filter((match) => match.status === 'running');
+  // Les matchs en cours sont intégrés en tête de la colonne « À venir ».
+  const upcoming = [
+    ...visible.filter((match) => match.status === 'running'),
+    ...visible
+      .filter(
+        (match) =>
+          match.status === 'not_started' &&
+          match.scheduledAt &&
+          new Date(match.scheduledAt).getTime() > now - 3600 * 1000,
+      )
+      .sort((a, b) => (a.scheduledAt ?? '').localeCompare(b.scheduledAt ?? ''))
+      .slice(0, 30),
+  ];
   const recent = visible
     .filter((match) => match.status === 'finished')
     .sort((a, b) => (b.scheduledAt ?? '').localeCompare(a.scheduledAt ?? ''))
-    .slice(0, 15);
-  const upcoming = visible
-    .filter(
-      (match) =>
-        match.status === 'not_started' &&
-        match.scheduledAt &&
-        new Date(match.scheduledAt).getTime() > now - 3600 * 1000,
-    )
-    .slice(0, 20);
+    .slice(0, 30);
 
   if (error) {
     return <p className={styles.empty}>{error}</p>;
@@ -128,7 +161,7 @@ export function MatchesOverview() {
       <div className={styles.headerRow}>
         <h2 className={styles.title}>Les matchs</h2>
         <button className={styles.filterToggle} onClick={() => setFilterOpen((open) => !open)}>
-          Filtrer les compétitions{excluded.size > 0 ? ` (${excluded.size} masquée(s))` : ''}
+          Filtrer{excluded.size > 0 ? ` (${excluded.size} masquée(s))` : ''}
         </button>
       </div>
 
@@ -139,7 +172,7 @@ export function MatchesOverview() {
             if (list.length === 0) return null;
             return (
               <div key={gameId} className={styles.filterGroup}>
-                <h3 className={styles.filterGame}>{GAME_LABELS[gameId]}</h3>
+                <h3 className={styles.filterGame}>{GAME_SHORT_LABELS[gameId]}</h3>
                 {list.map((competition) => (
                   <label key={competition.id} className={styles.filterItem}>
                     <input
@@ -156,38 +189,24 @@ export function MatchesOverview() {
         </div>
       )}
 
-      {running.length > 0 && (
-        <>
-          <h3 className={styles.sectionTitle}>En cours</h3>
-          <ul className={styles.matches}>
-            {running.map((match) => (
-              <MatchRow key={match.id} match={match} />
-            ))}
-          </ul>
-        </>
-      )}
-
-      <h3 className={styles.sectionTitle}>À venir</h3>
-      {upcoming.length === 0 ? (
-        <p className={styles.empty}>Aucun match à venir sur les compétitions affichées.</p>
-      ) : (
-        <ul className={styles.matches}>
-          {upcoming.map((match) => (
-            <MatchRow key={match.id} match={match} />
-          ))}
-        </ul>
-      )}
-
-      <h3 className={styles.sectionTitle}>Récents</h3>
-      {recent.length === 0 ? (
-        <p className={styles.empty}>Aucun match récent sur les compétitions affichées.</p>
-      ) : (
-        <ul className={styles.matches}>
-          {recent.map((match) => (
-            <MatchRow key={match.id} match={match} />
-          ))}
-        </ul>
-      )}
+      <div className={styles.columns}>
+        <div>
+          <h2 className={styles.columnTitle}>À venir</h2>
+          {upcoming.length === 0 ? (
+            <p className={styles.empty}>Aucun match à venir sur les compétitions affichées.</p>
+          ) : (
+            <GroupedMatches matches={upcoming} />
+          )}
+        </div>
+        <div>
+          <h2 className={styles.columnTitle}>Récents</h2>
+          {recent.length === 0 ? (
+            <p className={styles.empty}>Aucun match récent sur les compétitions affichées.</p>
+          ) : (
+            <GroupedMatches matches={recent} />
+          )}
+        </div>
+      </div>
     </section>
   );
 }

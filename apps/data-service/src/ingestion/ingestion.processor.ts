@@ -31,6 +31,9 @@ export class IngestionProcessor extends WorkerHost {
       case 'sync-rosters':
         await this.ingestion.syncAllActiveRosters();
         break;
+      case 'sync-live':
+        await this.ingestion.syncLiveWindow();
+        break;
       case 'sync-competition':
         await this.ingestion.syncCompetition((job.data as { competitionId: string }).competitionId);
         break;

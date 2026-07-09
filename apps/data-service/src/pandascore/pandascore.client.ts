@@ -97,6 +97,17 @@ export class PandascoreClient {
     });
   }
 
+  /** Matchs d'une série sur une fenêtre temporelle (1 page) : pour le sync « live ». */
+  listMatchesInWindow(game: GameId, serieId: number, from: Date, to: Date): Promise<PSMatch[]> {
+    const prefix = PANDASCORE_PATHS[game];
+    return this.get<PSMatch[]>(`/${prefix}/matches`, {
+      'filter[serie_id]': serieId,
+      'range[begin_at]': `${from.toISOString()},${to.toISOString()}`,
+      sort: 'begin_at',
+      per_page: PER_PAGE,
+    });
+  }
+
   async listTeamsWithPlayers(game: GameId, teamIds: number[]): Promise<PSTeam[]> {
     if (teamIds.length === 0) return [];
     const prefix = PANDASCORE_PATHS[game];

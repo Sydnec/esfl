@@ -1,0 +1,121 @@
+.main {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: var(--space-4) var(--space-3) var(--space-6);
+}
+
+.title {
+  font-size: 1.5rem;
+  margin-bottom: var(--space-3);
+}
+
+.section {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.sectionTitle {
+  font-size: 1rem;
+  margin-bottom: var(--space-2);
+}
+
+.avatarRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.uploadButton {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-1) var(--space-2);
+  cursor: pointer;
+  font-size: 0.9375rem;
+}
+
+.fileInput {
+  display: none;
+}
+
+.inlineForm {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: 0.875rem;
+  color: var(--color-muted);
+}
+
+.input {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-2);
+  font: inherit;
+  color: var(--color-text);
+  flex: 1;
+}
+
+.submit {
+  border: none;
+  border-radius: var(--radius);
+  background: var(--color-accent);
+  color: var(--color-accent-text);
+  padding: var(--space-2) var(--space-3);
+  align-self: flex-start;
+}
+
+.submit:disabled {
+  opacity: 0.5;
+}
+
+.hint {
+  color: var(--color-muted);
+  font-size: 0.875rem;
+  margin-top: var(--space-1);
+}
+
+.message {
+  margin-top: var(--space-2);
+  font-size: 0.875rem;
+  color: var(--color-accent);
+}
+
+.danger {
+  border-color: var(--color-danger);
+}
+
+.confirmRow {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.deleteButton {
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius);
+  background: var(--color-bg);
+  color: var(--color-danger);
+  padding: var(--space-2) var(--space-3);
+  margin-top: var(--space-2);
+}
+
+.cancelButton {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg);
+  color: var(--color-text);
+  padding: var(--space-2) var(--space-3);
+  margin-top: var(--space-2);
+}

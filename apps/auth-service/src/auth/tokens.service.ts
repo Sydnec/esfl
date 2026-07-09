@@ -3,7 +3,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import type { AccessTokenPayload } from '@esfl/contracts';
-import type { User } from '../../generated/client';
+import type { SafeUser } from './auth.service';
 import { PrismaService } from '../prisma.service';
 
 export interface IssuedRefreshToken {
@@ -23,7 +23,7 @@ export class TokensService {
     return Number(this.config.get('JWT_REFRESH_TTL_SECONDS') ?? 2_592_000) * 1000;
   }
 
-  signAccessToken(user: User): Promise<string> {
+  signAccessToken(user: SafeUser): Promise<string> {
     const payload: AccessTokenPayload = {
       sub: user.id,
       email: user.email,
@@ -53,7 +53,7 @@ export class TokensService {
    */
   async rotateRefreshToken(
     rawToken: string,
-  ): Promise<{ user: User; refresh: IssuedRefreshToken } | null> {
+  ): Promise<{ user: SafeUser; refresh: IssuedRefreshToken } | null> {
     const ROTATION_AGE_MS = 24 * 3600 * 1000;
     const stored = await this.prisma.refreshToken.findUnique({
       where: { tokenHash: this.hash(rawToken) },

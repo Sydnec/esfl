@@ -1,5 +1,6 @@
 import {
   Controller,
+  Delete,
   ForbiddenException,
   Get,
   Param,
@@ -62,6 +63,13 @@ export class ScoringController {
   @Post('recompute/:matchId')
   recompute(@Param('matchId') matchId: string) {
     return this.scoring.computeForMatch(matchId);
+  }
+
+  /** Nettoyage à la suppression d'un compte (appel interne). */
+  @Delete('internal/users/:userId')
+  async removeUser(@Param('userId') userId: string) {
+    await this.scoring.removeUserScores(userId);
+    return { ok: true };
   }
 
   private async memberLeague(leagueId: string, userId: string) {

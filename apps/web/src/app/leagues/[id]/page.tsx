@@ -3,10 +3,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { GAME_LABELS } from '@esfl/contracts';
+import { GAME_SHORT_LABELS } from '@esfl/contracts';
 import { useAuth } from '@/components/AuthProvider';
 import { Avatar } from '@/components/Avatar';
-import { ApiError, request } from '@/lib/api';
+import { MatchRow } from '@/components/MatchesOverview';
+import { API_URL, ApiError, request } from '@/lib/api';
+import { formatDayChip, parisDateOf } from '@/lib/format';
 import type {
   Competition,
   LeaderboardEntry,
@@ -18,6 +20,8 @@ import type {
   TopPlayerEntry,
 } from '@/lib/types';
 import styles from './page.module.css';
+
+const DAY_POLL_INTERVAL_MS = 60_000;
 
 interface TopPerf {
   points: number;
@@ -33,10 +37,12 @@ export default function LeaguePage() {
   const [matchDays, setMatchDays] = useState<MatchDaySummary[]>([]);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [catalog, setCatalog] = useState<Competition[]>([]);
-  const [usernames, setUsernames] = useState<Map<string, string>>(new Map());
-  const [matches, setMatches] = useState<MatchSummary[]>([]);
+  const [members, setMembers] = useState<Map<string, PublicUserRef>>(new Map());
   const [topPerfs, setTopPerfs] = useState<TopPerf[]>([]);
   const [topPerfsDate, setTopPerfsDate] = useState<string | null>(null);
+  const [selectedDayId, setSelectedDayId] = useState<string | null>(null);
+  const [dayMatches, setDayMatches] = useState<MatchSummary[] | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [addCompetitionId, setAddCompetitionId] = useState('');
   const [error, setError] = useState<string | null>(null);
 
@@ -48,25 +54,23 @@ export default function LeaguePage() {
     try {
       const detail = await authedFetch<League>(`/fantasy/leagues/${id}`);
       setLeague(detail);
-      const competitionIds = detail.competitions.map((entry) => entry.competitionId).join(',');
-      const [days, board, allCompetitions, members, planning] = await Promise.all([
+      const [days, board, allCompetitions, memberRefs] = await Promise.all([
         authedFetch<MatchDaySummary[]>(`/fantasy/leagues/${id}/matchdays`),
         authedFetch<LeaderboardEntry[]>(`/scoring/leagues/${id}/leaderboard`),
         request<Competition[]>('/data/competitions'),
         request<PublicUserRef[]>(
           `/auth/users?ids=${(detail.members ?? []).map((member) => member.userId).join(',')}`,
         ),
-        request<MatchSummary[]>(
-          `/data/matches?competitionIds=${competitionIds}&from=${new Date(Date.now() - 24 * 3600 * 1000).toISOString()}`,
-        ),
       ]);
       setMatchDays(days);
       setLeaderboard(board);
       setCatalog(allCompetitions);
-      setUsernames(new Map(members.map((member) => [member.id, member.username])));
-      setMatches(planning.slice(0, 20));
+      setMembers(new Map(memberRefs.map((member) => [member.id, member])));
+      setSelectedDayId(
+        (current) =>
+          current ?? (days.find((day) => !day.deadlinePassed) ?? days.at(-1))?.id ?? null,
+      );
 
-      // Meilleures perfs de la dernière journée passée.
       const lastPassed = days.filter((day) => day.deadlinePassed).at(-1);
       if (lastPassed) {
         setTopPerfsDate(lastPassed.date);
@@ -81,8 +85,6 @@ export default function LeaguePage() {
           setTopPerfs(
             top.map((entry) => ({ points: entry.points, player: byId.get(entry.playerId) ?? null })),
           );
-        } else {
-          setTopPerfs([]);
         }
       }
     } catch (err) {
@@ -94,13 +96,45 @@ export default function LeaguePage() {
     if (user) void load();
   }, [user, load]);
 
-  const followedIds = useMemo(
-    () => new Set(league?.competitions.map((entry) => entry.competitionId)),
-    [league],
+  const selectedDay = useMemo(
+    () => matchDays.find((day) => day.id === selectedDayId) ?? null,
+    [matchDays, selectedDayId],
   );
+
+  // Matchs de la journée sélectionnée, rafraîchis périodiquement.
+  const loadDayMatches = useCallback(async () => {
+    if (!league || !selectedDay) return;
+    const competitionIds = league.competitions.map((entry) => entry.competitionId).join(',');
+    const dayStart = new Date(`${selectedDay.date}T00:00:00Z`);
+    const from = new Date(dayStart.getTime() - 12 * 3600 * 1000).toISOString();
+    const to = new Date(dayStart.getTime() + 36 * 3600 * 1000).toISOString();
+    const matches = await request<MatchSummary[]>(
+      `/data/matches?competitionIds=${competitionIds}&from=${from}&to=${to}`,
+    );
+    setDayMatches(
+      matches.filter((match) => {
+        const start = match.scheduledAt;
+        return start && parisDateOf(start) === selectedDay.date;
+      }),
+    );
+  }, [league, selectedDay]);
+
+  useEffect(() => {
+    setDayMatches(null);
+    void loadDayMatches();
+    const interval = setInterval(() => {
+      if (!document.hidden) void loadDayMatches();
+    }, DAY_POLL_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [loadDayMatches]);
+
   const competitionName = useCallback(
     (competitionId: string) => catalog.find((c) => c.id === competitionId)?.name ?? competitionId,
     [catalog],
+  );
+  const followedIds = useMemo(
+    () => new Set(league?.competitions.map((entry) => entry.competitionId)),
+    [league],
   );
   const addable = useMemo(
     () => catalog.filter((competition) => !followedIds.has(competition.id)),
@@ -128,27 +162,75 @@ export default function LeaguePage() {
   }
 
   const isOwner = league.ownerId === user.id;
-  const upcomingDays = matchDays.filter((day) => !day.deadlinePassed);
-  const pastDays = matchDays.filter((day) => day.deadlinePassed);
 
   return (
     <main className={styles.main}>
       <div className={styles.headerRow}>
         <h1 className={styles.title}>{league.name}</h1>
-        <span className={styles.invite}>
-          Code d’invitation : <strong>{league.inviteCode}</strong>
-        </span>
+        <button className={styles.settingsButton} onClick={() => setSettingsOpen(true)}>
+          Paramètres
+        </button>
       </div>
-      <p className={styles.settings}>
-        Roster de {league.rosterSize} joueurs · verrouillage {league.lockMatchDays} journée(s)
-      </p>
       {error && <p className={styles.error}>{error}</p>}
+
+      {settingsOpen && (
+        <div className={styles.overlay} onClick={() => setSettingsOpen(false)}>
+          <div
+            className={styles.modal}
+            role="dialog"
+            aria-label="Paramètres de la ligue"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className={styles.modalHeader}>
+              <h2 className={styles.modalTitle}>Paramètres</h2>
+              <button className={styles.closeButton} onClick={() => setSettingsOpen(false)}>
+                Fermer
+              </button>
+            </div>
+            <dl className={styles.settingsList}>
+              <dt>Code d&apos;invitation</dt>
+              <dd>
+                <strong>{league.inviteCode}</strong>
+              </dd>
+              <dt>Joueurs par roster</dt>
+              <dd>{league.rosterSize}</dd>
+              <dt>Verrouillage après un pick</dt>
+              <dd>{league.lockMatchDays} journée(s)</dd>
+            </dl>
+            <h3 className={styles.modalSubtitle}>Compétitions suivies</h3>
+            <ul className={styles.competitions}>
+              {league.competitions.map((entry) => (
+                <li key={entry.competitionId}>{competitionName(entry.competitionId)}</li>
+              ))}
+            </ul>
+            {isOwner && addable.length > 0 && (
+              <form className={styles.addForm} onSubmit={handleAddCompetition}>
+                <select
+                  className={styles.select}
+                  value={addCompetitionId}
+                  onChange={(e) => setAddCompetitionId(e.target.value)}
+                >
+                  <option value="">Ajouter une compétition…</option>
+                  {addable.map((competition) => (
+                    <option key={competition.id} value={competition.id}>
+                      [{GAME_SHORT_LABELS[competition.gameId]}] {competition.name}
+                    </option>
+                  ))}
+                </select>
+                <button className={styles.addButton} type="submit" disabled={!addCompetitionId}>
+                  Ajouter
+                </button>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className={styles.columns}>
         <section className={styles.column}>
           <h2 className={styles.sectionTitle}>Classement</h2>
           {leaderboard.length === 0 ? (
-            <p className={styles.empty}>Aucun point marqué pour l’instant.</p>
+            <p className={styles.empty}>Aucun point marqué pour l&apos;instant.</p>
           ) : (
             <table className={styles.table}>
               <thead>
@@ -160,21 +242,31 @@ export default function LeaguePage() {
                 </tr>
               </thead>
               <tbody>
-                {leaderboard.map((entry) => (
-                  <tr key={entry.userId} className={entry.userId === user.id ? styles.me : ''}>
-                    <td>{entry.rank}</td>
-                    <td>{usernames.get(entry.userId) ?? entry.userId}</td>
-                    <td>{entry.points}</td>
-                    <td>{entry.matchDaysPlayed}</td>
-                  </tr>
-                ))}
+                {leaderboard.map((entry) => {
+                  const member = members.get(entry.userId);
+                  return (
+                    <tr key={entry.userId} className={entry.userId === user.id ? styles.me : ''}>
+                      <td>{entry.rank}</td>
+                      <td className={styles.memberCell}>
+                        <Avatar
+                          src={member?.avatarUrl ? `${API_URL}${member.avatarUrl}` : null}
+                          label={member?.username ?? '?'}
+                          size={20}
+                        />
+                        {member?.username ?? 'Ancien membre'}
+                      </td>
+                      <td>{entry.points}</td>
+                      <td>{entry.matchDaysPlayed}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}
 
           {topPerfsDate && (
             <>
-              <h2 className={styles.sectionTitle}>Meilleures perfs — {topPerfsDate}</h2>
+              <h2 className={styles.sectionTitle}>Meilleures perfs · {topPerfsDate}</h2>
               {topPerfs.length === 0 ? (
                 <p className={styles.empty}>Pas encore de points calculés sur cette journée.</p>
               ) : (
@@ -205,119 +297,75 @@ export default function LeaguePage() {
 
           <h2 className={styles.sectionTitle}>Membres ({league.members?.length ?? 0})</h2>
           <ul className={styles.members}>
-            {(league.members ?? []).map((member) => (
-              <li key={member.userId}>
-                {usernames.get(member.userId) ?? member.userId}
-                {member.role === 'owner' && <span className={styles.ownerTag}> · créateur</span>}
-              </li>
-            ))}
+            {(league.members ?? []).map((member) => {
+              const ref = members.get(member.userId);
+              return (
+                <li key={member.userId} className={styles.memberCell}>
+                  <Avatar
+                    src={ref?.avatarUrl ? `${API_URL}${ref.avatarUrl}` : null}
+                    label={ref?.username ?? '?'}
+                    size={22}
+                  />
+                  {ref?.username ?? 'Ancien membre'}
+                  {member.role === 'owner' && <span className={styles.ownerTag}> · créateur</span>}
+                </li>
+              );
+            })}
           </ul>
-
-          <h2 className={styles.sectionTitle}>Compétitions suivies</h2>
-          <ul className={styles.competitions}>
-            {league.competitions.map((entry) => (
-              <li key={entry.competitionId}>{competitionName(entry.competitionId)}</li>
-            ))}
-          </ul>
-          {isOwner && addable.length > 0 && (
-            <form className={styles.addForm} onSubmit={handleAddCompetition}>
-              <select
-                className={styles.select}
-                value={addCompetitionId}
-                onChange={(e) => setAddCompetitionId(e.target.value)}
-              >
-                <option value="">Ajouter une compétition…</option>
-                {addable.map((competition) => (
-                  <option key={competition.id} value={competition.id}>
-                    [{GAME_LABELS[competition.gameId]}] {competition.name}
-                  </option>
-                ))}
-              </select>
-              <button className={styles.addButton} type="submit" disabled={!addCompetitionId}>
-                Ajouter
-              </button>
-            </form>
-          )}
         </section>
 
         <section className={styles.column}>
-          <h2 className={styles.sectionTitle}>Journées à venir</h2>
-          {upcomingDays.length === 0 ? (
-            <p className={styles.empty}>Aucune journée à venir sur les compétitions suivies.</p>
+          <h2 className={styles.sectionTitle}>Journées</h2>
+          {matchDays.length === 0 ? (
+            <p className={styles.empty}>
+              Aucune journée sur les compétitions suivies pour le moment.
+            </p>
           ) : (
-            <ul className={styles.days}>
-              {upcomingDays.map((day) => (
-                <li key={day.id}>
-                  <Link href={`/leagues/${league.id}/days/${day.id}`} className={styles.day}>
-                    <span>{day.date}</span>
-                    <span className={styles.dayMeta}>
-                      deadline {new Date(day.firstMatchAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
-                      {day.myRosterSubmitted ? ' · roster soumis ✓' : ' · roster à faire'}
-                    </span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-
-          {pastDays.length > 0 && (
             <>
-              <h2 className={styles.sectionTitle}>Journées passées</h2>
-              <ul className={styles.days}>
-                {pastDays.slice(-5).map((day) => (
-                  <li key={day.id}>
-                    <Link href={`/leagues/${league.id}/days/${day.id}`} className={styles.day}>
-                      <span>{day.date}</span>
-                      <span className={styles.dayMeta}>
-                        {day.myRosterSubmitted ? 'roster soumis' : 'non joué'}
-                      </span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-
-          <h2 className={styles.sectionTitle}>Planning des matchs</h2>
-          {matches.length === 0 ? (
-            <p className={styles.empty}>Aucun match à venir.</p>
-          ) : (
-            <ul className={styles.matches}>
-              {matches.map((match) => (
-                <li key={match.id} className={styles.match}>
-                  <span className={styles.matchGame}>{GAME_LABELS[match.gameId]}</span>
-                  <span
-                    className={styles.matchTeams}
-                    title={`${match.teamA?.name ?? '?'} vs ${match.teamB?.name ?? '?'}`}
+              <div className={styles.timeline}>
+                {matchDays.map((day) => (
+                  <button
+                    key={day.id}
+                    className={`${styles.dayChip} ${day.id === selectedDayId ? styles.dayChipActive : ''} ${
+                      day.deadlinePassed ? styles.dayChipPast : ''
+                    }`}
+                    onClick={() => setSelectedDayId(day.id)}
                   >
-                    <Avatar
-                      src={match.teamA?.imageUrl}
-                      label={match.teamA?.acronym || match.teamA?.name || '?'}
-                      size={16}
-                    />
-                    {match.teamA?.acronym || match.teamA?.name || '?'}
-                    <span className={styles.vs}>vs</span>
-                    <Avatar
-                      src={match.teamB?.imageUrl}
-                      label={match.teamB?.acronym || match.teamB?.name || '?'}
-                      size={16}
-                    />
-                    {match.teamB?.acronym || match.teamB?.name || '?'}
-                    {match.status === 'finished' && ` — ${match.scoreA} : ${match.scoreB}`}
-                  </span>
-                  <span className={styles.matchDate}>
-                    {match.scheduledAt
-                      ? new Date(match.scheduledAt).toLocaleString('fr-FR', {
-                          day: '2-digit',
-                          month: '2-digit',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })
-                      : '—'}
-                  </span>
-                </li>
-              ))}
-            </ul>
+                    {formatDayChip(day.date)}
+                    {day.myRosterSubmitted && <span className={styles.daySubmitted}> ✓</span>}
+                  </button>
+                ))}
+              </div>
+
+              {selectedDay && (
+                <div className={styles.dayPanel}>
+                  <div className={styles.dayHeader}>
+                    <h3 className={styles.dayTitle}>{formatDayChip(selectedDay.date)}</h3>
+                    <Link
+                      href={`/leagues/${league.id}/days/${selectedDay.id}`}
+                      className={selectedDay.deadlinePassed ? styles.dayLinkMuted : styles.dayLink}
+                    >
+                      {selectedDay.deadlinePassed
+                        ? 'Voir mon roster'
+                        : selectedDay.myRosterSubmitted
+                          ? 'Modifier mon roster'
+                          : 'Composer mon roster'}
+                    </Link>
+                  </div>
+                  {dayMatches === null ? (
+                    <p className={styles.empty}>Chargement…</p>
+                  ) : dayMatches.length === 0 ? (
+                    <p className={styles.empty}>Aucun match ce jour-là.</p>
+                  ) : (
+                    <ul className={styles.dayMatches}>
+                      {dayMatches.map((match) => (
+                        <MatchRow key={match.id} match={match} />
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </>
           )}
         </section>
       </div>
