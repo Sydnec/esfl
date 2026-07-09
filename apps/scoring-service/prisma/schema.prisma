@@ -19,6 +19,8 @@ model FantasyPoints {
   points     Float
   /** Détail par composante (transparence dans l'UI). */
   breakdown  Json
+  /** Version de la formule ayant produit ces points (v1, v2…). */
+  version    String   @default("v1")
   computedAt DateTime @updatedAt @map("computed_at")
 
   @@unique([matchId, playerId])

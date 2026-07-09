@@ -9,6 +9,9 @@ export interface DataMatch {
   scheduledAt: string | null;
   beginAt: string | null;
   endAt: string | null;
+  scoreA: number | null;
+  scoreB: number | null;
+  gamesSummary: Array<{ position: number; winner: 'A' | 'B' | null }> | null;
 }
 
 export interface DataPlayerMatchStats {

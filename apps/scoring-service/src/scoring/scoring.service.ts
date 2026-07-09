@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { GameId } from '@esfl/contracts';
-import { computeScore } from '../calculators/calculators';
+import { computeScore, mapsPlayed, SCORING_VERSION } from '../calculators/calculators';
 import { DataClient, DataMatch } from '../clients/data.client';
 import { FantasyClient, FantasyRoster } from '../clients/fantasy.client';
 import { PrismaService } from '../prisma.service';
@@ -23,10 +23,11 @@ export class ScoringService {
   async computeForMatch(matchId: string): Promise<{ playersScored: number; rostersUpdated: number }> {
     const match = await this.data.getMatch(matchId);
     const stats = await this.data.listStats([matchId]);
+    const maps = mapsPlayed(match);
 
     let playersScored = 0;
     for (const stat of stats) {
-      const result = computeScore(stat.gameId as GameId, stat.normalized);
+      const result = computeScore(stat.gameId as GameId, stat.normalized, maps);
       if (!result) {
         this.logger.warn(`Stats invalides pour ${stat.playerId} (match ${matchId})`);
         continue;
@@ -39,8 +40,9 @@ export class ScoringService {
           gameId: stat.gameId,
           points: result.points,
           breakdown: result.breakdown,
+          version: SCORING_VERSION,
         },
-        update: { points: result.points, breakdown: result.breakdown },
+        update: { points: result.points, breakdown: result.breakdown, version: SCORING_VERSION },
       });
       playersScored += 1;
     }
