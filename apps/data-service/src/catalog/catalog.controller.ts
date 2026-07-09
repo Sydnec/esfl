@@ -1,7 +1,8 @@
-import { BadRequestException, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { GAME_IDS, GAME_LABELS } from '@esfl/contracts';
 import { Queue } from 'bullmq';
+import { AdminGuard } from '../common/admin.guard';
 import { INGESTION_QUEUE, IngestionJobName } from '../ingestion/ingestion.processor';
 import { CatalogService } from './catalog.service';
 
@@ -73,8 +74,15 @@ export class CatalogController {
     return this.catalog.listStats(parseIds(matchIds));
   }
 
+  /** Ids des matchs ayant des stats (recalcul en masse du scoring, appel interne). */
+  @Get('internal/stats/match-ids')
+  statsMatchIds() {
+    return this.catalog.distinctStatsMatchIds();
+  }
+
   /** Déclenchement manuel d'un job d'ingestion (réservé à un usage admin/dev). */
   @Post('admin/sync/:job')
+  @UseGuards(AdminGuard)
   async triggerSync(@Param('job') job: string) {
     const allowed: IngestionJobName[] = ['sync-series', 'sync-matches', 'sync-rosters'];
     if (!allowed.includes(job as IngestionJobName)) {
@@ -86,6 +94,7 @@ export class CatalogController {
 
   /** Sync immédiat d'une compétition (appelé par le fantasy-service à l'ajout). */
   @Post('admin/sync-competition/:id')
+  @UseGuards(AdminGuard)
   async triggerCompetitionSync(@Param('id') competitionId: string) {
     await this.ingestionQueue.add('sync-competition', { competitionId });
     return { enqueued: 'sync-competition', competitionId };
@@ -93,6 +102,7 @@ export class CatalogController {
 
   /** Relance la récupération de stats d'un match (avec retries planifiés). */
   @Post('admin/ingest-stats/:matchId')
+  @UseGuards(AdminGuard)
   async triggerIngestStats(@Param('matchId') matchId: string) {
     await this.ingestionQueue.add(
       'ingest-stats',

@@ -14,6 +14,16 @@ async function bootstrap() {
     credentials: true,
   });
 
+  // Les routes internes (purges, rosters bruts…) ne sont jamais exposées :
+  // les services s'appellent en direct via *_SERVICE_URL, pas via le gateway.
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    if (req.path.includes('/internal/')) {
+      res.status(404).end();
+      return;
+    }
+    next();
+  });
+
   // Contexte utilisateur : un Bearer token valide devient un en-tête x-user-id
   // pour les services internes. Les x-user-* entrants sont toujours écrasés.
   app.use((req: Request, _res: Response, next: NextFunction) => {

@@ -63,4 +63,9 @@ export class DataClient {
   listStats(matchIds: string[]): Promise<DataPlayerMatchStats[]> {
     return this.get<DataPlayerMatchStats[]>('/data/stats', { matchIds: matchIds.join(',') });
   }
+
+  /** Ids des matchs ayant des stats (pour le recalcul en masse). */
+  listStatsMatchIds(): Promise<string[]> {
+    return this.get<string[]>('/data/internal/stats/match-ids');
+  }
 }

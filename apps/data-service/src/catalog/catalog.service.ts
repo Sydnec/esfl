@@ -5,6 +5,15 @@ import { PrismaService } from '../prisma.service';
 export class CatalogService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /** Ids distincts des matchs ayant au moins une ligne de stats. */
+  async distinctStatsMatchIds(): Promise<string[]> {
+    const rows = await this.prisma.playerMatchStats.findMany({
+      distinct: ['matchId'],
+      select: { matchId: true },
+    });
+    return rows.map((row) => row.matchId);
+  }
+
   listCompetitions(gameId?: string, search?: string) {
     return this.prisma.competition.findMany({
       where: {

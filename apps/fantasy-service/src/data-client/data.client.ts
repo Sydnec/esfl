@@ -71,6 +71,7 @@ export class DataClient {
   triggerCompetitionSync(competitionId: string): void {
     fetch(`${this.baseUrl}/data/admin/sync-competition/${competitionId}`, {
       method: 'POST',
+      headers: { 'x-admin-token': process.env.ADMIN_TOKEN ?? '' },
     }).catch(() => {
       // best effort : le cycle planifié rattrapera
     });

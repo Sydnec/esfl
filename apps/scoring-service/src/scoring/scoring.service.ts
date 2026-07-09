@@ -22,20 +22,63 @@ export class ScoringService {
    */
   async computeForMatch(matchId: string): Promise<{ playersScored: number; rostersUpdated: number }> {
     const match = await this.data.getMatch(matchId);
-    const stats = await this.data.listStats([matchId]);
+    const playersScored = await this.scorePlayers(match);
+    const rostersUpdated = await this.updateRosterScores(match);
+    this.logger.log(
+      `Match ${matchId} : ${playersScored} joueurs notés, ${rostersUpdated} rosters mis à jour`,
+    );
+    return { playersScored, rostersUpdated };
+  }
+
+  /**
+   * Recalcule tous les points fantasy avec la formule courante (matchs ayant
+   * déjà des points ou des stats), puis les rosters des journées touchées.
+   * Coût : lectures internes data-service uniquement, aucune API externe.
+   */
+  async recomputeAll(): Promise<{ matches: number; playersScored: number; datesUpdated: number }> {
+    const fromPoints = await this.prisma.fantasyPoints.findMany({
+      distinct: ['matchId'],
+      select: { matchId: true },
+    });
+    const fromStats = await this.data.listStatsMatchIds();
+    const matchIds = [...new Set([...fromPoints.map((row) => row.matchId), ...fromStats])];
+
+    let playersScored = 0;
+    const dates = new Set<string>();
+    for (const matchId of matchIds) {
+      // Match disparu côté data : on laisse les points orphelins tels quels.
+      const match = await this.data.getMatch(matchId).catch(() => null);
+      if (!match) continue;
+      playersScored += await this.scorePlayers(match);
+      const reference = match.beginAt ?? match.scheduledAt ?? match.endAt;
+      if (reference) dates.add(parisDate(new Date(reference)));
+    }
+
+    for (const date of dates) {
+      await this.updateRosterScoresForDate(date);
+    }
+    this.logger.log(
+      `Recalcul complet (${SCORING_VERSION}) : ${matchIds.length} matchs, ${playersScored} scores, ${dates.size} journées`,
+    );
+    return { matches: matchIds.length, playersScored, datesUpdated: dates.size };
+  }
+
+  /** Note (upsert) tous les joueurs d'un match à partir de ses stats. */
+  private async scorePlayers(match: DataMatch): Promise<number> {
+    const stats = await this.data.listStats([match.id]);
     const maps = mapsPlayed(match);
 
     let playersScored = 0;
     for (const stat of stats) {
       const result = computeScore(stat.gameId as GameId, stat.normalized, maps);
       if (!result) {
-        this.logger.warn(`Stats invalides pour ${stat.playerId} (match ${matchId})`);
+        this.logger.warn(`Stats invalides pour ${stat.playerId} (match ${match.id})`);
         continue;
       }
       await this.prisma.fantasyPoints.upsert({
-        where: { matchId_playerId: { matchId, playerId: stat.playerId } },
+        where: { matchId_playerId: { matchId: match.id, playerId: stat.playerId } },
         create: {
-          matchId,
+          matchId: match.id,
           playerId: stat.playerId,
           gameId: stat.gameId,
           points: result.points,
@@ -46,24 +89,27 @@ export class ScoringService {
       });
       playersScored += 1;
     }
-
-    const rostersUpdated = await this.updateRosterScores(match);
-    this.logger.log(
-      `Match ${matchId} : ${playersScored} joueurs notés, ${rostersUpdated} rosters mis à jour`,
-    );
-    return { playersScored, rostersUpdated };
+    return playersScored;
   }
 
   /** Met à jour les scores des rosters de la journée du match. */
   private async updateRosterScores(match: DataMatch): Promise<number> {
     const reference = match.beginAt ?? match.scheduledAt ?? match.endAt;
     if (!reference) return 0;
-    const date = parisDate(new Date(reference));
+    return this.updateRosterScoresForDate(parisDate(new Date(reference)), match.competitionId);
+  }
 
+  /**
+   * Met à jour les rosters d'une journée, optionnellement limités aux ligues
+   * suivant une compétition donnée.
+   */
+  private async updateRosterScoresForDate(date: string, competitionId?: string): Promise<number> {
     const rosters = await this.fantasy.rostersForDate(date);
-    const impacted = rosters.filter((roster) =>
-      roster.league.competitions.some((entry) => entry.competitionId === match.competitionId),
-    );
+    const impacted = competitionId
+      ? rosters.filter((roster) =>
+          roster.league.competitions.some((entry) => entry.competitionId === competitionId),
+        )
+      : rosters;
 
     let updated = 0;
     // Matchs de la journée par ligue (mémoïsé par ligue).

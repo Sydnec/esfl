@@ -8,9 +8,11 @@ import {
   Query,
   Req,
   UnauthorizedException,
+  UseGuards,
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { FantasyClient } from '../clients/fantasy.client';
+import { AdminGuard } from '../common/admin.guard';
 import { ScoringService } from './scoring.service';
 
 function userIdFrom(req: Request): string {
@@ -59,10 +61,18 @@ export class ScoringController {
     return this.scoring.playerPoints(playerIds ? playerIds.split(',').filter(Boolean) : []);
   }
 
-  /** Recalcul manuel d'un match (admin/dev, aussi utilisé par le seed E2E). */
+  /** Recalcul manuel d'un match (admin). */
   @Post('recompute/:matchId')
+  @UseGuards(AdminGuard)
   recompute(@Param('matchId') matchId: string) {
     return this.scoring.computeForMatch(matchId);
+  }
+
+  /** Recalcul complet avec la formule courante (admin, après un changement de version). */
+  @Post('admin/recompute-all')
+  @UseGuards(AdminGuard)
+  recomputeAll() {
+    return this.scoring.recomputeAll();
   }
 
   /** Nettoyage à la suppression d'un compte (appel interne). */

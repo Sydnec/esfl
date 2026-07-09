@@ -72,6 +72,7 @@ services:
       REDIS_URL: redis://redis:6379
       PANDASCORE_TOKEN: ${PANDASCORE_TOKEN:-}
       GRID_API_KEY: ${GRID_API_KEY:-}
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?}
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -85,6 +86,8 @@ services:
       PORT: 4003
       FANTASY_DATABASE_URL: postgresql://esfl:${POSTGRES_PASSWORD:?}@postgres:5432/esfl?schema=fantasy
       DATA_SERVICE_URL: http://data-service:4002
+      SCORING_SERVICE_URL: http://scoring-service:4004
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?}
     depends_on:
       postgres: { condition: service_healthy }
     restart: unless-stopped
@@ -99,6 +102,7 @@ services:
       REDIS_URL: redis://redis:6379
       DATA_SERVICE_URL: http://data-service:4002
       FANTASY_SERVICE_URL: http://fantasy-service:4003
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?}
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
