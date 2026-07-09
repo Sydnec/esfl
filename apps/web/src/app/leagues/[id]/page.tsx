@@ -6,7 +6,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { GAME_SHORT_LABELS } from '@esfl/contracts';
 import { useAuth } from '@/components/AuthProvider';
 import { Avatar } from '@/components/Avatar';
-import { MatchRow } from '@/components/MatchesOverview';
+import { MatchGrid } from '@/components/MatchCard';
 import { API_URL, ApiError, request } from '@/lib/api';
 import { formatDayChip, parisDateOf } from '@/lib/format';
 import type {
@@ -357,11 +357,7 @@ export default function LeaguePage() {
                   ) : dayMatches.length === 0 ? (
                     <p className={styles.empty}>Aucun match ce jour-là.</p>
                   ) : (
-                    <ul className={styles.dayMatches}>
-                      {dayMatches.map((match) => (
-                        <MatchRow key={match.id} match={match} />
-                      ))}
-                    </ul>
+                    <MatchGrid matches={dayMatches} />
                   )}
                 </div>
               )}

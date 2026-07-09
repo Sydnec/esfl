@@ -1,0 +1,86 @@
+.grid {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: var(--space-2);
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg);
+  color: var(--color-text);
+  padding: var(--space-2);
+}
+
+.card:hover {
+  background: var(--color-surface);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  min-width: 0;
+}
+
+.team {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+/* Côté B en miroir : tag près du score, logo à l'extérieur. */
+.team.reverse {
+  flex-direction: row-reverse;
+}
+
+.tag {
+  font-weight: 600;
+  font-size: 0.9375rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tbd {
+  color: var(--color-muted);
+  font-weight: 500;
+  flex: 1;
+  text-align: center;
+}
+
+.center {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  white-space: nowrap;
+}
+
+.score {
+  color: var(--color-accent);
+  font-size: 1rem;
+}
+
+.vs {
+  color: var(--color-muted);
+  font-size: 0.8125rem;
+}
+
+.meta {
+  color: var(--color-muted);
+  font-size: 0.8125rem;
+}
+
+.live {
+  color: var(--color-danger);
+  font-weight: 600;
+}
