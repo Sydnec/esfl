@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Lit la version dans "packageManager" du package.json racine.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Les services importent generated/client (gitignoré) : generate obligatoire
+      # avant le build. Aucune connexion à la base n'est nécessaire.
+      - run: pnpm -r --if-present prisma:generate
+
+      - run: pnpm build
+
+      - run: pnpm lint
+
+      - run: pnpm -r --if-present test

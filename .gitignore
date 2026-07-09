@@ -19,3 +19,4 @@ coverage/
 .DS_Store
 *.log
 generated/
+CLAUDE.md
