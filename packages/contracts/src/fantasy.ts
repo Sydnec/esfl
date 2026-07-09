@@ -21,6 +21,18 @@ export const addCompetitionInputSchema = z.object({
 });
 export type AddCompetitionInput = z.infer<typeof addCompetitionInputSchema>;
 
+/** Réglages modifiables d'une ligue (owner). Au moins un champ requis. */
+export const updateLeagueInputSchema = z
+  .object({
+    name: z.string().min(3).max(40).optional(),
+    rosterSize: z.number().int().min(1).max(10).optional(),
+    lockMatchDays: z.number().int().min(0).max(10).optional(),
+  })
+  .refine((value) => Object.values(value).some((field) => field !== undefined), {
+    message: 'Aucun champ à modifier',
+  });
+export type UpdateLeagueInput = z.infer<typeof updateLeagueInputSchema>;
+
 export const submitRosterInputSchema = z.object({
   playerIds: z.array(z.string().min(1)).min(1).max(10),
 });

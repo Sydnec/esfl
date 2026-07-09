@@ -1,4 +1,15 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import {
   AddCompetitionInput,
   addCompetitionInputSchema,
@@ -8,6 +19,8 @@ import {
   joinLeagueInputSchema,
   SubmitRosterInput,
   submitRosterInputSchema,
+  UpdateLeagueInput,
+  updateLeagueInputSchema,
 } from '@esfl/contracts';
 import { UserGuard, UserId } from '../common/user';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
@@ -48,6 +61,20 @@ export class LeaguesController {
     return this.leagues.getForMember(id, userId);
   }
 
+  @Patch(':id')
+  updateSettings(
+    @UserId() userId: string,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(updateLeagueInputSchema)) body: UpdateLeagueInput,
+  ) {
+    return this.leagues.updateSettings(id, userId, body);
+  }
+
+  @Delete(':id')
+  deleteLeague(@UserId() userId: string, @Param('id') id: string) {
+    return this.leagues.deleteLeague(id, userId);
+  }
+
   @Post(':id/competitions')
   addCompetition(
     @UserId() userId: string,
@@ -55,6 +82,25 @@ export class LeaguesController {
     @Body(new ZodValidationPipe(addCompetitionInputSchema)) body: AddCompetitionInput,
   ) {
     return this.leagues.addCompetition(id, userId, body.competitionId);
+  }
+
+  @Delete(':id/competitions/:competitionId')
+  removeCompetition(
+    @UserId() userId: string,
+    @Param('id') id: string,
+    @Param('competitionId') competitionId: string,
+  ) {
+    return this.leagues.removeCompetition(id, userId, competitionId);
+  }
+
+  /** Exclusion par le owner, ou départ volontaire quand userId = soi-même. */
+  @Delete(':id/members/:userId')
+  removeMember(
+    @UserId() actorId: string,
+    @Param('id') id: string,
+    @Param('userId') targetId: string,
+  ) {
+    return this.leagues.removeMember(id, actorId, targetId);
   }
 
   @Get(':id/matchdays')

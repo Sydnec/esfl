@@ -1,13 +1,16 @@
 import { randomBytes } from 'node:crypto';
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import type { CreateLeagueInput } from '@esfl/contracts';
+import type { CreateLeagueInput, UpdateLeagueInput } from '@esfl/contracts';
 import type { League } from '../../generated/client';
 import { DataClient } from '../data-client/data.client';
 import { PrismaService } from '../prisma.service';
+import { ScoringClient } from '../scoring-client/scoring.client';
+import { decideMemberRemoval } from './membership';
 
 /** Alphabet sans caractères ambigus (0/O, 1/I/L). */
 const INVITE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -22,6 +25,7 @@ export class LeaguesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly data: DataClient,
+    private readonly scoring: ScoringClient,
   ) {}
 
   async create(ownerId: string, input: CreateLeagueInput): Promise<League> {
@@ -126,12 +130,18 @@ export class LeaguesService {
     return this.getForMember(league.id, userId);
   }
 
-  /** Ajout d'une compétition en cours de ligue — réservé au créateur. */
-  async addCompetition(leagueId: string, userId: string, competitionId: string) {
+  /** Ligue dont l'utilisateur est le créateur, sinon 403. */
+  private async ownerLeague(leagueId: string, userId: string) {
     const league = await this.getForMember(leagueId, userId);
     if (league.ownerId !== userId) {
-      throw new ForbiddenException('Seul le créateur peut ajouter une compétition');
+      throw new ForbiddenException('Réservé au créateur de la ligue');
     }
+    return league;
+  }
+
+  /** Ajout d'une compétition en cours de ligue — réservé au créateur. */
+  async addCompetition(leagueId: string, userId: string, competitionId: string) {
+    await this.ownerLeague(leagueId, userId);
     await this.data.getCompetition(competitionId);
     await this.prisma.leagueCompetition.upsert({
       where: { leagueId_competitionId: { leagueId, competitionId } },
@@ -140,5 +150,77 @@ export class LeaguesService {
     });
     this.data.triggerCompetitionSync(competitionId);
     return this.getForMember(leagueId, userId);
+  }
+
+  /**
+   * Réglages de la ligue — réservé au créateur. lockMatchDays étant évalué
+   * en live sur les picks passés, le changer re-verrouille/libère
+   * rétroactivement ; rosterSize réduit ne rétrécit pas les rosters déjà
+   * soumis (borne appliquée au prochain submit). Assumé.
+   */
+  async updateSettings(leagueId: string, userId: string, input: UpdateLeagueInput) {
+    await this.ownerLeague(leagueId, userId);
+    await this.prisma.league.update({ where: { id: leagueId }, data: input });
+    return this.getForMember(leagueId, userId);
+  }
+
+  /** Retrait d'une compétition suivie — réservé au créateur, minimum une. */
+  async removeCompetition(leagueId: string, userId: string, competitionId: string) {
+    const league = await this.ownerLeague(leagueId, userId);
+    if (!league.competitions.some((entry) => entry.competitionId === competitionId)) {
+      throw new NotFoundException('Cette compétition n’est pas suivie par la ligue');
+    }
+    if (league.competitions.length <= 1) {
+      throw new BadRequestException('Une ligue doit suivre au moins une compétition');
+    }
+    // Les points déjà calculés sur ses matchs restent (resynchronisables via
+    // le recompute-all du scoring).
+    await this.prisma.leagueCompetition.delete({
+      where: { leagueId_competitionId: { leagueId, competitionId } },
+    });
+    return this.getForMember(leagueId, userId);
+  }
+
+  /** Exclusion par le owner (target ≠ soi) ou départ volontaire (target = soi). */
+  async removeMember(leagueId: string, actorId: string, targetId: string) {
+    const league = await this.getForMember(leagueId, actorId);
+    const decision = decideMemberRemoval(actorId, targetId, league.ownerId, league.members);
+
+    switch (decision.kind) {
+      case 'forbidden':
+        throw new ForbiddenException(decision.reason);
+      case 'quit-delete':
+        await this.prisma.league.delete({ where: { id: leagueId } });
+        this.scoring.removeLeagueScores(leagueId);
+        return { ok: true, leagueDeleted: true };
+      case 'quit-transfer':
+        await this.prisma.league.update({
+          where: { id: leagueId },
+          data: { ownerId: decision.heirUserId },
+        });
+        await this.prisma.leagueMember.update({
+          where: { leagueId_userId: { leagueId, userId: decision.heirUserId } },
+          data: { role: 'owner' },
+        });
+        break;
+      case 'kick':
+      case 'quit':
+        break;
+    }
+
+    await this.prisma.roster.deleteMany({ where: { leagueId, userId: targetId } });
+    await this.prisma.leagueMember.delete({
+      where: { leagueId_userId: { leagueId, userId: targetId } },
+    });
+    this.scoring.removeLeagueScores(leagueId, targetId);
+    return { ok: true, leagueDeleted: false };
+  }
+
+  /** Suppression de la ligue — réservé au créateur. Cascade Prisma complète. */
+  async deleteLeague(leagueId: string, userId: string) {
+    await this.ownerLeague(leagueId, userId);
+    await this.prisma.league.delete({ where: { id: leagueId } });
+    this.scoring.removeLeagueScores(leagueId);
+    return { ok: true };
   }
 }
