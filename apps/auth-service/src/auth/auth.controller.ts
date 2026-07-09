@@ -63,7 +63,8 @@ export class AuthController {
     }
     const rotated = await this.tokens.rotateRefreshToken(raw);
     if (!rotated) {
-      res.clearCookie(REFRESH_COOKIE, { path: '/auth' });
+      // Pas de clearCookie ici : un refresh concurrent a pu poser un cookie
+      // valide entre-temps, l'effacer détruirait sa session.
       throw new UnauthorizedException('Session expirée');
     }
     res.cookie(

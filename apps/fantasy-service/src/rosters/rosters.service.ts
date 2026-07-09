@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import type { League, MatchDay } from '../../generated/client';
 import { parisDate } from '../common/paris-date';
-import { DataClient, DataPlayer } from '../data-client/data.client';
+import { DataClient, DataMatch, DataPlayer } from '../data-client/data.client';
 import { PrismaService } from '../prisma.service';
 import { isLockedForDay, unlockDate } from './lock';
 
@@ -78,14 +78,45 @@ export class RostersService {
     }));
   }
 
+  /**
+   * Joueurs alignables une journée donnée : uniquement ceux dont l'équipe
+   * dispute un match ce jour-là (et pas tout le vivier des compétitions
+   * suivies), plus les matchs du jour pour l'affichage.
+   */
+  private async dayContext(
+    league: League & { competitions: { competitionId: string }[] },
+    day: MatchDay,
+  ): Promise<{ players: DataPlayer[]; matches: DataMatch[] }> {
+    const competitionIds = league.competitions.map((entry) => entry.competitionId);
+    const dayStart = new Date(`${day.date}T00:00:00Z`);
+    const [allPlayers, windowMatches] = await Promise.all([
+      this.data.listPlayers(competitionIds),
+      this.data.listMatches(
+        competitionIds,
+        new Date(dayStart.getTime() - 12 * 3600 * 1000),
+        new Date(dayStart.getTime() + 36 * 3600 * 1000),
+      ),
+    ]);
+    const matches = windowMatches.filter((match) => {
+      const start = match.beginAt ?? match.scheduledAt;
+      return start && match.status !== 'canceled' && parisDate(new Date(start)) === day.date;
+    });
+    const playingTeamIds = new Set(
+      matches.flatMap((match) => [match.teamAId, match.teamBId]).filter(Boolean),
+    );
+    const players = allPlayers.filter(
+      (player) => player.team && playingTeamIds.has(player.team.id),
+    );
+    return { players, matches };
+  }
+
   /** Écran de pick : joueurs éligibles avec état de verrouillage + mon roster. */
   async getPickBoard(leagueId: string, matchDayId: string, userId: string) {
     const league = await this.memberLeague(leagueId, userId);
     const day = await this.matchDay(leagueId, matchDayId);
 
-    const competitionIds = league.competitions.map((entry) => entry.competitionId);
-    const [players, leagueDays, myPastPicks, myRoster] = await Promise.all([
-      this.data.listPlayers(competitionIds),
+    const [{ players, matches }, leagueDays, myPastPicks, myRoster] = await Promise.all([
+      this.dayContext(league, day),
       this.prisma.matchDay.findMany({ where: { leagueId }, select: { date: true } }),
       this.pastPicksByPlayer(league.id, userId),
       this.prisma.roster.findUnique({
@@ -130,6 +161,14 @@ export class RostersService {
       lockMatchDays: league.lockMatchDays,
       myPicks: myRoster?.picks.map((pick) => pick.playerId) ?? [],
       players: board,
+      matches: matches.map((match) => ({
+        id: match.id,
+        gameId: match.gameId,
+        name: match.name,
+        scheduledAt: match.scheduledAt,
+        teamAId: match.teamAId,
+        teamBId: match.teamBId,
+      })),
     };
   }
 
@@ -148,9 +187,8 @@ export class RostersService {
       throw new BadRequestException(`Le roster est limité à ${league.rosterSize} joueurs`);
     }
 
-    const competitionIds = league.competitions.map((entry) => entry.competitionId);
-    const [eligiblePlayers, leagueDays, myPastPicks] = await Promise.all([
-      this.data.listPlayers(competitionIds),
+    const [{ players: eligiblePlayers }, leagueDays, myPastPicks] = await Promise.all([
+      this.dayContext(league, day),
       this.prisma.matchDay.findMany({ where: { leagueId }, select: { date: true } }),
       this.pastPicksByPlayer(league.id, userId, day.date),
     ]);
@@ -160,7 +198,9 @@ export class RostersService {
     for (const playerId of playerIds) {
       const player = eligibleById.get(playerId);
       if (!player) {
-        throw new BadRequestException(`Joueur inéligible dans cette ligue : ${playerId}`);
+        throw new BadRequestException(
+          `Joueur inéligible pour cette journée (son équipe ne joue pas) : ${playerId}`,
+        );
       }
       const lastPickDate = myPastPicks.get(playerId);
       if (

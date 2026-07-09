@@ -1,0 +1,106 @@
+.overview {
+  margin-top: var(--space-5);
+}
+
+.headerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.title {
+  font-size: 1.25rem;
+}
+
+.filterToggle {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg);
+  color: var(--color-text);
+  padding: var(--space-1) var(--space-2);
+  font-size: 0.875rem;
+}
+
+.filterPanel {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+  margin-top: var(--space-2);
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-3);
+}
+
+.filterGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.filterGame {
+  font-size: 0.8125rem;
+  color: var(--color-muted);
+  text-transform: uppercase;
+}
+
+.filterItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 0.875rem;
+}
+
+.sectionTitle {
+  font-size: 1rem;
+  margin: var(--space-4) 0 var(--space-2);
+  color: var(--color-muted);
+}
+
+.matches {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.match {
+  display: grid;
+  grid-template-columns: 140px 1fr auto;
+  gap: var(--space-2);
+  align-items: baseline;
+  padding: var(--space-1) 0;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 0.9375rem;
+}
+
+@media (max-width: 640px) {
+  .match {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+}
+
+.matchGame {
+  color: var(--color-muted);
+  font-size: 0.8125rem;
+}
+
+.matchTeams {
+  min-width: 0;
+}
+
+.score {
+  color: var(--color-accent);
+}
+
+.matchMeta {
+  color: var(--color-muted);
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+
+.empty {
+  color: var(--color-muted);
+  font-size: 0.9375rem;
+}

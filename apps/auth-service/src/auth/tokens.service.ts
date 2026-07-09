@@ -44,16 +44,26 @@ export class TokensService {
     return { token, expiresAt };
   }
 
-  /** Rotation : révoque le token présenté et en émet un nouveau. Null si invalide/expiré. */
+  /**
+   * Rotation paresseuse : le token n'est révoqué/réémis que s'il a plus de
+   * 24h. Deux refresh simultanés avec le même cookie (double-mount React,
+   * retries 401 parallèles) reçoivent ainsi la même réponse valide au lieu
+   * que le second détruise la session fraîchement rotationnée.
+   * Null si invalide/expiré.
+   */
   async rotateRefreshToken(
     rawToken: string,
   ): Promise<{ user: User; refresh: IssuedRefreshToken } | null> {
+    const ROTATION_AGE_MS = 24 * 3600 * 1000;
     const stored = await this.prisma.refreshToken.findUnique({
       where: { tokenHash: this.hash(rawToken) },
       include: { user: true },
     });
     if (!stored || stored.revokedAt || stored.expiresAt < new Date()) {
       return null;
+    }
+    if (Date.now() - stored.createdAt.getTime() < ROTATION_AGE_MS) {
+      return { user: stored.user, refresh: { token: rawToken, expiresAt: stored.expiresAt } };
     }
     await this.prisma.refreshToken.update({
       where: { id: stored.id },

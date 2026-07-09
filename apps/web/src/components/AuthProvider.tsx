@@ -23,9 +23,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Single-flight : tous les appelants (mount initial, retries 401 parallèles)
+  // partagent la même promesse de refresh — jamais deux refresh concurrents.
+  const refreshPromiseRef = useRef<Promise<Awaited<ReturnType<typeof authApi.refresh>>> | null>(
+    null,
+  );
+  const sharedRefresh = useCallback(() => {
+    if (!refreshPromiseRef.current) {
+      refreshPromiseRef.current = authApi.refresh().finally(() => {
+        refreshPromiseRef.current = null;
+      });
+    }
+    return refreshPromiseRef.current;
+  }, []);
+
   useEffect(() => {
-    authApi
-      .refresh()
+    sharedRefresh()
       .then((session) => {
         setUser(session.user);
         setAccessToken(session.accessToken);
@@ -34,7 +47,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // pas de session active
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [sharedRefresh]);
 
   const login = useCallback(async (input: LoginInput) => {
     const session = await authApi.login(input);
@@ -58,20 +71,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const tokenRef = useRef<string | null>(null);
   tokenRef.current = accessToken;
 
-  const authedFetch = useCallback(async <T,>(path: string, init: RequestInit = {}): Promise<T> => {
-    try {
-      return await request<T>(path, { ...init, token: tokenRef.current ?? undefined });
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 401) {
-        const session = await authApi.refresh();
-        setUser(session.user);
-        setAccessToken(session.accessToken);
-        tokenRef.current = session.accessToken;
-        return request<T>(path, { ...init, token: session.accessToken });
+  const authedFetch = useCallback(
+    async <T,>(path: string, init: RequestInit = {}): Promise<T> => {
+      try {
+        return await request<T>(path, { ...init, token: tokenRef.current ?? undefined });
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 401) {
+          const session = await sharedRefresh();
+          setUser(session.user);
+          setAccessToken(session.accessToken);
+          tokenRef.current = session.accessToken;
+          return request<T>(path, { ...init, token: session.accessToken });
+        }
+        throw error;
       }
-      throw error;
-    }
-  }, []);
+    },
+    [sharedRefresh],
+  );
 
   const value = useMemo(
     () => ({ user, accessToken, loading, login, register, logout, authedFetch }),

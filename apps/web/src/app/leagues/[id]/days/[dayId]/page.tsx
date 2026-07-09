@@ -133,36 +133,54 @@ export default function PickPage() {
       {GAME_IDS.map((gameId: GameId) => {
         const players = filtered.filter((player) => player.gameId === gameId);
         if (players.length === 0) return null;
+        // Regroupement par équipe : seuls les joueurs dont l'équipe dispute
+        // un match ce jour-là sont listés par le backend.
+        const byTeam = new Map<string, typeof players>();
+        for (const player of players) {
+          const key = player.team?.id ?? 'sans-equipe';
+          byTeam.set(key, [...(byTeam.get(key) ?? []), player]);
+        }
+        const teams = [...byTeam.values()].sort((a, b) =>
+          (a[0].team?.name ?? '').localeCompare(b[0].team?.name ?? ''),
+        );
         return (
           <section key={gameId} className={styles.gameSection}>
             <h2 className={styles.gameTitle}>{GAME_LABELS[gameId]}</h2>
-            <ul className={styles.players}>
-              {players.map((player) => {
-                const isSelected = selected.has(player.id);
-                return (
-                  <li key={player.id}>
-                    <button
-                      className={`${styles.player} ${isSelected ? styles.selected : ''} ${
-                        player.locked ? styles.locked : ''
-                      }`}
-                      onClick={() => !player.locked && toggle(player.id)}
-                      disabled={player.locked || board.matchDay.deadlinePassed}
-                    >
-                      <span className={styles.playerName}>{player.name}</span>
-                      <span className={styles.playerMeta}>
-                        {player.team?.name ?? 'Sans équipe'}
-                        {player.role ? ` · ${player.role}` : ''}
-                      </span>
-                      {player.locked && (
-                        <span className={styles.lockTag}>
-                          verrouillé{player.lockedUntil ? ` → ${player.lockedUntil}` : ''}
-                        </span>
-                      )}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
+            {teams.map((teamPlayers) => (
+              <div key={teamPlayers[0].team?.id ?? 'sans-equipe'} className={styles.teamGroup}>
+                <h3 className={styles.teamTitle}>
+                  {teamPlayers[0].team
+                    ? `${teamPlayers[0].team.acronym ? `${teamPlayers[0].team.acronym} — ` : ''}${teamPlayers[0].team.name}`
+                    : 'Sans équipe'}
+                </h3>
+                <ul className={styles.players}>
+                  {teamPlayers.map((player) => {
+                    const isSelected = selected.has(player.id);
+                    return (
+                      <li key={player.id}>
+                        <button
+                          className={`${styles.player} ${isSelected ? styles.selected : ''} ${
+                            player.locked ? styles.locked : ''
+                          }`}
+                          onClick={() => !player.locked && toggle(player.id)}
+                          disabled={player.locked || board.matchDay.deadlinePassed}
+                        >
+                          <span className={styles.playerName}>{player.name}</span>
+                          <span className={styles.playerMeta}>
+                            {player.role ?? 'joueur'}
+                          </span>
+                          {player.locked && (
+                            <span className={styles.lockTag}>
+                              verrouillé{player.lockedUntil ? ` → ${player.lockedUntil}` : ''}
+                            </span>
+                          )}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ))}
           </section>
         );
       })}

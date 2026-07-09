@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { GAME_LABELS } from '@esfl/contracts';
+import { MatchesOverview } from '@/components/MatchesOverview';
 import styles from './page.module.css';
 
 export default function HomePage() {
@@ -26,6 +27,7 @@ export default function HomePage() {
           Se connecter
         </Link>
       </div>
+      <MatchesOverview />
     </main>
   );
 }

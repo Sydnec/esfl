@@ -71,6 +71,16 @@
   margin-bottom: var(--space-2);
 }
 
+.teamGroup {
+  margin-top: var(--space-3);
+}
+
+.teamTitle {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: var(--space-2);
+}
+
 .players {
   list-style: none;
   display: grid;

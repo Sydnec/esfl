@@ -13,9 +13,12 @@ export interface DataMatch {
   id: string;
   gameId: string;
   competitionId: string;
+  name: string;
   status: string;
   scheduledAt: string | null;
   beginAt: string | null;
+  teamAId: string | null;
+  teamBId: string | null;
 }
 
 export interface DataPlayer {

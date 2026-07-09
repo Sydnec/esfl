@@ -48,6 +48,14 @@ export interface PickBoard {
   lockMatchDays: number;
   myPicks: string[];
   players: BoardPlayer[];
+  matches: Array<{
+    id: string;
+    gameId: GameId;
+    name: string;
+    scheduledAt: string | null;
+    teamAId: string | null;
+    teamBId: string | null;
+  }>;
 }
 
 export interface LeaderboardEntry {
