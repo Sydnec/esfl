@@ -112,13 +112,16 @@ export class CatalogController {
     return { enqueued: 'sync-competition', competitionId };
   }
 
-  /** Relance la récupération de stats d'un match (avec retries planifiés). */
+  /**
+   * Relance la récupération de stats d'un match (avec retries planifiés).
+   * `?force=true` refait le fetch même si des stats existent déjà (backfill).
+   */
   @Post('admin/ingest-stats/:matchId')
   @UseGuards(AdminGuard)
-  async triggerIngestStats(@Param('matchId') matchId: string) {
+  async triggerIngestStats(@Param('matchId') matchId: string, @Query('force') force?: string) {
     await this.ingestionQueue.add(
       'ingest-stats',
-      { matchId },
+      { matchId, force: force === 'true' },
       {
         attempts: 8,
         backoff: { type: 'exponential', delay: 15 * 60 * 1000 },
@@ -126,6 +129,6 @@ export class CatalogController {
         removeOnFail: 1000,
       },
     );
-    return { enqueued: 'ingest-stats', matchId };
+    return { enqueued: 'ingest-stats', matchId, force: force === 'true' };
   }
 }

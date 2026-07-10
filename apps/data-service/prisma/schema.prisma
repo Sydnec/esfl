@@ -117,6 +117,8 @@ model PlayerMatchStats {
   source     String
   raw        Json
   normalized Json
+  /** Détail par manche (MapStatsEntry[]) quand la source le fournit. */
+  perMap     Json?    @map("per_map")
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
   match      Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)

@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as cheerio from 'cheerio';
+import type { MapStatsEntry } from '@esfl/contracts';
 import type { Match, Player, Prisma } from '../../generated/client';
 import { buildPlayerIndex, matchPlayer, teamNamesMatch } from './matching';
 import { politeFetch } from './polite-fetch';
@@ -14,72 +15,138 @@ import type {
 const BASE_URL = 'https://www.vlr.gg';
 const RESULT_PAGES_TO_SCAN = 3;
 
+interface VlrRowStats {
+  /** Pseudo affiché par VLR (repris dans raw). */
+  name: string;
+  agent: string | null;
+  acs: number | null;
+  kills: number | null;
+  deaths: number | null;
+  assists: number | null;
+  firstKills: number | null;
+}
+
+/** Nom de map d'un en-tête de manche VLR (« Ascent PICK » → « Ascent »). */
+function headerMapName(text: string): string | null {
+  const name = text.trim().split('\n')[0].replace(/PICK/i, '').trim();
+  return name || null;
+}
+
 /**
- * Parse la page d'un match VLR.gg : tableau de stats « both maps »
- * (colonnes repérées par les en-têtes ACS/K/D/A/FK pour résister aux
- * réordonnancements mineurs). Exporté pur pour les tests sur fixture HTML.
+ * Parse la page d'un match VLR.gg : tableau agrégé « all maps » pour
+ * normalized, et blocs par manche (agent + KDA de chaque map) pour perMap.
+ * Colonnes repérées par les en-têtes ACS/K/D/A/FK pour résister aux
+ * réordonnancements mineurs. Exporté pur pour les tests sur fixture HTML.
  */
 export function mapVlrMatchHtml(html: string, players: Player[]): ProviderStatLine[] {
   const $ = cheerio.load(html);
   const index = buildPlayerIndex(players);
-  const lines: ProviderStatLine[] = [];
 
-  const statsRoot = $('.vm-stats-game[data-game-id="all"]');
-  if (statsRoot.length === 0) return [];
+  /** Lit tous les tableaux joueurs d'un bloc .vm-stats-game, par id local. */
+  const parseBlock = (block: ReturnType<typeof $>): Map<string, VlrRowStats> => {
+    const rows = new Map<string, VlrRowStats>();
+    block.find('table').each((_tableIdx, table) => {
+      const headers = $(table)
+        .find('thead th')
+        .map((_i, th) => $(th).text().trim().toLowerCase())
+        .get();
+      const columnOf = (label: string) => headers.findIndex((header) => header === label);
+      const cols = {
+        acs: columnOf('acs'),
+        kills: columnOf('k'),
+        deaths: columnOf('d'),
+        assists: columnOf('a'),
+        firstKills: columnOf('fk'),
+      };
+      if (cols.kills < 0 || cols.deaths < 0 || cols.assists < 0) return;
 
-  statsRoot.find('table').each((_tableIdx, table) => {
-    const headers = $(table)
-      .find('thead th')
-      .map((_i, th) => $(th).text().trim().toLowerCase())
-      .get();
-    const columnOf = (label: string) => headers.findIndex((header) => header === label);
-    const cols = {
-      acs: columnOf('acs'),
-      kills: columnOf('k'),
-      deaths: columnOf('d'),
-      assists: columnOf('a'),
-      firstKills: columnOf('fk'),
-    };
-    if (cols.kills < 0 || cols.deaths < 0 || cols.assists < 0) return;
+      $(table)
+        .find('tbody tr')
+        .each((_rowIdx, row) => {
+          const name = $(row).find('.mod-player .text-of').first().text().trim();
+          if (!name) return;
+          const local = matchPlayer(index, name);
+          if (!local) return;
 
-    $(table)
-      .find('tbody tr')
-      .each((_rowIdx, row) => {
-        const name = $(row).find('.mod-player .text-of').first().text().trim();
-        if (!name) return;
-        const local = matchPlayer(index, name);
-        if (!local) return;
+          const cells = $(row).find('td');
+          const readStat = (colIndex: number): number | null => {
+            if (colIndex < 0 || colIndex >= cells.length) return null;
+            const cell = $(cells[colIndex]);
+            const both = cell.find('.side.mod-both').first().text().trim();
+            const text = both || cell.text().trim();
+            const value = Number(text.replace(/[^\d.-]/g, ''));
+            return Number.isFinite(value) ? value : null;
+          };
+          const agentImg = $(row).find('.mod-agent img').first();
 
-        const cells = $(row).find('td');
-        const readStat = (colIndex: number): number | null => {
-          if (colIndex < 0 || colIndex >= cells.length) return null;
-          const cell = $(cells[colIndex]);
-          const both = cell.find('.side.mod-both').first().text().trim();
-          const text = both || cell.text().trim();
-          const value = Number(text.replace(/[^\d.-]/g, ''));
-          return Number.isFinite(value) ? value : null;
-        };
-
-        lines.push({
-          playerId: local.id,
-          raw: {
-            player: name,
+          rows.set(local.id, {
+            name,
+            agent: agentImg.attr('title') ?? agentImg.attr('alt') ?? null,
             acs: readStat(cols.acs),
             kills: readStat(cols.kills),
             deaths: readStat(cols.deaths),
             assists: readStat(cols.assists),
             firstKills: readStat(cols.firstKills),
-          } as Prisma.InputJsonValue,
-          normalized: {
-            kills: readStat(cols.kills) ?? 0,
-            deaths: readStat(cols.deaths) ?? 0,
-            assists: readStat(cols.assists) ?? 0,
-            acs: readStat(cols.acs),
-            firstKills: readStat(cols.firstKills),
-          },
+          });
         });
-      });
-  });
+    });
+    return rows;
+  };
+
+  const blocks = $('.vm-stats-game').toArray();
+  const allBlock = blocks.find((element) => $(element).attr('data-game-id') === 'all');
+  if (!allBlock) return [];
+  const aggregate = parseBlock($(allBlock));
+  if (aggregate.size === 0) return [];
+
+  // Détail par manche : blocs individuels dans l'ordre du DOM — même
+  // convention de position que mapVlrGames (l'onglet « all » n'a pas
+  // d'en-tête de manche).
+  const perMapByPlayer = new Map<string, MapStatsEntry[]>();
+  blocks
+    .filter((element) => $(element).attr('data-game-id') !== 'all')
+    .forEach((element, blockIdx) => {
+      const block = $(element);
+      const mapName = headerMapName(block.find('.vm-stats-game-header .map').first().text());
+      for (const [playerId, stats] of parseBlock(block)) {
+        const entries = perMapByPlayer.get(playerId) ?? [];
+        entries.push({
+          position: blockIdx + 1,
+          map: mapName,
+          agent: stats.agent,
+          kills: stats.kills ?? 0,
+          deaths: stats.deaths ?? 0,
+          assists: stats.assists ?? 0,
+          acs: stats.acs,
+          firstKills: stats.firstKills,
+        });
+        perMapByPlayer.set(playerId, entries);
+      }
+    });
+
+  const lines: ProviderStatLine[] = [];
+  for (const [playerId, stats] of aggregate) {
+    const perMap = perMapByPlayer.get(playerId);
+    lines.push({
+      playerId,
+      raw: {
+        player: stats.name,
+        acs: stats.acs,
+        kills: stats.kills,
+        deaths: stats.deaths,
+        assists: stats.assists,
+        firstKills: stats.firstKills,
+      } as Prisma.InputJsonValue,
+      normalized: {
+        kills: stats.kills ?? 0,
+        deaths: stats.deaths ?? 0,
+        assists: stats.assists ?? 0,
+        acs: stats.acs,
+        firstKills: stats.firstKills,
+      },
+      perMap: perMap?.length ? (perMap as unknown as Prisma.InputJsonValue) : null,
+    });
+  }
   return lines;
 }
 
@@ -95,14 +162,7 @@ export function mapVlrGames(
   const $ = cheerio.load(html);
   const games: ProviderGameInfo[] = [];
   $('.vm-stats-game-header').each((index, header) => {
-    const mapName = $(header)
-      .find('.map')
-      .first()
-      .text()
-      .trim()
-      .split('\n')[0]
-      .replace(/PICK/i, '')
-      .trim();
+    const mapName = headerMapName($(header).find('.map').first().text());
     const scores = $(header)
       .find('.score')
       .map((_i, el) => Number($(el).text().trim()))
@@ -118,7 +178,7 @@ export function mapVlrGames(
     if (!leftIsA && !leftIsB) return;
     games.push({
       position: index + 1,
-      map: mapName || null,
+      map: mapName,
       scoreA: leftIsA ? scores[0] : scores[1],
       scoreB: leftIsA ? scores[1] : scores[0],
     });

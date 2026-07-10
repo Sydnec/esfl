@@ -2,7 +2,8 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
 import { GameId, QUEUES, StatsIngestedEvent } from '@esfl/contracts';
 import { Queue } from 'bullmq';
-import type { Match, Prisma } from '../../generated/client';
+import { Prisma } from '../../generated/client';
+import type { Match } from '../../generated/client';
 import { PrismaService } from '../prisma.service';
 import { GridStatsProvider } from './grid.provider';
 import { LeaguepediaStatsProvider } from './leaguepedia.provider';
@@ -30,18 +31,22 @@ export class StatsIngestionService {
    * Récupère les stats détaillées d'un match terminé et publie stats.ingested.
    * Lève si les stats ne sont pas encore publiées par la source externe :
    * le job BullMQ `ingest-stats` retentera avec backoff exponentiel.
+   * `force` refait le fetch même si des stats existent (backfill du détail
+   * par map, correction de données).
    */
-  async ingestForMatchId(matchId: string): Promise<void> {
+  async ingestForMatchId(matchId: string, force = false): Promise<void> {
     const match = await this.prisma.match.findUnique({ where: { id: matchId } });
     if (!match) {
       this.logger.warn(`ingest-stats : match inconnu ${matchId}`);
       return;
     }
 
-    const existing = await this.prisma.playerMatchStats.count({ where: { matchId } });
-    if (existing > 0) {
-      await this.publish(match, 'existing');
-      return;
+    if (!force) {
+      const existing = await this.prisma.playerMatchStats.count({ where: { matchId } });
+      if (existing > 0) {
+        await this.publish(match, 'existing');
+        return;
+      }
     }
 
     const provider = this.providers.find((candidate) => candidate.gameId === match.gameId);
@@ -68,8 +73,14 @@ export class StatsIngestionService {
           source: provider.source,
           raw: line.raw,
           normalized: line.normalized,
+          perMap: line.perMap ?? Prisma.JsonNull,
         },
-        update: { raw: line.raw, normalized: line.normalized, source: provider.source },
+        update: {
+          raw: line.raw,
+          normalized: line.normalized,
+          source: provider.source,
+          perMap: line.perMap ?? Prisma.JsonNull,
+        },
       });
     }
     if (result.games?.length) {

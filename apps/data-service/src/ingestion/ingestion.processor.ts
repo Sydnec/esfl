@@ -37,10 +37,12 @@ export class IngestionProcessor extends WorkerHost {
       case 'sync-competition':
         await this.ingestion.syncCompetition((job.data as { competitionId: string }).competitionId);
         break;
-      case 'ingest-stats':
+      case 'ingest-stats': {
         // Throw si les stats ne sont pas encore publiées → retry BullMQ (backoff).
-        await this.statsIngestion.ingestForMatchId((job.data as { matchId: string }).matchId);
+        const data = job.data as { matchId: string; force?: boolean };
+        await this.statsIngestion.ingestForMatchId(data.matchId, data.force ?? false);
         break;
+      }
       default:
         this.logger.warn(`Job inconnu : ${job.name}`);
     }

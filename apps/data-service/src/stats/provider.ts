@@ -14,6 +14,8 @@ export interface ProviderStatLine {
   playerId: string;
   raw: Prisma.InputJsonValue;
   normalized: Prisma.InputJsonValue;
+  /** Détail par manche (MapStatsEntry[]) quand la source le fournit. */
+  perMap?: Prisma.InputJsonValue | null;
 }
 
 /** Détail d'une manche quand la source le connaît (map, score par équipe). */
