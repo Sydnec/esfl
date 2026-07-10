@@ -114,6 +114,55 @@ describe('mapVlrMatchHtml', () => {
     expect(perMap[1].agent).toBe('Omen');
   });
 
+  it('map en cours : agents connus, stats nulles ; map pas commencée : ignorée', () => {
+    const emptyRow = (name: string, agent: string | null) => {
+      const agentCell = agent
+        ? `<td class="mod-agent"><img title="${agent}" alt="${agent}" src="/img/vlr/game/agents/${agent.toLowerCase()}.png"></td>`
+        : '<td></td>';
+      const cells = Array.from(
+        { length: 12 },
+        () => '<td class="mod-stat"><span class="side mod-both">&nbsp;</span></td>',
+      ).join('\n');
+      return `<tr><td class="mod-player"><div><a><div class="text-of">${name}</div></a></div></td>${agentCell}${cells}</tr>`;
+    };
+    const live = `
+<div class="vm-stats-game" data-game-id="all">
+  <table>${tableHead}<tbody>${statRow('TenZ', null, [1.24, 255, 20, 14, 3, 6, 74, 160, 28, 3, 1, 2])}</tbody></table>
+</div>
+<div class="vm-stats-game" data-game-id="1">
+  <div class="vm-stats-game-header">
+    <div class="team"><div class="score">13</div><div class="team-name">Sentinels</div></div>
+    <div class="map"><span>Ascent</span></div>
+    <div class="team mod-right"><div class="score">7</div><div class="team-name">Fnatic</div></div>
+  </div>
+  <table>${tableHead}<tbody>${statRow('TenZ', 'Jett', [1.4, 270, 20, 14, 3, 11, 78, 170, 30, 3, 1, 2])}</tbody></table>
+</div>
+<div class="vm-stats-game" data-game-id="2">
+  <div class="vm-stats-game-header">
+    <div class="team"><div class="score">4</div><div class="team-name">Sentinels</div></div>
+    <div class="map"><span>Split</span></div>
+    <div class="team mod-right"><div class="score">7</div><div class="team-name">Fnatic</div></div>
+  </div>
+  <table>${tableHead}<tbody>${emptyRow('TenZ', 'Omen')}</tbody></table>
+</div>
+<div class="vm-stats-game" data-game-id="3">
+  <div class="vm-stats-game-header">
+    <div class="team"><div class="score">0</div><div class="team-name">Sentinels</div></div>
+    <div class="map"><span>Breeze</span></div>
+    <div class="team mod-right"><div class="score">0</div><div class="team-name">Fnatic</div></div>
+  </div>
+  <table>${tableHead}<tbody>${emptyRow('TenZ', null)}</tbody></table>
+</div>`;
+    const lines = mapVlrMatchHtml(live, 'Sentinels', 'Fnatic');
+    const perMap = lines[0].perMap as MapStatsEntry[];
+    expect(perMap).toHaveLength(2);
+    expect(perMap[0]).toMatchObject({ map: 'Ascent', agent: 'Jett', kills: 20 });
+    // Split en cours : agent pické, stats encore nulles (pas de faux zéros).
+    expect(perMap[1]).toMatchObject({ map: 'Split', agent: 'Omen', kills: null, deaths: null });
+    // Breeze pas commencée (ni agent ni stats) : absente.
+    expect(perMap.find((entry) => entry.map === 'Breeze')).toBeUndefined();
+  });
+
   it('sans en-tête de manche exploitable → side null, extraction intacte', () => {
     const aggregateOnly = `
 <div class="vm-stats-game" data-game-id="all">

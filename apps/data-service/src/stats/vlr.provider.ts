@@ -79,7 +79,10 @@ export function mapVlrMatchHtml(
             const cell = $(cells[colIndex]);
             const both = cell.find('.side.mod-both').first().text().trim();
             const text = both || cell.text().trim();
-            const value = Number(text.replace(/[^\d.-]/g, ''));
+            const cleaned = text.replace(/[^\d.-]/g, '');
+            // Cellule vide (map en cours sur une page live) ≠ zéro.
+            if (!cleaned) return null;
+            const value = Number(cleaned);
             return Number.isFinite(value) ? value : null;
           };
           const agentImg = $(row).find('.mod-agent img').first();
@@ -132,15 +135,22 @@ export function mapVlrMatchHtml(
       const block = $(element);
       const mapName = headerMapName(block.find('.vm-stats-game-header .map').first().text());
       for (const [nameKey, stats] of parseBlock(block)) {
+        // Manche pas commencée : rien à montrer (VLR rend des cellules
+        // vides). Map en cours : l'agent est connu dès le pick, les stats
+        // restent nulles jusqu'à la fin de la map — on les garde nulles
+        // plutôt que d'afficher de faux zéros.
+        const empty =
+          stats.kills == null && stats.deaths == null && stats.assists == null;
+        if (empty && !stats.agent) continue;
         const entries = perMapByPlayer.get(nameKey) ?? [];
         entries.push({
           position: blockIdx + 1,
           map: mapName,
           agent: stats.agent,
           agentImage: stats.agentImage,
-          kills: stats.kills ?? 0,
-          deaths: stats.deaths ?? 0,
-          assists: stats.assists ?? 0,
+          kills: stats.kills,
+          deaths: stats.deaths,
+          assists: stats.assists,
           acs: stats.acs,
           firstKills: stats.firstKills,
         });

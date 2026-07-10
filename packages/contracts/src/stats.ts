@@ -56,9 +56,10 @@ export const mapStatsEntrySchema = z.object({
   agent: z.string().nullable(),
   /** URL absolue de l'icône d'agent/champion (source provider). */
   agentImage: z.string().nullable(),
-  kills: z.number(),
-  deaths: z.number(),
-  assists: z.number(),
+  /** Null tant que la source ne publie pas la manche (map en cours). */
+  kills: z.number().nullable(),
+  deaths: z.number().nullable(),
+  assists: z.number().nullable(),
   acs: z.number().nullable().optional(),
   firstKills: z.number().nullable().optional(),
   csPerMin: z.number().nullable().optional(),
