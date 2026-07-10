@@ -1,8 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as cheerio from 'cheerio';
 import type { MapStatsEntry } from '@esfl/contracts';
-import type { Match, Player, Prisma } from '../../generated/client';
-import { buildPlayerIndex, matchPlayer, teamNamesMatch } from './matching';
+import type { Match, Prisma } from '../../generated/client';
+import { normalizeName, teamNamesMatch } from './matching';
 import { politeFetch } from './polite-fetch';
 import type {
   GameStatsProvider,
@@ -18,6 +18,8 @@ const RESULT_PAGES_TO_SCAN = 3;
 interface VlrRowStats {
   /** Pseudo affiché par VLR (repris dans raw). */
   name: string;
+  /** Index du tableau dans le bloc : 0 = équipe gauche, 1 = droite. */
+  tableIdx: number;
   agent: string | null;
   agentImage: string | null;
   acs: number | null;
@@ -36,17 +38,21 @@ function headerMapName(text: string): string | null {
 /**
  * Parse la page d'un match VLR.gg : tableau agrégé « all maps » pour
  * normalized, et blocs par manche (agent + KDA de chaque map) pour perMap.
- * Colonnes repérées par les en-têtes ACS/K/D/A/FK pour résister aux
- * réordonnancements mineurs. Exporté pur pour les tests sur fixture HTML.
+ * Extraction pure (pseudo + côté A/B), sans rapprochement : la résolution
+ * d'identité vit dans l'ingestion. Colonnes repérées par les en-têtes
+ * ACS/K/D/A/FK pour résister aux réordonnancements mineurs.
  */
-export function mapVlrMatchHtml(html: string, players: Player[]): ProviderStatLine[] {
+export function mapVlrMatchHtml(
+  html: string,
+  teamAName: string,
+  teamBName: string,
+): ProviderStatLine[] {
   const $ = cheerio.load(html);
-  const index = buildPlayerIndex(players);
 
-  /** Lit tous les tableaux joueurs d'un bloc .vm-stats-game, par id local. */
+  /** Tableaux joueurs d'un bloc .vm-stats-game, par pseudo normalisé. */
   const parseBlock = (block: ReturnType<typeof $>): Map<string, VlrRowStats> => {
     const rows = new Map<string, VlrRowStats>();
-    block.find('table').each((_tableIdx, table) => {
+    block.find('table').each((tableIdx, table) => {
       const headers = $(table)
         .find('thead th')
         .map((_i, th) => $(th).text().trim().toLowerCase())
@@ -66,8 +72,6 @@ export function mapVlrMatchHtml(html: string, players: Player[]): ProviderStatLi
         .each((_rowIdx, row) => {
           const name = $(row).find('.mod-player .text-of').first().text().trim();
           if (!name) return;
-          const local = matchPlayer(index, name);
-          if (!local) return;
 
           const cells = $(row).find('td');
           const readStat = (colIndex: number): number | null => {
@@ -81,8 +85,9 @@ export function mapVlrMatchHtml(html: string, players: Player[]): ProviderStatLi
           const agentImg = $(row).find('.mod-agent img').first();
           const agentSrc = agentImg.attr('src') ?? null;
 
-          rows.set(local.id, {
+          rows.set(normalizeName(name), {
             name,
+            tableIdx,
             agent: agentImg.attr('title') ?? agentImg.attr('alt') ?? null,
             agentImage: agentSrc ? (agentSrc.startsWith('/') ? `${BASE_URL}${agentSrc}` : agentSrc) : null,
             acs: readStat(cols.acs),
@@ -102,17 +107,32 @@ export function mapVlrMatchHtml(html: string, players: Player[]): ProviderStatLi
   const aggregate = parseBlock($(allBlock));
   if (aggregate.size === 0) return [];
 
+  // Orientation gauche/droite → A/B : le bloc « all » n'a pas d'en-tête
+  // d'équipe, on lit celui du premier bloc de manche (même convention que
+  // mapVlrGames). Sans en-tête exploitable, side reste null (pas de
+  // création de fiche côté ingestion).
+  const headerNames = $('.vm-stats-game-header .team-name')
+    .map((_i, el) => $(el).text().trim())
+    .get();
+  const leftIsA = headerNames.length >= 2 ? teamNamesMatch(headerNames[0], teamAName) : false;
+  const leftIsB = headerNames.length >= 2 ? teamNamesMatch(headerNames[0], teamBName) : false;
+  const sideOf = (tableIdx: number): 'A' | 'B' | null => {
+    if (!leftIsA && !leftIsB) return null;
+    if (tableIdx > 1) return null;
+    const left = tableIdx === 0;
+    return (leftIsA ? left : !left) ? 'A' : 'B';
+  };
+
   // Détail par manche : blocs individuels dans l'ordre du DOM — même
-  // convention de position que mapVlrGames (l'onglet « all » n'a pas
-  // d'en-tête de manche).
+  // convention de position que mapVlrGames.
   const perMapByPlayer = new Map<string, MapStatsEntry[]>();
   blocks
     .filter((element) => $(element).attr('data-game-id') !== 'all')
     .forEach((element, blockIdx) => {
       const block = $(element);
       const mapName = headerMapName(block.find('.vm-stats-game-header .map').first().text());
-      for (const [playerId, stats] of parseBlock(block)) {
-        const entries = perMapByPlayer.get(playerId) ?? [];
+      for (const [nameKey, stats] of parseBlock(block)) {
+        const entries = perMapByPlayer.get(nameKey) ?? [];
         entries.push({
           position: blockIdx + 1,
           map: mapName,
@@ -124,15 +144,16 @@ export function mapVlrMatchHtml(html: string, players: Player[]): ProviderStatLi
           acs: stats.acs,
           firstKills: stats.firstKills,
         });
-        perMapByPlayer.set(playerId, entries);
+        perMapByPlayer.set(nameKey, entries);
       }
     });
 
   const lines: ProviderStatLine[] = [];
-  for (const [playerId, stats] of aggregate) {
-    const perMap = perMapByPlayer.get(playerId);
+  for (const [nameKey, stats] of aggregate) {
+    const perMap = perMapByPlayer.get(nameKey);
     lines.push({
-      playerId,
+      externalName: stats.name,
+      side: sideOf(stats.tableIdx),
       raw: {
         player: stats.name,
         acs: stats.acs,
@@ -213,9 +234,9 @@ export class VlrStatsProvider implements GameStatsProvider {
       return null;
     }
     const html = await response.text();
-    const lines = mapVlrMatchHtml(html, context.players);
+    const lines = mapVlrMatchHtml(html, context.teamA.name, context.teamB.name);
     if (lines.length === 0) {
-      this.logger.warn(`VLR : structure de page inattendue ou aucun joueur rapproché (${matchPath})`);
+      this.logger.warn(`VLR : structure de page inattendue (${matchPath})`);
       return null;
     }
     return { lines, games: mapVlrGames(html, context.teamA.name, context.teamB.name) };

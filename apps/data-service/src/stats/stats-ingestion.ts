@@ -6,6 +6,7 @@ import { Prisma } from '../../generated/client';
 import type { Match } from '../../generated/client';
 import { mergeGamesSummary } from '../common/games-summary';
 import { PrismaService } from '../prisma.service';
+import { buildPlayerIndex, matchPlayer, normalizeName } from './matching';
 import { GridStatsProvider } from './grid.provider';
 import { LeaguepediaStatsProvider } from './leaguepedia.provider';
 import { OctaneStatsProvider } from './octane.provider';
@@ -64,12 +65,39 @@ export class StatsIngestionService {
       );
     }
 
+    // Résolution d'identité : rapprochement (exact → leet → inclusion),
+    // sinon création de la fiche quand le côté du joueur est connu — le
+    // référentiel Pandascore est lacunaire sur les équipes tier-B, et le
+    // sync des rosters adoptera la fiche s'il rattrape.
+    const index = buildPlayerIndex(context.players);
     for (const line of result.lines) {
+      let local = matchPlayer(index, line.externalName);
+      if (!local) {
+        const team = line.side === 'A' ? context.teamA : line.side === 'B' ? context.teamB : null;
+        if (!team) {
+          this.logger.warn(
+            `Joueur ${line.externalName} sans équipe résolue (match ${matchId}) : stats ignorées`,
+          );
+          continue;
+        }
+        local = await this.prisma.player.create({
+          data: {
+            gameId: match.gameId,
+            name: line.externalName,
+            teamId: team.id,
+            source: provider.source,
+          },
+        });
+        index.set(normalizeName(local.name), local);
+        this.logger.log(
+          `Fiche joueur créée depuis ${provider.source} : ${line.externalName} (${team.name})`,
+        );
+      }
       await this.prisma.playerMatchStats.upsert({
-        where: { matchId_playerId: { matchId: match.id, playerId: line.playerId } },
+        where: { matchId_playerId: { matchId: match.id, playerId: local.id } },
         create: {
           matchId: match.id,
-          playerId: line.playerId,
+          playerId: local.id,
           gameId: match.gameId,
           source: provider.source,
           raw: line.raw,

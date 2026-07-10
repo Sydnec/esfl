@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { Match, Player, Prisma } from '../../generated/client';
-import { buildPlayerIndex, matchPlayer, teamNamesMatch } from './matching';
+import type { Match, Prisma } from '../../generated/client';
+import { teamNamesMatch } from './matching';
 import { politeFetch } from './polite-fetch';
 import type { GameStatsProvider, MatchContext, ProviderResult, ProviderStatLine } from './provider';
 
@@ -53,16 +53,23 @@ export function mapGridGames(
 }
 
 /** Mappe l'état final d'une série Grid vers nos stats CS2 normalisées. */
-export function mapGridSeriesState(state: GridSeriesState, players: Player[]): ProviderStatLine[] {
-  const index = buildPlayerIndex(players);
+export function mapGridSeriesState(
+  state: GridSeriesState,
+  teamAName: string,
+  teamBName: string,
+): ProviderStatLine[] {
   const lines: ProviderStatLine[] = [];
   for (const team of state.teams ?? []) {
+    const side = teamNamesMatch(team.name ?? '', teamAName)
+      ? 'A'
+      : teamNamesMatch(team.name ?? '', teamBName)
+        ? 'B'
+        : null;
     for (const entry of team.players ?? []) {
       if (!entry.name) continue;
-      const local = matchPlayer(index, entry.name);
-      if (!local) continue;
       lines.push({
-        playerId: local.id,
+        externalName: entry.name,
+        side,
         raw: entry as unknown as Prisma.InputJsonValue,
         normalized: {
           kills: entry.kills ?? 0,
@@ -119,9 +126,9 @@ export class GridStatsProvider implements GameStatsProvider {
       // Série pas encore clôturée côté Grid : on laisse le retry faire son travail.
       return null;
     }
-    const lines = mapGridSeriesState(state.seriesState, context.players);
+    const lines = mapGridSeriesState(state.seriesState, context.teamA.name, context.teamB.name);
     if (lines.length === 0) {
-      this.logger.warn(`Grid : aucun joueur rapproché pour le match ${match.id}`);
+      this.logger.warn(`Grid : aucune ligne de stats pour le match ${match.id}`);
       return null;
     }
     return {

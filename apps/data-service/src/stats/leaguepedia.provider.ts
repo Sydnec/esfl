@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { MapStatsEntry } from '@esfl/contracts';
-import type { Match, Player, Prisma } from '../../generated/client';
-import { buildPlayerIndex, matchPlayer, teamNamesMatch } from './matching';
+import type { Match, Prisma } from '../../generated/client';
+import { teamNamesMatch } from './matching';
 import { politeFetch } from './polite-fetch';
 import type {
   GameStatsProvider,
@@ -59,7 +59,6 @@ export function mapLeaguepediaRows(
   rows: LeaguepediaRow[],
   teamAName: string,
   teamBName: string,
-  players: Player[],
 ): ProviderStatLine[] {
   const matchRows = rows.filter((row) => {
     const team1 = row.Team1 ?? '';
@@ -79,6 +78,7 @@ export function mapLeaguepediaRows(
     minutes: number;
     wins: number;
     games: number;
+    team: string | null;
     raw: LeaguepediaRow[];
     perMap: MapStatsEntry[];
   }
@@ -94,9 +94,11 @@ export function mapLeaguepediaRows(
       minutes: 0,
       wins: 0,
       games: 0,
+      team: null,
       raw: [],
       perMap: [],
     };
+    aggregate.team = aggregate.team ?? row.Team ?? null;
     aggregate.kills += Number(row.Kills ?? 0);
     aggregate.deaths += Number(row.Deaths ?? 0);
     aggregate.assists += Number(row.Assists ?? 0);
@@ -122,13 +124,16 @@ export function mapLeaguepediaRows(
     byPlayer.set(name, aggregate);
   }
 
-  const index = buildPlayerIndex(players);
   const lines: ProviderStatLine[] = [];
   for (const [name, aggregate] of byPlayer) {
-    const local = matchPlayer(index, name);
-    if (!local) continue;
+    const side = teamNamesMatch(aggregate.team ?? '', teamAName)
+      ? 'A'
+      : teamNamesMatch(aggregate.team ?? '', teamBName)
+        ? 'B'
+        : null;
     lines.push({
-      playerId: local.id,
+      externalName: name,
+      side,
       raw: aggregate.raw as unknown as Prisma.InputJsonValue,
       normalized: {
         kills: aggregate.kills,
@@ -244,7 +249,7 @@ export class LeaguepediaStatsProvider implements GameStatsProvider {
       rows.push(...page);
       if (page.length < 500) break;
     }
-    const lines = mapLeaguepediaRows(rows, context.teamA.name, context.teamB.name, context.players);
+    const lines = mapLeaguepediaRows(rows, context.teamA.name, context.teamB.name);
     if (lines.length === 0) {
       this.logger.warn(
         `Leaguepedia : rien trouvé pour ${context.teamA.name} vs ${context.teamB.name}`,

@@ -9,9 +9,15 @@ export interface MatchContext {
   players: Player[];
 }
 
-/** Ligne de stats retournée par un provider, indexée sur nos ids internes. */
+/**
+ * Ligne de stats retournée par un provider : extraction pure, la résolution
+ * d'identité (rapprochement ou création de la fiche) vit dans l'ingestion.
+ */
 export interface ProviderStatLine {
-  playerId: string;
+  /** Pseudo publié par la source. */
+  externalName: string;
+  /** Côté du match résolu par noms d'équipes, null si indéterminé. */
+  side: 'A' | 'B' | null;
   raw: Prisma.InputJsonValue;
   normalized: Prisma.InputJsonValue;
   /** Détail par manche (MapStatsEntry[]) quand la source le fournit. */

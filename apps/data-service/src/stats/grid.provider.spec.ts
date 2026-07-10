@@ -1,11 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Player } from '../../generated/client';
 import { GridSeriesState, mapGridSeriesState } from './grid.provider';
-
-const players = [
-  { id: 'p1', name: 'ZywOo' },
-  { id: 'p2', name: 'apEX' },
-] as Player[];
 
 const state: GridSeriesState = {
   finished: true,
@@ -15,17 +9,21 @@ const state: GridSeriesState = {
       players: [
         { name: 'ZywOo', kills: 55, deaths: 38, killAssistsGiven: 12 },
         { name: 'apEX', kills: 30, deaths: 41, killAssistsGiven: 18 },
-        { name: 'JoueurInconnu', kills: 20, deaths: 40, killAssistsGiven: 5 },
       ],
+    },
+    {
+      name: 'Équipe Mystère',
+      players: [{ name: 'JoueurInconnu', kills: 20, deaths: 40, killAssistsGiven: 5 }],
     },
   ],
 };
 
 describe('mapGridSeriesState', () => {
-  it('mappe kills/deaths/assists et laisse adr/rating null', () => {
-    const lines = mapGridSeriesState(state, players);
-    expect(lines).toHaveLength(2);
-    const zywoo = lines.find((line) => line.playerId === 'p1');
+  it('mappe kills/deaths/assists avec le côté résolu par équipe', () => {
+    const lines = mapGridSeriesState(state, 'Vitality', 'NAVI');
+    expect(lines).toHaveLength(3);
+    const zywoo = lines.find((line) => line.externalName === 'ZywOo');
+    expect(zywoo?.side).toBe('A');
     expect(zywoo?.normalized).toEqual({
       kills: 55,
       deaths: 38,
@@ -33,9 +31,11 @@ describe('mapGridSeriesState', () => {
       adr: null,
       rating: null,
     });
+    // Équipe non résolue → side null (pas de création côté ingestion).
+    expect(lines.find((line) => line.externalName === 'JoueurInconnu')?.side).toBeNull();
   });
 
   it('retourne vide sans équipes', () => {
-    expect(mapGridSeriesState({ finished: true }, players)).toHaveLength(0);
+    expect(mapGridSeriesState({ finished: true }, 'Vitality', 'NAVI')).toHaveLength(0);
   });
 });

@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MapStatsEntry } from '@esfl/contracts';
-import type { Player } from '../../generated/client';
 import { championImageUrl, LeaguepediaRow, mapLeaguepediaRows } from './leaguepedia.provider';
-
-const players = [{ id: 'p1', name: 'Caps' }] as Player[];
 
 // Bo3 : Caps joue 3 games pour G2 contre Fnatic (2 victoires).
 const rows: LeaguepediaRow[] = [
@@ -65,11 +62,12 @@ const rows: LeaguepediaRow[] = [
 ];
 
 describe('mapLeaguepediaRows', () => {
-  it('filtre par équipes, agrège le Bo3 et gère la désambiguïsation', () => {
-    const lines = mapLeaguepediaRows(rows, 'G2 Esports', 'Fnatic', players);
+  it('filtre par équipes, agrège le Bo3, résout le côté et la désambiguïsation', () => {
+    const lines = mapLeaguepediaRows(rows, 'G2 Esports', 'Fnatic');
     expect(lines).toHaveLength(1);
     const caps = lines[0];
-    expect(caps.playerId).toBe('p1');
+    expect(caps.externalName).toBe('Caps');
+    expect(caps.side).toBe('A');
     expect(caps.normalized).toMatchObject({
       kills: 15,
       deaths: 7,
@@ -81,7 +79,7 @@ describe('mapLeaguepediaRows', () => {
   });
 
   it('détaille chaque game : champion, KDA, cs/min et résultat', () => {
-    const lines = mapLeaguepediaRows(rows, 'G2 Esports', 'Fnatic', players);
+    const lines = mapLeaguepediaRows(rows, 'G2 Esports', 'Fnatic');
     const perMap = lines[0].perMap as MapStatsEntry[];
     expect(perMap).toHaveLength(3);
     expect(perMap[0]).toMatchObject({
@@ -105,6 +103,6 @@ describe('mapLeaguepediaRows', () => {
   });
 
   it('retourne vide si aucune game ne correspond aux équipes', () => {
-    expect(mapLeaguepediaRows(rows, 'Karmine Corp', 'Vitality', players)).toHaveLength(0);
+    expect(mapLeaguepediaRows(rows, 'Karmine Corp', 'Vitality')).toHaveLength(0);
   });
 });

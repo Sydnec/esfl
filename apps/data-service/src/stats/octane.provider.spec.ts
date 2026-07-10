@@ -1,11 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Player } from '../../generated/client';
 import { findOctaneMatch, mapOctaneMatch, OctaneMatch } from './octane.provider';
-
-const players = [
-  { id: 'p1', name: 'M0nkey M00n' },
-  { id: 'p2', name: 'ExoTiiK' },
-] as Player[];
 
 const fixture: OctaneMatch = {
   _id: 'abc',
@@ -43,12 +37,14 @@ describe('findOctaneMatch', () => {
 });
 
 describe('mapOctaneMatch', () => {
-  it('mappe les stats cœur sur les joueurs rapprochés et ignore les inconnus', () => {
-    const lines = mapOctaneMatch(fixture, players);
-    expect(lines).toHaveLength(2);
-    const bds = lines.find((line) => line.playerId === 'p1');
+  it('mappe les stats cœur avec le côté résolu par équipe', () => {
+    const lines = mapOctaneMatch(fixture, 'Team BDS', 'Karmine Corp');
+    expect(lines).toHaveLength(3);
+    const bds = lines.find((line) => line.externalName === 'M0nkey M00n');
+    expect(bds?.side).toBe('A');
     expect(bds?.normalized).toEqual({ goals: 3, assists: 1, saves: 4, shots: 7, score: 780 });
-    const kc = lines.find((line) => line.playerId === 'p2');
+    const kc = lines.find((line) => line.externalName === 'ExoTiiK');
+    expect(kc?.side).toBe('B');
     expect(kc?.normalized).toEqual({ goals: 2, assists: 2, saves: 1, shots: 5, score: 610 });
   });
 });

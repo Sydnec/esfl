@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { Match, Player, Prisma } from '../../generated/client';
-import { buildPlayerIndex, matchPlayer, teamNamesMatch } from './matching';
+import type { Match, Prisma } from '../../generated/client';
+import { teamNamesMatch } from './matching';
 import { politeFetch } from './polite-fetch';
 import type { GameStatsProvider, MatchContext, ProviderResult, ProviderStatLine } from './provider';
 
@@ -40,19 +40,27 @@ export function findOctaneMatch(
   );
 }
 
-/** Agrège les stats cœur du match Octane sur nos joueurs locaux. */
-export function mapOctaneMatch(octaneMatch: OctaneMatch, players: Player[]): ProviderStatLine[] {
-  const index = buildPlayerIndex(players);
+/** Stats cœur du match Octane, côté A/B résolu par noms d'équipes. */
+export function mapOctaneMatch(
+  octaneMatch: OctaneMatch,
+  teamAName: string,
+  teamBName: string,
+): ProviderStatLine[] {
   const lines: ProviderStatLine[] = [];
-  for (const side of [octaneMatch.blue, octaneMatch.orange]) {
-    for (const entry of side?.players ?? []) {
+  for (const teamSide of [octaneMatch.blue, octaneMatch.orange]) {
+    const sideName = teamSide?.team?.team?.name ?? '';
+    const side = teamNamesMatch(sideName, teamAName)
+      ? 'A'
+      : teamNamesMatch(sideName, teamBName)
+        ? 'B'
+        : null;
+    for (const entry of teamSide?.players ?? []) {
       const tag = entry.player?.tag;
       if (!tag) continue;
-      const local = matchPlayer(index, tag);
-      if (!local) continue;
       const core = entry.stats?.core ?? {};
       lines.push({
-        playerId: local.id,
+        externalName: tag,
+        side,
         raw: entry as unknown as Prisma.InputJsonValue,
         normalized: {
           goals: core.goals ?? 0,
@@ -94,9 +102,9 @@ export class OctaneStatsProvider implements GameStatsProvider {
       );
       return null;
     }
-    const lines = mapOctaneMatch(found, context.players);
+    const lines = mapOctaneMatch(found, context.teamA.name, context.teamB.name);
     if (lines.length === 0) {
-      this.logger.warn(`Octane : aucun joueur rapproché pour le match ${match.id}`);
+      this.logger.warn(`Octane : aucune ligne de stats pour le match ${match.id}`);
       return null;
     }
     return { lines };
