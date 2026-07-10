@@ -35,7 +35,8 @@ export default function MatchPage() {
     try {
       const detail = await request<MatchSummary>(`/data/matches/${id}`);
       setMatch(detail);
-      if (detail.status === 'finished') {
+      // Les stats existent aussi pendant le match (sync live Valorant).
+      if (detail.status === 'finished' || detail.status === 'running') {
         const lines = await request<MatchStatsLine[]>(`/data/stats?matchIds=${id}`);
         setStats(lines);
         if (lines.length > 0) {
@@ -197,9 +198,9 @@ export default function MatchPage() {
         </div>
       )}
 
-      {finished && stats.length > 0 && (
+      {stats.length > 0 && (
         <section className={styles.statsSection}>
-          <h2 className={styles.statsTitle}>Performances</h2>
+          <h2 className={styles.statsTitle}>Performances{running ? ' · en cours' : ''}</h2>
           {[match.teamA, match.teamB].map((team) => {
             const lines = statsByTeam(team?.id);
             if (!team || lines.length === 0) return null;

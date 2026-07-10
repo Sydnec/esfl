@@ -105,6 +105,8 @@ model Match {
   finishedEventSent Boolean @default(false) @map("finished_event_sent")
   /** CS2 : la série est-elle référencée par Grid ? (null = pas encore vérifié) */
   gridCovered   Boolean?    @map("grid_covered")
+  /** URL de la page de stats chez le provider (mémorisée au premier fetch). */
+  statsPageUrl  String?     @map("stats_page_url")
   stats         PlayerMatchStats[]
 
   @@index([competitionId])

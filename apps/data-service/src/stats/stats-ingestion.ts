@@ -10,7 +10,7 @@ import { buildPlayerIndex, matchPlayer, normalizeName } from './matching';
 import { GridStatsProvider } from './grid.provider';
 import { LeaguepediaStatsProvider } from './leaguepedia.provider';
 import { OctaneStatsProvider } from './octane.provider';
-import type { GameStatsProvider, MatchContext } from './provider';
+import type { GameStatsProvider, MatchContext, ProviderResult } from './provider';
 import { VlrStatsProvider } from './vlr.provider';
 
 @Injectable()
@@ -22,7 +22,7 @@ export class StatsIngestionService {
     private readonly prisma: PrismaService,
     @InjectQueue(QUEUES.STATS_INGESTED) private readonly statsIngestedQueue: Queue,
     private readonly grid: GridStatsProvider,
-    vlr: VlrStatsProvider,
+    private readonly vlr: VlrStatsProvider,
     leaguepedia: LeaguepediaStatsProvider,
     octane: OctaneStatsProvider,
   ) {
@@ -44,8 +44,15 @@ export class StatsIngestionService {
     }
 
     if (!force) {
-      const existing = await this.prisma.playerMatchStats.count({ where: { matchId } });
-      if (existing > 0) {
+      const newest = await this.prisma.playerMatchStats.aggregate({
+        _max: { updatedAt: true },
+        where: { matchId },
+      });
+      const newestAt = newest._max.updatedAt;
+      // Un instantané pris pendant le match (sync live) est antérieur au
+      // coup de sifflet : on refait le fetch pour figer les stats finales.
+      const liveSnapshot = newestAt && match.endAt && newestAt < match.endAt;
+      if (newestAt && !liveSnapshot) {
         await this.publish(match, 'existing');
         return;
       }
@@ -65,18 +72,65 @@ export class StatsIngestionService {
       );
     }
 
-    // Résolution d'identité : rapprochement (exact → leet → inclusion),
-    // sinon création de la fiche quand le côté du joueur est connu — le
-    // référentiel Pandascore est lacunaire sur les équipes tier-B, et le
-    // sync des rosters adoptera la fiche s'il rattrape.
+    const persisted = await this.persistResult(match, context, provider.source, result);
+    this.logger.log(`${persisted} lignes de stats ${provider.source} pour le match ${matchId}`);
+    await this.publish(match, provider.source);
+  }
+
+  /**
+   * Suivi des matchs Valorant en cours : la page VLR est vivante pendant la
+   * série (scores de map, agents, stats partielles) — on la resynchronise
+   * pour offrir le même affichage qu'un match terminé. Sans retry : le
+   * cycle suivant repassera.
+   */
+  async syncLiveStats(): Promise<number> {
+    const running = await this.prisma.match.findMany({
+      where: {
+        gameId: 'valorant',
+        status: 'running',
+        teamAId: { not: null },
+        teamBId: { not: null },
+      },
+    });
+    if (running.length === 0) return 0;
+
+    let synced = 0;
+    for (const match of running) {
+      const context = await this.loadContext(match);
+      const result = await this.vlr.fetchLiveStats(match, context).catch(() => null);
+      if (!result || result.lines.length === 0) continue;
+      await this.persistResult(match, context, this.vlr.source, result);
+      await this.publish(match, this.vlr.source);
+      synced += 1;
+    }
+    if (synced > 0) {
+      this.logger.log(`Stats live synchronisées pour ${synced} match(s) Valorant`);
+    }
+    return synced;
+  }
+
+  /**
+   * Persiste un résultat provider : résolution d'identité (exact → leet →
+   * inclusion, sinon création de la fiche quand le côté du joueur est connu
+   * — le référentiel Pandascore est lacunaire sur les équipes tier-B, le
+   * sync des rosters adoptera la fiche s'il rattrape), upsert des stats,
+   * fusion des manches et mémorisation de la page source.
+   */
+  private async persistResult(
+    match: Match,
+    context: MatchContext,
+    source: string,
+    result: ProviderResult,
+  ): Promise<number> {
     const index = buildPlayerIndex(context.players);
+    let persisted = 0;
     for (const line of result.lines) {
       let local = matchPlayer(index, line.externalName);
       if (!local) {
         const team = line.side === 'A' ? context.teamA : line.side === 'B' ? context.teamB : null;
         if (!team) {
           this.logger.warn(
-            `Joueur ${line.externalName} sans équipe résolue (match ${matchId}) : stats ignorées`,
+            `Joueur ${line.externalName} sans équipe résolue (match ${match.id}) : stats ignorées`,
           );
           continue;
         }
@@ -85,13 +139,11 @@ export class StatsIngestionService {
             gameId: match.gameId,
             name: line.externalName,
             teamId: team.id,
-            source: provider.source,
+            source,
           },
         });
         index.set(normalizeName(local.name), local);
-        this.logger.log(
-          `Fiche joueur créée depuis ${provider.source} : ${line.externalName} (${team.name})`,
-        );
+        this.logger.log(`Fiche joueur créée depuis ${source} : ${line.externalName} (${team.name})`);
       }
       await this.prisma.playerMatchStats.upsert({
         where: { matchId_playerId: { matchId: match.id, playerId: local.id } },
@@ -99,7 +151,7 @@ export class StatsIngestionService {
           matchId: match.id,
           playerId: local.id,
           gameId: match.gameId,
-          source: provider.source,
+          source,
           raw: line.raw,
           normalized: line.normalized,
           perMap: line.perMap ?? Prisma.JsonNull,
@@ -107,18 +159,22 @@ export class StatsIngestionService {
         update: {
           raw: line.raw,
           normalized: line.normalized,
-          source: provider.source,
+          source,
           perMap: line.perMap ?? Prisma.JsonNull,
         },
       });
+      persisted += 1;
     }
     if (result.games?.length) {
       await this.mergeProviderGames(match, result.games);
     }
-    this.logger.log(
-      `${result.lines.length} lignes de stats ${provider.source} pour le match ${matchId}`,
-    );
-    await this.publish(match, provider.source);
+    if (result.pageUrl && result.pageUrl !== match.statsPageUrl) {
+      await this.prisma.match.update({
+        where: { id: match.id },
+        data: { statsPageUrl: result.pageUrl },
+      });
+    }
+    return persisted;
   }
 
   /**

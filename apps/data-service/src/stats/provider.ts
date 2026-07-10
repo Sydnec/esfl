@@ -36,6 +36,8 @@ export interface ProviderResult {
   lines: ProviderStatLine[];
   /** Enrichissement des manches (fusionné dans match.gamesSummary). */
   games?: ProviderGameInfo[];
+  /** Chemin/URL de la page source, mémorisé sur le match pour les fetchs suivants. */
+  pageUrl?: string | null;
 }
 
 /**

@@ -9,4 +9,5 @@ export type IngestionJobName =
   | 'sync-live'
   | 'sync-competition'
   | 'ingest-stats'
-  | 'check-grid-coverage';
+  | 'check-grid-coverage'
+  | 'sync-live-stats';

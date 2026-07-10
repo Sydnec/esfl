@@ -220,14 +220,41 @@ export class VlrStatsProvider implements GameStatsProvider {
   async fetchStats(match: Match, context: MatchContext): Promise<ProviderResult | null> {
     if (!context.teamA || !context.teamB) return null;
 
-    const matchPath = await this.findMatchPath(context.teamA.name, context.teamB.name);
+    const matchPath =
+      match.statsPageUrl ??
+      (await this.findMatchPath(context.teamA.name, context.teamB.name, ['/matches/results']));
     if (!matchPath) {
       this.logger.warn(
         `VLR : match ${context.teamA.name} vs ${context.teamB.name} introuvable dans les résultats récents`,
       );
       return null;
     }
+    return this.fetchFromPath(matchPath, context);
+  }
 
+  /**
+   * Stats d'un match en cours : la page est cherchée côté planning/live
+   * (un match running n'apparaît pas dans les résultats). Retour null sans
+   * bruit si rien n'est encore publié.
+   */
+  async fetchLiveStats(match: Match, context: MatchContext): Promise<ProviderResult | null> {
+    if (!context.teamA || !context.teamB) return null;
+
+    const matchPath =
+      match.statsPageUrl ??
+      (await this.findMatchPath(context.teamA.name, context.teamB.name, [
+        '/matches',
+        '/matches/results',
+      ]));
+    if (!matchPath) return null;
+    return this.fetchFromPath(matchPath, context);
+  }
+
+  private async fetchFromPath(
+    matchPath: string,
+    context: MatchContext,
+  ): Promise<ProviderResult | null> {
+    if (!context.teamA || !context.teamB) return null;
     const response = await politeFetch(`${BASE_URL}${matchPath}`);
     if (!response.ok) {
       this.logger.warn(`VLR ${matchPath} → ${response.status}`);
@@ -236,33 +263,43 @@ export class VlrStatsProvider implements GameStatsProvider {
     const html = await response.text();
     const lines = mapVlrMatchHtml(html, context.teamA.name, context.teamB.name);
     if (lines.length === 0) {
-      this.logger.warn(`VLR : structure de page inattendue (${matchPath})`);
       return null;
     }
-    return { lines, games: mapVlrGames(html, context.teamA.name, context.teamB.name) };
+    return {
+      lines,
+      games: mapVlrGames(html, context.teamA.name, context.teamB.name),
+      pageUrl: matchPath,
+    };
   }
 
-  /** Scanne les pages de résultats récents et retrouve le lien du match par noms d'équipes. */
-  private async findMatchPath(teamAName: string, teamBName: string): Promise<string | null> {
-    for (let page = 1; page <= RESULT_PAGES_TO_SCAN; page += 1) {
-      const response = await politeFetch(`${BASE_URL}/matches/results?page=${page}`);
-      if (!response.ok) return null;
-      const $ = cheerio.load(await response.text());
-      const found = $('a.match-item')
-        .toArray()
-        .find((element) => {
-          const names = $(element)
-            .find('.match-item-vs-team-name')
-            .map((_i, name) => $(name).text().trim())
-            .get();
-          if (names.length < 2) return false;
-          return (
-            (teamNamesMatch(names[0], teamAName) && teamNamesMatch(names[1], teamBName)) ||
-            (teamNamesMatch(names[0], teamBName) && teamNamesMatch(names[1], teamAName))
-          );
-        });
-      if (found) {
-        return $(found).attr('href') ?? null;
+  /** Scanne des listes de matchs VLR et retrouve le lien par noms d'équipes. */
+  private async findMatchPath(
+    teamAName: string,
+    teamBName: string,
+    listings: string[],
+  ): Promise<string | null> {
+    for (const listing of listings) {
+      const pages = listing === '/matches/results' ? RESULT_PAGES_TO_SCAN : 1;
+      for (let page = 1; page <= pages; page += 1) {
+        const response = await politeFetch(`${BASE_URL}${listing}?page=${page}`);
+        if (!response.ok) return null;
+        const $ = cheerio.load(await response.text());
+        const found = $('a.match-item')
+          .toArray()
+          .find((element) => {
+            const names = $(element)
+              .find('.match-item-vs-team-name')
+              .map((_i, name) => $(name).text().trim())
+              .get();
+            if (names.length < 2) return false;
+            return (
+              (teamNamesMatch(names[0], teamAName) && teamNamesMatch(names[1], teamBName)) ||
+              (teamNamesMatch(names[0], teamBName) && teamNamesMatch(names[1], teamAName))
+            );
+          });
+        if (found) {
+          return $(found).attr('href') ?? null;
+        }
       }
     }
     return null;

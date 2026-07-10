@@ -40,6 +40,9 @@ export class IngestionProcessor extends WorkerHost {
       case 'check-grid-coverage':
         await this.statsIngestion.checkGridCoverage();
         break;
+      case 'sync-live-stats':
+        await this.statsIngestion.syncLiveStats();
+        break;
       case 'ingest-stats': {
         // Throw si les stats ne sont pas encore publiées → retry BullMQ (backoff).
         const data = job.data as { matchId: string; force?: boolean };
