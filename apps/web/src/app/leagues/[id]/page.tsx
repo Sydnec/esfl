@@ -44,6 +44,10 @@ export default function LeaguePage() {
   const [dayMatches, setDayMatches] = useState<MatchSummary[] | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [addCompetitionId, setAddCompetitionId] = useState('');
+  const [editName, setEditName] = useState('');
+  const [editRosterSize, setEditRosterSize] = useState(5);
+  const [editLockDays, setEditLockDays] = useState(2);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -144,7 +148,7 @@ export default function LeaguePage() {
   async function handleAddCompetition(event: React.FormEvent) {
     event.preventDefault();
     if (!addCompetitionId) return;
-    setError(null);
+    setSettingsError(null);
     try {
       await authedFetch(`/fantasy/leagues/${id}/competitions`, {
         method: 'POST',
@@ -153,7 +157,85 @@ export default function LeaguePage() {
       setAddCompetitionId('');
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Ajout impossible');
+      setSettingsError(err instanceof ApiError ? err.message : 'Ajout impossible');
+    }
+  }
+
+  function openSettings() {
+    if (league) {
+      setEditName(league.name);
+      setEditRosterSize(league.rosterSize);
+      setEditLockDays(league.lockMatchDays);
+    }
+    setSettingsError(null);
+    setSettingsOpen(true);
+  }
+
+  async function handleSaveSettings(event: React.FormEvent) {
+    event.preventDefault();
+    setSettingsError(null);
+    try {
+      await authedFetch(`/fantasy/leagues/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          name: editName,
+          rosterSize: editRosterSize,
+          lockMatchDays: editLockDays,
+        }),
+      });
+      await load();
+    } catch (err) {
+      setSettingsError(err instanceof ApiError ? err.message : 'Enregistrement impossible');
+    }
+  }
+
+  async function handleRemoveCompetition(competitionId: string) {
+    setSettingsError(null);
+    try {
+      await authedFetch(`/fantasy/leagues/${id}/competitions/${competitionId}`, {
+        method: 'DELETE',
+      });
+      await load();
+    } catch (err) {
+      setSettingsError(err instanceof ApiError ? err.message : 'Retrait impossible');
+    }
+  }
+
+  async function handleKick(userId: string) {
+    const ref = members.get(userId);
+    if (!window.confirm(`Exclure ${ref?.username ?? 'ce membre'} de la ligue ?`)) return;
+    setError(null);
+    try {
+      await authedFetch(`/fantasy/leagues/${id}/members/${userId}`, { method: 'DELETE' });
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Exclusion impossible');
+    }
+  }
+
+  async function handleLeave() {
+    if (!user) return;
+    const warning = isOwner
+      ? 'Quitter la ligue ? Elle sera transférée au plus ancien membre (ou supprimée si tu es seul).'
+      : 'Quitter la ligue ? Tes rosters et tes points y seront supprimés.';
+    if (!window.confirm(warning)) return;
+    setSettingsError(null);
+    try {
+      await authedFetch(`/fantasy/leagues/${id}/members/${user.id}`, { method: 'DELETE' });
+      router.replace('/dashboard');
+    } catch (err) {
+      setSettingsError(err instanceof ApiError ? err.message : 'Départ impossible');
+    }
+  }
+
+  async function handleDeleteLeague() {
+    if (!window.confirm('Supprimer définitivement la ligue, ses journées et ses scores ?')) return;
+    setSettingsError(null);
+    try {
+      await authedFetch(`/fantasy/leagues/${id}`, { method: 'DELETE' });
+      router.replace('/dashboard');
+    } catch (err) {
+      setSettingsError(err instanceof ApiError ? err.message : 'Suppression impossible');
     }
   }
 
@@ -167,7 +249,7 @@ export default function LeaguePage() {
     <main className={styles.main}>
       <div className={styles.headerRow}>
         <h1 className={styles.title}>{league.name}</h1>
-        <button className={styles.settingsButton} onClick={() => setSettingsOpen(true)}>
+        <button className={styles.settingsButton} onClick={openSettings}>
           Paramètres
         </button>
       </div>
@@ -187,20 +269,84 @@ export default function LeaguePage() {
                 Fermer
               </button>
             </div>
+            {settingsError && <p className={styles.error}>{settingsError}</p>}
             <dl className={styles.settingsList}>
               <dt>Code d&apos;invitation</dt>
               <dd>
                 <strong>{league.inviteCode}</strong>
               </dd>
-              <dt>Joueurs par roster</dt>
-              <dd>{league.rosterSize}</dd>
-              <dt>Verrouillage après un pick</dt>
-              <dd>{league.lockMatchDays} journée(s)</dd>
+              {!isOwner && (
+                <>
+                  <dt>Joueurs par roster</dt>
+                  <dd>{league.rosterSize}</dd>
+                  <dt>Verrouillage après un pick</dt>
+                  <dd>{league.lockMatchDays} journée(s)</dd>
+                </>
+              )}
             </dl>
+            {isOwner && (
+              <form className={styles.settingsForm} onSubmit={handleSaveSettings}>
+                <label className={styles.settingsField}>
+                  Nom de la ligue
+                  <input
+                    className={styles.input}
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    minLength={3}
+                    maxLength={40}
+                    required
+                  />
+                </label>
+                <div className={styles.settingsRow}>
+                  <label className={styles.settingsField}>
+                    Joueurs par roster
+                    <input
+                      className={styles.input}
+                      type="number"
+                      min={1}
+                      max={10}
+                      value={editRosterSize}
+                      onChange={(e) => setEditRosterSize(Number(e.target.value))}
+                      required
+                    />
+                  </label>
+                  <label className={styles.settingsField}>
+                    Verrouillage (journées)
+                    <input
+                      className={styles.input}
+                      type="number"
+                      min={0}
+                      max={10}
+                      value={editLockDays}
+                      onChange={(e) => setEditLockDays(Number(e.target.value))}
+                      required
+                    />
+                  </label>
+                </div>
+                <button className={styles.addButton} type="submit">
+                  Enregistrer
+                </button>
+              </form>
+            )}
             <h3 className={styles.modalSubtitle}>Compétitions suivies</h3>
             <ul className={styles.competitions}>
               {league.competitions.map((entry) => (
-                <li key={entry.competitionId}>{competitionName(entry.competitionId)}</li>
+                <li key={entry.competitionId} className={styles.competitionRow}>
+                  <Link
+                    className={styles.competitionModalLink}
+                    href={`/competitions/${entry.competitionId}`}
+                  >
+                    {competitionName(entry.competitionId)}
+                  </Link>
+                  {isOwner && league.competitions.length > 1 && (
+                    <button
+                      className={styles.removeButton}
+                      onClick={() => void handleRemoveCompetition(entry.competitionId)}
+                    >
+                      Retirer
+                    </button>
+                  )}
+                </li>
               ))}
             </ul>
             {isOwner && addable.length > 0 && (
@@ -222,6 +368,17 @@ export default function LeaguePage() {
                 </button>
               </form>
             )}
+            <h3 className={styles.modalSubtitle}>Zone sensible</h3>
+            <div className={styles.dangerZone}>
+              <button className={styles.dangerButton} onClick={() => void handleLeave()}>
+                Quitter la ligue
+              </button>
+              {isOwner && (
+                <button className={styles.dangerButton} onClick={() => void handleDeleteLeague()}>
+                  Supprimer la ligue
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -314,6 +471,14 @@ export default function LeaguePage() {
                   />
                   {ref?.username ?? 'Ancien membre'}
                   {member.role === 'owner' && <span className={styles.ownerTag}> · créateur</span>}
+                  {isOwner && member.userId !== user.id && (
+                    <button
+                      className={styles.kickButton}
+                      onClick={() => void handleKick(member.userId)}
+                    >
+                      Exclure
+                    </button>
+                  )}
                 </li>
               );
             })}
