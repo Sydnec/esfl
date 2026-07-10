@@ -160,9 +160,45 @@
   margin-top: var(--space-5);
 }
 
+.statsHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
 .statsTitle {
   font-size: 1.125rem;
-  margin-bottom: var(--space-3);
+  margin: 0;
+}
+
+.mapTabs {
+  display: flex;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+}
+
+.mapTab {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg);
+  color: var(--color-text);
+  padding: 2px var(--space-2);
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+
+.mapTabActive {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.agentCell {
+  color: var(--color-muted);
+  font-size: 0.875rem;
 }
 
 .teamStats {

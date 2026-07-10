@@ -1,4 +1,4 @@
-import type { GameId } from '@esfl/contracts';
+import type { GameId, MapStatsEntry } from '@esfl/contracts';
 
 export interface Competition {
   id: string;
@@ -110,6 +110,8 @@ export interface MatchStatsLine {
   gameId: GameId;
   source: string;
   normalized: Record<string, number | boolean | null>;
+  /** Détail par manche (agent, KDA par map) quand la source le fournit. */
+  perMap?: MapStatsEntry[] | null;
 }
 
 export interface FantasyPointsLine {

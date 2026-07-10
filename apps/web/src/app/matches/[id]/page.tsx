@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { GAME_LABELS } from '@esfl/contracts';
@@ -26,6 +26,8 @@ export default function MatchPage() {
   const [stats, setStats] = useState<MatchStatsLine[]>([]);
   const [players, setPlayers] = useState<Map<string, PlayerRef>>(new Map());
   const [points, setPoints] = useState<Map<string, number>>(new Map());
+  /** Manche affichée dans les tableaux de perfs (null = cumul du match). */
+  const [selectedMap, setSelectedMap] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -63,6 +65,19 @@ export default function MatchPage() {
     }, POLL_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [load]);
+
+  // Manches disposant d'un détail joueur (onglets M1, M2… de la section perfs).
+  const mapTabs = useMemo(() => {
+    const byPosition = new Map<number, string | null>();
+    for (const line of stats) {
+      for (const entry of line.perMap ?? []) {
+        if (!byPosition.has(entry.position)) byPosition.set(entry.position, entry.map);
+      }
+    }
+    return [...byPosition.entries()]
+      .map(([position, map]) => ({ position, map }))
+      .sort((a, b) => a.position - b.position);
+  }, [stats]);
 
   if (error) return <main className={styles.main}>{error}</main>;
   if (!match) return <main className={styles.main}>Chargement…</main>;
@@ -154,11 +169,35 @@ export default function MatchPage() {
 
       {finished && stats.length > 0 && (
         <section className={styles.statsSection}>
-          <h2 className={styles.statsTitle}>Performances</h2>
+          <div className={styles.statsHeader}>
+            <h2 className={styles.statsTitle}>Performances</h2>
+            {mapTabs.length > 0 && (
+              <div className={styles.mapTabs}>
+                <button
+                  className={`${styles.mapTab} ${selectedMap === null ? styles.mapTabActive : ''}`}
+                  onClick={() => setSelectedMap(null)}
+                >
+                  Cumulé
+                </button>
+                {mapTabs.map((tab) => (
+                  <button
+                    key={tab.position}
+                    className={`${styles.mapTab} ${selectedMap === tab.position ? styles.mapTabActive : ''}`}
+                    onClick={() => setSelectedMap(tab.position)}
+                  >
+                    M{tab.position}
+                    {tab.map ? ` · ${tab.map}` : ''}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           {[match.teamA, match.teamB].map((team) => {
             const lines = statsByTeam(team?.id);
             if (!team || lines.length === 0) return null;
             const columns = STAT_COLUMNS[match.gameId];
+            const cumulative = selectedMap === null;
+            const withAgents = mapTabs.length > 0;
             return (
               <div key={team.id} className={styles.teamStats}>
                 <h3 className={styles.teamStatsTitle}>
@@ -168,15 +207,33 @@ export default function MatchPage() {
                   <thead>
                     <tr>
                       <th>Joueur</th>
+                      {withAgents && <th>{cumulative ? 'Agents' : 'Agent'}</th>}
                       {columns.map((column) => (
                         <th key={column.key}>{column.label}</th>
                       ))}
-                      <th>Pts fantasy</th>
+                      {cumulative && <th>Pts fantasy</th>}
                     </tr>
                   </thead>
                   <tbody>
                     {lines.map((line) => {
                       const player = players.get(line.playerId);
+                      const mapEntry = cumulative
+                        ? null
+                        : (line.perMap ?? []).find((entry) => entry.position === selectedMap);
+                      if (!cumulative && !mapEntry) return null;
+                      const values = (mapEntry ?? line.normalized) as Record<
+                        string,
+                        number | boolean | null
+                      >;
+                      const agents = cumulative
+                        ? [
+                            ...new Set(
+                              (line.perMap ?? [])
+                                .map((entry) => entry.agent)
+                                .filter((agent): agent is string => !!agent),
+                            ),
+                          ].join(', ')
+                        : (mapEntry?.agent ?? '·');
                       return (
                         <tr key={line.playerId}>
                           <td>
@@ -190,10 +247,13 @@ export default function MatchPage() {
                               {player?.name ?? 'Inconnu'} {flagEmoji(player?.nationality)}
                             </Link>
                           </td>
+                          {withAgents && <td className={styles.agentCell}>{agents || '·'}</td>}
                           {columns.map((column) => (
-                            <td key={column.key}>{formatStat(line.normalized[column.key])}</td>
+                            <td key={column.key}>{formatStat(values[column.key])}</td>
                           ))}
-                          <td className={styles.points}>{points.get(line.playerId) ?? '·'}</td>
+                          {cumulative && (
+                            <td className={styles.points}>{points.get(line.playerId) ?? '·'}</td>
+                          )}
                         </tr>
                       );
                     })}
