@@ -7,7 +7,7 @@ import { GAME_LABELS } from '@esfl/contracts';
 import { Avatar } from '@/components/Avatar';
 import { request } from '@/lib/api';
 import { flagEmoji } from '@/lib/flags';
-import { formatKickoff } from '@/lib/format';
+import { formatDateTime, formatKickoff } from '@/lib/format';
 import { formatStat, STAT_COLUMNS } from '@/lib/stat-columns';
 import type { FantasyPointsLine, MatchStatsLine, MatchSummary, PlayerRef } from '@/lib/types';
 import styles from './page.module.css';
@@ -133,7 +133,11 @@ export default function MatchPage() {
               {finished || running ? `${match.scoreA ?? 0} vs ${match.scoreB ?? 0}` : 'vs'}
             </span>
             <span className={styles.when}>
-              {finished ? 'Terminé' : running ? 'En cours' : formatKickoff(match.scheduledAt)}
+              {finished
+                ? `Terminé · ${formatDateTime(match.scheduledAt)}`
+                : running
+                  ? 'En cours'
+                  : formatKickoff(match.scheduledAt)}
             </span>
           </span>
           <span className={`${styles.slotName} ${styles.slotNameRight}`}>
@@ -146,52 +150,53 @@ export default function MatchPage() {
         </div>
       </div>
 
+      {/* Manches et filtre des perfs fusionnés : le score vit dans le bouton,
+          cliquable quand le détail par map existe. */}
       {games.length > 0 && (
-        <ul className={styles.games}>
-          {games.map((game) => (
-            <li key={game.position} className={styles.game}>
-              <span className={styles.gameName}>
-                M{game.position}
-                {game.map ? ` · ${game.map}` : ''}
+        <div className={styles.mapChips}>
+          {mapTabs.length > 0 && (
+            <button
+              className={`${styles.mapChip} ${selectedMap === null ? styles.mapChipActive : ''}`}
+              onClick={() => setSelectedMap(null)}
+            >
+              Cumulé
+            </button>
+          )}
+          {games.map((game) => {
+            const label = game.map ?? `M${game.position}`;
+            const score =
+              game.scoreA != null && game.scoreB != null
+                ? `${game.scoreA}-${game.scoreB}${match.gameId === 'lol' ? ' kills' : ''}`
+                : game.winner
+                  ? `victoire ${game.winner === 'A' ? tagA : tagB}`
+                  : 'en cours';
+            const clickable = mapTabs.some((tab) => tab.position === game.position);
+            const content = (
+              <>
+                {label} <span className={styles.mapChipScore}>{score}</span>
+              </>
+            );
+            return clickable ? (
+              <button
+                key={game.position}
+                className={`${styles.mapChip} ${selectedMap === game.position ? styles.mapChipActive : ''}`}
+                title={formatLength(game.lengthSec)}
+                onClick={() => setSelectedMap(game.position)}
+              >
+                {content}
+              </button>
+            ) : (
+              <span key={game.position} className={styles.mapChip} title={formatLength(game.lengthSec)}>
+                {content}
               </span>
-              <span className={styles.gameScore}>
-                {game.scoreA != null && game.scoreB != null
-                  ? `${game.scoreA} vs ${game.scoreB}${match.gameId === 'lol' ? ' kills' : ''}`
-                  : game.winner
-                    ? `victoire ${game.winner === 'A' ? tagA : tagB}`
-                    : 'en cours'}
-              </span>
-              <span className={styles.gameLength}>{formatLength(game.lengthSec)}</span>
-            </li>
-          ))}
-        </ul>
+            );
+          })}
+        </div>
       )}
 
       {finished && stats.length > 0 && (
         <section className={styles.statsSection}>
-          <div className={styles.statsHeader}>
-            <h2 className={styles.statsTitle}>Performances</h2>
-            {mapTabs.length > 0 && (
-              <div className={styles.mapTabs}>
-                <button
-                  className={`${styles.mapTab} ${selectedMap === null ? styles.mapTabActive : ''}`}
-                  onClick={() => setSelectedMap(null)}
-                >
-                  Cumulé
-                </button>
-                {mapTabs.map((tab) => (
-                  <button
-                    key={tab.position}
-                    className={`${styles.mapTab} ${selectedMap === tab.position ? styles.mapTabActive : ''}`}
-                    onClick={() => setSelectedMap(tab.position)}
-                  >
-                    M{tab.position}
-                    {tab.map ? ` · ${tab.map}` : ''}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          <h2 className={styles.statsTitle}>Performances</h2>
           {[match.teamA, match.teamB].map((team) => {
             const lines = statsByTeam(team?.id);
             if (!team || lines.length === 0) return null;
@@ -225,15 +230,15 @@ export default function MatchPage() {
                         string,
                         number | boolean | null
                       >;
-                      const agents = cumulative
-                        ? [
-                            ...new Set(
-                              (line.perMap ?? [])
-                                .map((entry) => entry.agent)
-                                .filter((agent): agent is string => !!agent),
-                            ),
-                          ].join(', ')
-                        : (mapEntry?.agent ?? '·');
+                      // Agents joués : dédupliqués sur la vue cumulée, celui
+                      // de la manche sinon.
+                      const agents = [
+                        ...new Map(
+                          (cumulative ? (line.perMap ?? []) : [mapEntry!])
+                            .filter((entry) => entry.agent || entry.agentImage)
+                            .map((entry) => [entry.agent ?? entry.agentImage, entry]),
+                        ).values(),
+                      ];
                       return (
                         <tr key={line.playerId}>
                           <td>
@@ -247,7 +252,28 @@ export default function MatchPage() {
                               {player?.name ?? 'Inconnu'} {flagEmoji(player?.nationality)}
                             </Link>
                           </td>
-                          {withAgents && <td className={styles.agentCell}>{agents || '·'}</td>}
+                          {withAgents && (
+                            <td className={styles.agentCell}>
+                              {agents.length === 0
+                                ? '·'
+                                : agents.map((entry) =>
+                                    entry.agentImage ? (
+                                      <img
+                                        key={entry.agent ?? entry.agentImage}
+                                        className={styles.agentIcon}
+                                        src={entry.agentImage}
+                                        alt={entry.agent ?? 'agent'}
+                                        title={entry.agent ?? undefined}
+                                        // vlr.gg refuse le hotlinking avec un
+                                        // Referer externe.
+                                        referrerPolicy="no-referrer"
+                                      />
+                                    ) : (
+                                      <span key={entry.agent}>{entry.agent}</span>
+                                    ),
+                                  )}
+                            </td>
+                          )}
                           {columns.map((column) => (
                             <td key={column.key}>{formatStat(values[column.key])}</td>
                           ))}

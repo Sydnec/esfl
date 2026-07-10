@@ -54,6 +54,8 @@ export const mapStatsEntrySchema = z.object({
   position: z.number(),
   map: z.string().nullable(),
   agent: z.string().nullable(),
+  /** URL absolue de l'icône d'agent (source provider). */
+  agentImage: z.string().nullable(),
   kills: z.number(),
   deaths: z.number(),
   assists: z.number(),

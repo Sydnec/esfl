@@ -9,6 +9,15 @@ export function formatKickoff(iso: string | null): string {
   return `${date.toLocaleDateString('fr-FR', { weekday: 'short' })} ${time}`;
 }
 
+/** Date et heure complètes : « 8 juil. 18:00 ». */
+export function formatDateTime(iso: string | null): string {
+  if (!iso) return '';
+  const date = new Date(iso);
+  const day = date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+  const time = date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+  return `${day} ${time}`;
+}
+
 /** Date calendaire Europe/Paris (YYYY-MM-DD) d'un instant ISO. */
 export function parisDateOf(iso: string): string {
   return new Date(iso).toLocaleDateString('fr-CA', { timeZone: 'Europe/Paris' });

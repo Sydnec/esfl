@@ -19,6 +19,7 @@ interface VlrRowStats {
   /** Pseudo affiché par VLR (repris dans raw). */
   name: string;
   agent: string | null;
+  agentImage: string | null;
   acs: number | null;
   kills: number | null;
   deaths: number | null;
@@ -78,10 +79,12 @@ export function mapVlrMatchHtml(html: string, players: Player[]): ProviderStatLi
             return Number.isFinite(value) ? value : null;
           };
           const agentImg = $(row).find('.mod-agent img').first();
+          const agentSrc = agentImg.attr('src') ?? null;
 
           rows.set(local.id, {
             name,
             agent: agentImg.attr('title') ?? agentImg.attr('alt') ?? null,
+            agentImage: agentSrc ? (agentSrc.startsWith('/') ? `${BASE_URL}${agentSrc}` : agentSrc) : null,
             acs: readStat(cols.acs),
             kills: readStat(cols.kills),
             deaths: readStat(cols.deaths),
@@ -114,6 +117,7 @@ export function mapVlrMatchHtml(html: string, players: Player[]): ProviderStatLi
           position: blockIdx + 1,
           map: mapName,
           agent: stats.agent,
+          agentImage: stats.agentImage,
           kills: stats.kills ?? 0,
           deaths: stats.deaths ?? 0,
           assists: stats.assists ?? 0,

@@ -117,88 +117,66 @@
   font-weight: 600;
 }
 
-.games {
-  list-style: none;
+/* Manches + filtre des perfs : une seule rangée de chips avec le score. */
+.mapChips {
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
+  gap: var(--space-1);
   margin-top: var(--space-3);
+}
+
+.mapChip {
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
-}
-
-.game {
-  display: grid;
-  grid-template-columns: 1fr auto 72px;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-2);
+  background: var(--color-bg);
+  color: var(--color-text);
+  padding: 2px var(--space-2);
   font-size: 0.875rem;
-}
-
-.game + .game {
-  border-top: 1px solid var(--color-border);
-}
-
-.gameName {
   font-weight: 500;
+  white-space: nowrap;
   text-transform: capitalize;
 }
 
-.gameScore {
-  color: var(--color-accent);
-  font-weight: 600;
-  white-space: nowrap;
+button.mapChip:hover {
+  border-color: var(--color-accent);
 }
 
-.gameLength {
-  color: var(--color-muted);
-  text-align: right;
-  white-space: nowrap;
+.mapChipActive {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.mapChipScore {
+  color: var(--color-accent);
+  font-weight: 600;
+  text-transform: none;
 }
 
 .statsSection {
   margin-top: var(--space-5);
 }
 
-.statsHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  margin-bottom: var(--space-3);
-}
-
 .statsTitle {
   font-size: 1.125rem;
-  margin: 0;
-}
-
-.mapTabs {
-  display: flex;
-  gap: var(--space-1);
-  flex-wrap: wrap;
-}
-
-.mapTab {
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  background: var(--color-bg);
-  color: var(--color-text);
-  padding: 2px var(--space-2);
-  font-size: 0.8125rem;
-  white-space: nowrap;
-}
-
-.mapTabActive {
-  border-color: var(--color-accent);
-  color: var(--color-accent);
-  font-weight: 600;
+  margin-bottom: var(--space-3);
 }
 
 .agentCell {
   color: var(--color-muted);
   font-size: 0.875rem;
+}
+
+.agentIcon {
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius);
+  object-fit: cover;
+  vertical-align: middle;
+}
+
+.agentIcon + .agentIcon {
+  margin-left: var(--space-1);
 }
 
 .teamStats {

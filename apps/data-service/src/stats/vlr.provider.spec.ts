@@ -7,7 +7,7 @@ const players = [{ id: 'p1', name: 'TenZ' }] as Player[];
 
 function statRow(name: string, agent: string | null, values: number[]): string {
   const agentCell = agent
-    ? `<td class="mod-agent"><img title="${agent}" alt="${agent}"></td>`
+    ? `<td class="mod-agent"><img title="${agent}" alt="${agent}" src="/img/vlr/game/agents/${agent.toLowerCase()}.png"></td>`
     : '<td></td>';
   return `
       <tr>
@@ -88,6 +88,7 @@ describe('mapVlrMatchHtml', () => {
       position: 1,
       map: 'Ascent',
       agent: 'Jett',
+      agentImage: 'https://www.vlr.gg/img/vlr/game/agents/jett.png',
       kills: 25,
       deaths: 14,
       assists: 3,
