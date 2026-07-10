@@ -7,6 +7,7 @@ import { GAME_LABELS } from '@esfl/contracts';
 import { Avatar } from '@/components/Avatar';
 import { request } from '@/lib/api';
 import { flagEmoji } from '@/lib/flags';
+import { agentIconSrc } from '@/lib/agents';
 import { formatDateTime, formatKickoff } from '@/lib/format';
 import { formatStat, STAT_COLUMNS } from '@/lib/stat-columns';
 import type { FantasyPointsLine, MatchStatsLine, MatchSummary, PlayerRef } from '@/lib/types';
@@ -256,22 +257,24 @@ export default function MatchPage() {
                             <td className={styles.agentCell}>
                               {agents.length === 0
                                 ? '·'
-                                : agents.map((entry) =>
-                                    entry.agentImage ? (
+                                : agents.map((entry) => {
+                                    const src = agentIconSrc(match.gameId, entry);
+                                    return src ? (
                                       <img
-                                        key={entry.agent ?? entry.agentImage}
+                                        key={entry.agent ?? src}
                                         className={styles.agentIcon}
-                                        src={entry.agentImage}
+                                        src={src}
                                         alt={entry.agent ?? 'agent'}
                                         title={entry.agent ?? undefined}
-                                        // vlr.gg refuse le hotlinking avec un
-                                        // Referer externe.
-                                        referrerPolicy="no-referrer"
+                                        onError={(event) => {
+                                          // Icône locale absente (nouvel agent).
+                                          event.currentTarget.style.display = 'none';
+                                        }}
                                       />
                                     ) : (
                                       <span key={entry.agent}>{entry.agent}</span>
-                                    ),
-                                  )}
+                                    );
+                                  })}
                             </td>
                           )}
                           {columns.map((column) => (
