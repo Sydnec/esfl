@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { GAME_IDS, GameId, MatchFinishedEvent, QUEUES } from '@esfl/contracts';
-import type { Competition } from '../../generated/client';
+import type { Competition, Prisma } from '../../generated/client';
 import { Queue } from 'bullmq';
 import { mergeGamesSummary } from '../common/games-summary';
 import { FantasyClient } from '../fantasy-client/fantasy.client';
@@ -258,7 +258,7 @@ export class IngestionService {
                 ? 'B'
                 : null,
         })),
-    );
+    ) as unknown as Prisma.InputJsonValue;
     const shared = {
       name: match.name,
       status,
