@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import type { MapStatsEntry } from '@esfl/contracts';
 import type { Match, Player, Prisma } from '../../generated/client';
 import { buildPlayerIndex, matchPlayer, teamNamesMatch } from './matching';
 import { politeFetch } from './polite-fetch';
@@ -15,6 +16,7 @@ const API_URL = 'https://lol.fandom.com/api.php';
 /** Ligne brute cargoquery (join ScoreboardGames + ScoreboardPlayers). */
 export interface LeaguepediaRow {
   Link?: string;
+  Champion?: string;
   Kills?: string;
   Deaths?: string;
   Assists?: string;
@@ -31,6 +33,22 @@ export interface LeaguepediaRow {
 /** Retire la désambiguïsation Leaguepedia : "Faker (Lee Sang-hyeok)" → "Faker". */
 function stripDisambiguation(link: string): string {
   return link.replace(/\s*\(.*\)$/, '');
+}
+
+/** Ids Data Dragon qui ne se déduisent pas du nom affiché. */
+const CHAMPION_ID_EXCEPTIONS: Record<string, string> = {
+  Wukong: 'MonkeyKing',
+  'Renata Glasc': 'Renata',
+  'Nunu & Willump': 'Nunu',
+};
+
+/**
+ * Icône de champion via CommunityDragon (CDN Riot communautaire prévu pour
+ * le hotlinking, version « latest » gérée côté CDN).
+ */
+export function championImageUrl(champion: string): string {
+  const id = CHAMPION_ID_EXCEPTIONS[champion] ?? champion.replace(/[^a-zA-Z]/g, '');
+  return `https://cdn.communitydragon.org/latest/champion/${id}/square`;
 }
 
 /**
@@ -62,6 +80,7 @@ export function mapLeaguepediaRows(
     wins: number;
     games: number;
     raw: LeaguepediaRow[];
+    perMap: MapStatsEntry[];
   }
   const byPlayer = new Map<string, Aggregate>();
   for (const row of matchRows) {
@@ -76,6 +95,7 @@ export function mapLeaguepediaRows(
       wins: 0,
       games: 0,
       raw: [],
+      perMap: [],
     };
     aggregate.kills += Number(row.Kills ?? 0);
     aggregate.deaths += Number(row.Deaths ?? 0);
@@ -85,6 +105,20 @@ export function mapLeaguepediaRows(
     aggregate.wins += row.PlayerWin === 'Yes' ? 1 : 0;
     aggregate.games += 1;
     aggregate.raw.push(row);
+    // Détail de la game : champion + stats (pas de map en LoL).
+    const gameMinutes = Number(row.Gamelength ?? 0);
+    aggregate.perMap.push({
+      position: Number(row.GameNumber ?? 0) || aggregate.games,
+      map: null,
+      agent: row.Champion ?? null,
+      agentImage: row.Champion ? championImageUrl(row.Champion) : null,
+      kills: Number(row.Kills ?? 0),
+      deaths: Number(row.Deaths ?? 0),
+      assists: Number(row.Assists ?? 0),
+      csPerMin:
+        gameMinutes > 0 ? Math.round((Number(row.CS ?? 0) / gameMinutes) * 100) / 100 : null,
+      win: row.PlayerWin === 'Yes',
+    });
     byPlayer.set(name, aggregate);
   }
 
@@ -103,6 +137,7 @@ export function mapLeaguepediaRows(
         csPerMin: aggregate.minutes > 0 ? Math.round((aggregate.cs / aggregate.minutes) * 100) / 100 : null,
         win: aggregate.wins * 2 > aggregate.games,
       },
+      perMap: aggregate.perMap.sort((a, b) => a.position - b.position) as unknown as Prisma.InputJsonValue,
     });
   }
   return lines;
@@ -175,7 +210,7 @@ export class LeaguepediaStatsProvider implements GameStatsProvider {
     // → Gamelength_Number) ; un espace provoque une MWException côté Fandom.
     url.searchParams.set(
       'fields',
-      'SP.Link,SP.Kills,SP.Deaths,SP.Assists,SP.CS,SP.PlayerWin,SP.Team,SG.Team1,SG.Team2,SG.Gamelength_Number=Gamelength,SG.GameId=GameId,SG.N_GameInMatch=GameNumber',
+      'SP.Link,SP.Champion,SP.Kills,SP.Deaths,SP.Assists,SP.CS,SP.PlayerWin,SP.Team,SG.Team1,SG.Team2,SG.Gamelength_Number=Gamelength,SG.GameId=GameId,SG.N_GameInMatch=GameNumber',
     );
     url.searchParams.set(
       'where',

@@ -37,6 +37,9 @@ export class IngestionProcessor extends WorkerHost {
       case 'sync-competition':
         await this.ingestion.syncCompetition((job.data as { competitionId: string }).competitionId);
         break;
+      case 'check-grid-coverage':
+        await this.statsIngestion.checkGridCoverage();
+        break;
       case 'ingest-stats': {
         // Throw si les stats ne sont pas encore publiées → retry BullMQ (backoff).
         const data = job.data as { matchId: string; force?: boolean };

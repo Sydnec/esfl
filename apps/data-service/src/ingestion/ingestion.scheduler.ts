@@ -38,6 +38,10 @@ export class IngestionScheduler implements OnModuleInit {
     await this.queue.upsertJobScheduler('sync-live', { every: 3 * 60 * 1000 }, {
       name: 'sync-live',
     });
+    // Couverture Grid des matchs CS2 (quota Grid indépendant de Pandascore).
+    await this.queue.upsertJobScheduler('check-grid-coverage', { every: 30 * 60 * 1000 }, {
+      name: 'check-grid-coverage',
+    });
     this.logger.log(
       'Jobs d’ingestion planifiés (séries 12h, matchs 15min, live 3min, rosters 24h)',
     );

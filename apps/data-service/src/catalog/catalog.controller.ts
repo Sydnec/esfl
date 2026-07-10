@@ -96,7 +96,12 @@ export class CatalogController {
   @Post('admin/sync/:job')
   @UseGuards(AdminGuard)
   async triggerSync(@Param('job') job: string) {
-    const allowed: IngestionJobName[] = ['sync-series', 'sync-matches', 'sync-rosters'];
+    const allowed: IngestionJobName[] = [
+      'sync-series',
+      'sync-matches',
+      'sync-rosters',
+      'check-grid-coverage',
+    ];
     if (!allowed.includes(job as IngestionJobName)) {
       throw new BadRequestException(`Job inconnu : ${job}`);
     }

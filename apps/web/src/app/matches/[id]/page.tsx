@@ -164,7 +164,9 @@ export default function MatchPage() {
             </button>
           )}
           {games.map((game) => {
-            const label = game.map ?? `M${game.position}`;
+            // Pas de choix de map en LoL : on parle de « Game N ».
+            const label =
+              game.map ?? (match.gameId === 'lol' ? `Game ${game.position}` : `M${game.position}`);
             const score =
               game.scoreA != null && game.scoreB != null
                 ? `${game.scoreA}-${game.scoreB}${match.gameId === 'lol' ? ' kills' : ''}`

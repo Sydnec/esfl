@@ -19,7 +19,7 @@ export class StatsIngestionService {
   constructor(
     private readonly prisma: PrismaService,
     @InjectQueue(QUEUES.STATS_INGESTED) private readonly statsIngestedQueue: Queue,
-    grid: GridStatsProvider,
+    private readonly grid: GridStatsProvider,
     vlr: VlrStatsProvider,
     leaguepedia: LeaguepediaStatsProvider,
     octane: OctaneStatsProvider,
@@ -90,6 +90,52 @@ export class StatsIngestionService {
       `${result.lines.length} lignes de stats ${provider.source} pour le match ${matchId}`,
     );
     await this.publish(match, provider.source);
+  }
+
+  /**
+   * Marque la couverture Grid des matchs CS2 (gridCovered) : les matchs que
+   * Grid ne référence pas n'auront jamais de stats et sont exclus du
+   * catalogue. Vérifiés : matchs sans verdict, équipes connues, entre J-2 et
+   * J+3. Un match à venir introuvable reste null (la série peut apparaître
+   * tard) ; il devient false une fois commencé.
+   */
+  async checkGridCoverage(): Promise<number> {
+    const now = Date.now();
+    const matches = await this.prisma.match.findMany({
+      where: {
+        gameId: 'cs2',
+        gridCovered: null,
+        teamAId: { not: null },
+        teamBId: { not: null },
+        scheduledAt: {
+          gte: new Date(now - 48 * 3600 * 1000),
+          lte: new Date(now + 72 * 3600 * 1000),
+        },
+      },
+      orderBy: { scheduledAt: 'asc' },
+      take: 30,
+    });
+
+    let checked = 0;
+    for (const match of matches) {
+      const reference = match.beginAt ?? match.scheduledAt;
+      if (!reference) continue;
+      const context = await this.loadContext(match);
+      if (!context.teamA || !context.teamB) continue;
+      const seriesId = await this.grid.findSeries(reference, context.teamA.name, context.teamB.name);
+      const started = match.status !== 'not_started' || reference.getTime() < now;
+      if (seriesId) {
+        await this.prisma.match.update({ where: { id: match.id }, data: { gridCovered: true } });
+        checked += 1;
+      } else if (started) {
+        await this.prisma.match.update({ where: { id: match.id }, data: { gridCovered: false } });
+        checked += 1;
+      }
+    }
+    if (checked > 0) {
+      this.logger.log(`Couverture Grid vérifiée pour ${checked} match(s) CS2`);
+    }
+    return checked;
   }
 
   /** Fusionne le détail des manches du provider (map, scores) avec celui de Pandascore (winner, durée). */

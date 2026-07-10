@@ -95,7 +95,7 @@ export class GridStatsProvider implements GameStatsProvider {
     const reference = match.beginAt ?? match.scheduledAt;
     if (!reference) return null;
 
-    const seriesId = await this.findSeriesId(apiKey, reference, context.teamA.name, context.teamB.name);
+    const seriesId = await this.findSeries(reference, context.teamA.name, context.teamB.name);
     if (!seriesId) {
       this.logger.warn(
         `Grid : série ${context.teamA.name} vs ${context.teamB.name} introuvable`,
@@ -130,12 +130,14 @@ export class GridStatsProvider implements GameStatsProvider {
     };
   }
 
-  private async findSeriesId(
-    apiKey: string,
-    reference: Date,
-    teamAName: string,
-    teamBName: string,
-  ): Promise<string | null> {
+  /**
+   * Id de la série Grid correspondant à un match (fenêtre ±36h + noms
+   * d'équipes). Null si Grid ne référence pas la rencontre — sert aussi à
+   * marquer la couverture des matchs CS2.
+   */
+  async findSeries(reference: Date, teamAName: string, teamBName: string): Promise<string | null> {
+    const apiKey = this.config.get<string>('GRID_API_KEY');
+    if (!apiKey) return null;
     const gte = new Date(reference.getTime() - 36 * 3600 * 1000).toISOString();
     const lte = new Date(reference.getTime() + 36 * 3600 * 1000).toISOString();
     const data = await this.graphql<{

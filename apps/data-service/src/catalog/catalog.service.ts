@@ -43,6 +43,10 @@ export class CatalogService {
         ...(from || to
           ? { scheduledAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } }
           : {}),
+        // CS2 : les matchs que Grid ne référence pas n'auront jamais de
+        // stats — on ne les expose nulle part (accueil, board, scoring).
+        // OR explicite : un NOT exclurait aussi les null (pas encore vérifiés).
+        OR: [{ gameId: { not: 'cs2' } }, { gridCovered: true }, { gridCovered: null }],
       },
       orderBy: { scheduledAt: 'asc' },
       take: 500,

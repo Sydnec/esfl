@@ -47,20 +47,22 @@ export type RlStats = z.infer<typeof rlStatsSchema>;
 
 /**
  * Détail d'un joueur sur une manche (player_match_stats.perMap, hors
- * scoring). Valorant : agent + stats de la map ; position alignée sur
- * match.gamesSummary.
+ * scoring). Valorant : agent + stats de la map ; LoL : champion + stats de
+ * la game (map null). Position alignée sur match.gamesSummary.
  */
 export const mapStatsEntrySchema = z.object({
   position: z.number(),
   map: z.string().nullable(),
   agent: z.string().nullable(),
-  /** URL absolue de l'icône d'agent (source provider). */
+  /** URL absolue de l'icône d'agent/champion (source provider). */
   agentImage: z.string().nullable(),
   kills: z.number(),
   deaths: z.number(),
   assists: z.number(),
-  acs: z.number().nullable(),
-  firstKills: z.number().nullable(),
+  acs: z.number().nullable().optional(),
+  firstKills: z.number().nullable().optional(),
+  csPerMin: z.number().nullable().optional(),
+  win: z.boolean().nullable().optional(),
 });
 export type MapStatsEntry = z.infer<typeof mapStatsEntrySchema>;
 
