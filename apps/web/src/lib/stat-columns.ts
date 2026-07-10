@@ -20,7 +20,6 @@ export const STAT_COLUMNS: Record<GameId, Array<{ key: string; label: string }>>
     { key: 'deaths', label: 'D' },
     { key: 'assists', label: 'A' },
     { key: 'csPerMin', label: 'CS/min' },
-    { key: 'win', label: 'Résultat' },
   ],
   rl: [
     { key: 'goals', label: 'Buts' },

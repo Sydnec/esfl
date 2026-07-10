@@ -167,17 +167,28 @@ export default function MatchPage() {
           {games.map((game) => {
             // Pas de choix de map en LoL : on parle de « Game N ».
             const label =
-              game.map ?? (match.gameId === 'lol' ? `Game ${game.position}` : `M${game.position}`);
-            const score =
-              game.scoreA != null && game.scoreB != null
-                ? `${game.scoreA}-${game.scoreB}${match.gameId === 'lol' ? ' kills' : ''}`
-                : game.winner
-                  ? `victoire ${game.winner === 'A' ? tagA : tagB}`
-                  : 'en cours';
+              game.map ?? (match.gameId === 'lol' ? `Game ${game.position} :` : `M${game.position}`);
             const clickable = mapTabs.some((tab) => tab.position === game.position);
+            // Le score du vainqueur reste accentué, celui du perdant passe en
+            // gris : en LoL le total de kills ne dit pas qui gagne la game.
             const content = (
               <>
-                {label} <span className={styles.mapChipScore}>{score}</span>
+                {label}{' '}
+                {game.scoreA != null && game.scoreB != null ? (
+                  <span className={styles.mapChipScore}>
+                    <span className={game.winner === 'B' ? styles.mapChipLoser : ''}>
+                      {game.scoreA}
+                    </span>
+                    <span className={styles.mapChipLoser}> - </span>
+                    <span className={game.winner === 'A' ? styles.mapChipLoser : ''}>
+                      {game.scoreB}
+                    </span>
+                  </span>
+                ) : (
+                  <span className={styles.mapChipScore}>
+                    {game.winner ? `victoire ${game.winner === 'A' ? tagA : tagB}` : 'en cours'}
+                  </span>
+                )}
               </>
             );
             return clickable ? (
@@ -207,6 +218,7 @@ export default function MatchPage() {
             const columns = STAT_COLUMNS[match.gameId];
             const cumulative = selectedMap === null;
             const withAgents = mapTabs.length > 0;
+            const agentLabel = match.gameId === 'lol' ? 'Champion' : 'Agent';
             return (
               <div key={team.id} className={styles.teamStats}>
                 <h3 className={styles.teamStatsTitle}>
@@ -216,7 +228,11 @@ export default function MatchPage() {
                   <thead>
                     <tr>
                       <th>Joueur</th>
-                      {withAgents && <th>{cumulative ? 'Agents' : 'Agent'}</th>}
+                      {withAgents && (
+                        <th className={styles.agentCell}>
+                          {cumulative ? `${agentLabel}s` : agentLabel}
+                        </th>
+                      )}
                       {columns.map((column) => (
                         <th key={column.key}>{column.label}</th>
                       ))}
@@ -254,6 +270,9 @@ export default function MatchPage() {
                                 size={24}
                               />
                               {player?.name ?? 'Inconnu'} {flagEmoji(player?.nationality)}
+                              {player?.role && (
+                                <span className={styles.roleTag}>{player.role}</span>
+                              )}
                             </Link>
                           </td>
                           {withAgents && (

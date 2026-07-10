@@ -151,6 +151,12 @@ button.mapChip:hover {
   color: var(--color-accent);
   font-weight: 600;
   text-transform: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.mapChipLoser {
+  color: var(--color-muted);
+  font-weight: 500;
 }
 
 .statsSection {
@@ -196,9 +202,35 @@ button.mapChip:hover {
 
 .table th,
 .table td {
-  text-align: left;
   padding: var(--space-1) var(--space-2);
   border-bottom: 1px solid var(--color-border);
+}
+
+/* Colonnes de stats à largeur fixe, chiffres tabulaires : les valeurs
+   restent alignées entre lignes ET entre les deux tableaux d'équipe,
+   quelle que soit la longueur des pseudos ou des nombres. */
+.table th:not(:first-child),
+.table td:not(:first-child) {
+  width: 64px;
+  text-align: center;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.table th:first-child,
+.table td:first-child {
+  text-align: left;
+  overflow: hidden;
+}
+
+/* Après les règles de colonnes (même spécificité : le dernier gagne).
+   Les icônes d'agents/champions ont besoin de place : jusqu'à 7 icônes de
+   22 px sur un Bo7 LoL. Largeur fixe (alignement entre les deux tableaux)
+   + retour à la ligne autorisé en garde-fou. */
+.table th.agentCell,
+.table td.agentCell {
+  width: 200px;
+  white-space: normal;
 }
 
 .table th {
@@ -212,6 +244,13 @@ button.mapChip:hover {
   align-items: center;
   gap: var(--space-2);
   color: inherit;
+}
+
+/* Rôle (renseigné en LoL : top, jun, mid…) à côté du pseudo. */
+.roleTag {
+  color: var(--color-muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
 }
 
 .playerCell:hover {
