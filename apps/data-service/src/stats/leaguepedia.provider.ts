@@ -227,12 +227,13 @@ export class LeaguepediaStatsProvider implements GameStatsProvider {
 
     // Cargo tronque à 500 lignes : pagination par offset (les journées
     // chargées dépassent 500 lignes joueur×game et faisaient disparaître
-    // des joueurs du match). Fandom rate-limite agressivement : 10 s entre
-    // appels, 3 pages maximum.
+    // des joueurs du match), 3 pages maximum.
     const rows: LeaguepediaRow[] = [];
     for (let offset = 0; offset < 1500; offset += 500) {
       url.searchParams.set('offset', String(offset));
-      const response = await politeFetch(url, {}, 10_000);
+      // Fandom rate-limite les bursts anonymes : ~2 requêtes/minute max,
+      // pagination comprise.
+      const response = await politeFetch(url, {}, 35_000);
       if (!response.ok) {
         this.logger.warn(`Leaguepedia → ${response.status}`);
         return null;

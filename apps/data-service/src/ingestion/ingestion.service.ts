@@ -327,9 +327,12 @@ export class IngestionService {
           'ingest-stats',
           { matchId: saved.id },
           {
+            // Un seul job par match : des chaînes dupliquées multiplient les
+            // retries et déclenchent les rate limits (Fandom notamment).
+            jobId: `ingest-stats:${saved.id}`,
             attempts: 8,
             backoff: { type: 'exponential', delay: 15 * 60 * 1000 },
-            removeOnComplete: 500,
+            removeOnComplete: true,
             removeOnFail: 1000,
           },
         );

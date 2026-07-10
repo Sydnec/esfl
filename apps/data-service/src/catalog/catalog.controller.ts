@@ -128,9 +128,12 @@ export class CatalogController {
       'ingest-stats',
       { matchId, force: force === 'true' },
       {
+        // Dédupliqué par match : re-forcer pendant qu'un job tourne n'empile
+        // pas une deuxième chaîne de retries (rate limits externes).
+        jobId: `ingest-stats:${matchId}`,
         attempts: 8,
         backoff: { type: 'exponential', delay: 15 * 60 * 1000 },
-        removeOnComplete: 500,
+        removeOnComplete: true,
         removeOnFail: 1000,
       },
     );
