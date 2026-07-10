@@ -4,6 +4,7 @@ import { GameId, QUEUES, StatsIngestedEvent } from '@esfl/contracts';
 import { Queue } from 'bullmq';
 import { Prisma } from '../../generated/client';
 import type { Match } from '../../generated/client';
+import { mergeGamesSummary } from '../common/games-summary';
 import { PrismaService } from '../prisma.service';
 import { GridStatsProvider } from './grid.provider';
 import { LeaguepediaStatsProvider } from './leaguepedia.provider';
@@ -84,7 +85,7 @@ export class StatsIngestionService {
       });
     }
     if (result.games?.length) {
-      await this.mergeGamesSummary(match, result.games);
+      await this.mergeProviderGames(match, result.games);
     }
     this.logger.log(
       `${result.lines.length} lignes de stats ${provider.source} pour le match ${matchId}`,
@@ -139,24 +140,11 @@ export class StatsIngestionService {
   }
 
   /** Fusionne le détail des manches du provider (map, scores) avec celui de Pandascore (winner, durée). */
-  private async mergeGamesSummary(
+  private async mergeProviderGames(
     match: Match,
     providerGames: Array<{ position: number; map?: string | null; scoreA?: number | null; scoreB?: number | null }>,
   ): Promise<void> {
-    const existing = Array.isArray(match.gamesSummary)
-      ? (match.gamesSummary as Array<Record<string, unknown>>)
-      : [];
-    const byPosition = new Map(existing.map((entry) => [Number(entry.position), { ...entry }]));
-    for (const game of providerGames) {
-      const entry = byPosition.get(game.position) ?? { position: game.position, winner: null };
-      if (game.map != null) entry.map = game.map;
-      if (game.scoreA != null) entry.scoreA = game.scoreA;
-      if (game.scoreB != null) entry.scoreB = game.scoreB;
-      byPosition.set(game.position, entry);
-    }
-    const merged = [...byPosition.values()].sort(
-      (a, b) => Number(a.position) - Number(b.position),
-    );
+    const merged = mergeGamesSummary(match.gamesSummary, providerGames);
     await this.prisma.match.update({
       where: { id: match.id },
       data: { gamesSummary: merged as unknown as Prisma.InputJsonValue },

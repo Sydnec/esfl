@@ -37,4 +37,24 @@ describe('matchPlayer', () => {
   it('retourne null si inconnu', () => {
     expect(matchPlayer(index, 'inconnu')).toBeNull();
   });
+
+  it('repli par inclusion unique : variantes de pseudo entre sources', () => {
+    const variants = buildPlayerIndex([
+      { id: 'p1', name: 'Djon8' },
+      { id: 'p2', name: 'TRAVIS' },
+    ]);
+    // « Djon » (Grid) ⊂ « Djon8 » (Pandascore), une seule inclusion possible.
+    expect(matchPlayer(variants, 'Djon')?.id).toBe('p1');
+    expect(matchPlayer(variants, 'k4nfuz-')).toBeNull();
+  });
+
+  it('refuse le repli ambigu ou trop court', () => {
+    const ambiguous = buildPlayerIndex([
+      { id: 'p1', name: 'maxster' },
+      { id: 'p2', name: 'maxie' },
+    ]);
+    expect(matchPlayer(ambiguous, 'max')).toBeNull();
+    const short = buildPlayerIndex([{ id: 'p1', name: 'H3ro' }]);
+    expect(matchPlayer(short, 'h3')).toBeNull();
+  });
 });

@@ -30,10 +30,22 @@ export function buildPlayerIndex(players: NamedPlayer[]): Map<string, NamedPlaye
   return new Map(players.map((player) => [normalizeName(player.name), player]));
 }
 
-/** Retrouve un joueur local par son pseudo externe (correspondance exacte normalisée). */
+/**
+ * Retrouve un joueur local par son pseudo externe : correspondance exacte
+ * normalisée, sinon repli par inclusion stricte quand elle est unique et
+ * assez longue (« Djon » chez Grid vs « Djon8 » chez Pandascore).
+ */
 export function matchPlayer(
   index: Map<string, NamedPlayer>,
   externalName: string,
 ): NamedPlayer | null {
-  return index.get(normalizeName(externalName)) ?? null;
+  const key = normalizeName(externalName);
+  const exact = index.get(key);
+  if (exact) return exact;
+  if (key.length < 3) return null;
+
+  const candidates = [...index.entries()].filter(
+    ([name]) => name.length >= 3 && (name.includes(key) || key.includes(name)),
+  );
+  return candidates.length === 1 ? candidates[0][1] : null;
 }

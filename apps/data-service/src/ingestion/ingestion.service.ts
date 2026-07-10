@@ -3,6 +3,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { GAME_IDS, GameId, MatchFinishedEvent, QUEUES } from '@esfl/contracts';
 import type { Competition } from '../../generated/client';
 import { Queue } from 'bullmq';
+import { mergeGamesSummary } from '../common/games-summary';
 import { FantasyClient } from '../fantasy-client/fantasy.client';
 import { PandascoreClient } from '../pandascore/pandascore.client';
 import type { PSMatch, PSSerie, PSStream, PSTeamRef } from '../pandascore/pandascore.types';
@@ -236,19 +237,28 @@ export class IngestionService {
 
     const status = match.status === 'postponed' ? 'not_started' : match.status;
     // Manches gagnées : winner.id pandascore → côté A ou B du match local.
-    const gamesSummary = (match.games ?? [])
-      .filter((g) => g.finished || g.status === 'running')
-      .sort((a, b) => a.position - b.position)
-      .map((g) => ({
-        position: g.position,
-        lengthSec: g.length,
-        winner:
-          g.winner?.id && g.winner.id === opponents[0]?.id
-            ? 'A'
-            : g.winner?.id && g.winner.id === opponents[1]?.id
-              ? 'B'
-              : null,
-      }));
+    // Fusion avec l'existant : ne pas écraser l'enrichissement des providers
+    // de stats (map, scores par manche).
+    const current = await this.prisma.match.findUnique({
+      where: { pandascoreId: match.id },
+      select: { gamesSummary: true },
+    });
+    const gamesSummary = mergeGamesSummary(
+      current?.gamesSummary,
+      (match.games ?? [])
+        .filter((g) => g.finished || g.status === 'running')
+        .sort((a, b) => a.position - b.position)
+        .map((g) => ({
+          position: g.position,
+          lengthSec: g.length,
+          winner:
+            g.winner?.id && g.winner.id === opponents[0]?.id
+              ? 'A'
+              : g.winner?.id && g.winner.id === opponents[1]?.id
+                ? 'B'
+                : null,
+        })),
+    );
     const shared = {
       name: match.name,
       status,
