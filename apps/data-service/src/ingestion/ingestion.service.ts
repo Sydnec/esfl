@@ -5,6 +5,7 @@ import type { Competition, Prisma } from '../../generated/client';
 import { Queue } from 'bullmq';
 import { mergeGamesSummary } from '../common/games-summary';
 import { FantasyClient } from '../fantasy-client/fantasy.client';
+import { buildPlayerIndex, matchPlayer, normalizeName } from '../stats/matching';
 import { PandascoreClient } from '../pandascore/pandascore.client';
 import type { PSMatch, PSSerie, PSStream, PSTeamRef } from '../pandascore/pandascore.types';
 import { PrismaService } from '../prisma.service';
@@ -104,27 +105,44 @@ export class IngestionService {
         where: { pandascoreId: team.id },
       });
       if (!localTeam) continue;
+
+      // Fiches créées par les providers de stats (pandascoreId null) dans
+      // cette équipe : candidates à l'adoption quand Pandascore rattrape.
+      const orphans = await this.prisma.player.findMany({
+        where: { teamId: localTeam.id, pandascoreId: null },
+      });
+      const orphanIndex = buildPlayerIndex(orphans);
+
       for (const player of team.players) {
-        await this.prisma.player.upsert({
+        const enrichment = {
+          name: player.name,
+          firstName: player.first_name,
+          lastName: player.last_name,
+          imageUrl: player.image_url,
+          role: player.role,
+          nationality: player.nationality,
+          teamId: localTeam.id,
+        };
+        const existing = await this.prisma.player.findUnique({
           where: { pandascoreId: player.id },
-          create: {
-            pandascoreId: player.id,
-            gameId: game,
-            name: player.name,
-            firstName: player.first_name,
-            lastName: player.last_name,
-            imageUrl: player.image_url,
-            role: player.role,
-            nationality: player.nationality,
-            teamId: localTeam.id,
-          },
-          update: {
-            name: player.name,
-            imageUrl: player.image_url,
-            role: player.role,
-            nationality: player.nationality,
-            teamId: localTeam.id,
-          },
+        });
+        if (existing) {
+          await this.prisma.player.update({ where: { id: existing.id }, data: enrichment });
+          continue;
+        }
+        const orphan = matchPlayer(orphanIndex, player.name);
+        if (orphan) {
+          // Adoption : la fiche provider devient la fiche Pandascore.
+          await this.prisma.player.update({
+            where: { id: orphan.id },
+            data: { ...enrichment, pandascoreId: player.id, source: 'pandascore' },
+          });
+          orphanIndex.delete(normalizeName(orphan.name));
+          this.logger.log(`Fiche ${orphan.name} adoptée par Pandascore #${player.id}`);
+          continue;
+        }
+        await this.prisma.player.create({
+          data: { ...enrichment, pandascoreId: player.id, gameId: game },
         });
       }
     }

@@ -57,10 +57,13 @@ model CompetitionTeam {
 
 model Player {
   id           String  @id @default(cuid())
-  pandascoreId Int     @unique @map("pandascore_id")
+  /** Null pour les joueurs créés depuis une source de stats (VLR, Grid…). */
+  pandascoreId Int?    @unique @map("pandascore_id")
   gameId       String  @map("game_id")
   /** Pseudo du joueur pro. */
   name         String
+  /** Origine de la fiche : pandascore | vlr | grid | leaguepedia | octane | seed. */
+  source       String  @default("pandascore")
   firstName    String? @map("first_name")
   lastName     String? @map("last_name")
   imageUrl     String? @map("image_url")
