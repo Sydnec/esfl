@@ -191,11 +191,14 @@ export class LeaguepediaStatsProvider implements GameStatsProvider {
     const reference = match.beginAt ?? match.scheduledAt;
     if (!reference) return null;
 
-    const from = new Date(reference.getTime() - 24 * 3600 * 1000)
+    // Fenêtre ±12h : assez large pour les décalages de planning, assez
+    // étroite pour limiter le volume (la fenêtre ramène TOUS les matchs
+    // LoL de la période, le filtrage par équipes est côté client).
+    const from = new Date(reference.getTime() - 12 * 3600 * 1000)
       .toISOString()
       .replace('T', ' ')
       .slice(0, 19);
-    const to = new Date(reference.getTime() + 24 * 3600 * 1000)
+    const to = new Date(reference.getTime() + 12 * 3600 * 1000)
       .toISOString()
       .replace('T', ' ')
       .slice(0, 19);
@@ -217,21 +220,30 @@ export class LeaguepediaStatsProvider implements GameStatsProvider {
       `SG.DateTime_UTC >= '${from}' AND SG.DateTime_UTC <= '${to}'`,
     );
 
-    // Fandom rate-limite agressivement les requêtes anonymes : 10 s entre appels.
-    const response = await politeFetch(url, {}, 10_000);
-    if (!response.ok) {
-      this.logger.warn(`Leaguepedia → ${response.status}`);
-      return null;
+    // Cargo tronque à 500 lignes : pagination par offset (les journées
+    // chargées dépassent 500 lignes joueur×game et faisaient disparaître
+    // des joueurs du match). Fandom rate-limite agressivement : 10 s entre
+    // appels, 3 pages maximum.
+    const rows: LeaguepediaRow[] = [];
+    for (let offset = 0; offset < 1500; offset += 500) {
+      url.searchParams.set('offset', String(offset));
+      const response = await politeFetch(url, {}, 10_000);
+      if (!response.ok) {
+        this.logger.warn(`Leaguepedia → ${response.status}`);
+        return null;
+      }
+      const payload = (await response.json()) as {
+        cargoquery?: Array<{ title: LeaguepediaRow }>;
+        error?: unknown;
+      };
+      if (payload.error) {
+        this.logger.warn(`Leaguepedia cargoquery en erreur : ${JSON.stringify(payload.error)}`);
+        return null;
+      }
+      const page = (payload.cargoquery ?? []).map((entry) => entry.title);
+      rows.push(...page);
+      if (page.length < 500) break;
     }
-    const payload = (await response.json()) as {
-      cargoquery?: Array<{ title: LeaguepediaRow }>;
-      error?: unknown;
-    };
-    if (payload.error) {
-      this.logger.warn(`Leaguepedia cargoquery en erreur : ${JSON.stringify(payload.error)}`);
-      return null;
-    }
-    const rows = (payload.cargoquery ?? []).map((entry) => entry.title);
     const lines = mapLeaguepediaRows(rows, context.teamA.name, context.teamB.name, context.players);
     if (lines.length === 0) {
       this.logger.warn(
