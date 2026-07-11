@@ -38,6 +38,14 @@ export function Header() {
             >
               À propos
             </Link>
+            {user?.isAdmin && (
+              <Link
+                href="/admin"
+                className={pathname.startsWith('/admin') ? styles.active : styles.link}
+              >
+                Admin
+              </Link>
+            )}
           </nav>
         </div>
         <nav className={styles.nav}>

@@ -2,6 +2,7 @@ import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
 import { QUEUES } from '@esfl/contracts';
 import { FantasyClient } from '../fantasy-client/fantasy.client';
+import { LiveModule } from '../live/live.module';
 import { PandascoreClient } from '../pandascore/pandascore.client';
 import { PrismaService } from '../prisma.service';
 import { BallchasingStatsProvider } from '../stats/ballchasing.provider';
@@ -16,6 +17,7 @@ import { IngestionService } from './ingestion.service';
 
 @Module({
   imports: [
+    LiveModule,
     BullModule.registerQueue({ name: INGESTION_QUEUE }),
     BullModule.registerQueue({ name: QUEUES.STATS_INGESTED }),
   ],
@@ -32,6 +34,6 @@ import { IngestionService } from './ingestion.service';
     LeaguepediaStatsProvider,
     BallchasingStatsProvider,
   ],
-  exports: [IngestionService, BullModule],
+  exports: [IngestionService, PandascoreClient, FantasyClient, BullModule],
 })
 export class IngestionModule {}

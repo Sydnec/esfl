@@ -9,6 +9,7 @@ import { buildPlayerIndex, matchPlayer, normalizeName } from '../stats/matching'
 import { PandascoreClient } from '../pandascore/pandascore.client';
 import type { PSMatch, PSSerie, PSStream, PSTeamRef } from '../pandascore/pandascore.types';
 import { PrismaService } from '../prisma.service';
+import { LiveEventsService } from '../live/live-events.service';
 import { enqueueIngestStats, INGESTION_QUEUE } from './ingestion.constants';
 
 /** Stream à afficher : français en priorité, sinon le flux officiel. */
@@ -27,6 +28,7 @@ export class IngestionService {
     private readonly prisma: PrismaService,
     private readonly pandascore: PandascoreClient,
     private readonly fantasyClient: FantasyClient,
+    private readonly liveEvents: LiveEventsService,
     @InjectQueue(INGESTION_QUEUE) private readonly ingestionQueue: Queue,
   ) {}
 
@@ -260,7 +262,7 @@ export class IngestionService {
     // de stats (map, scores par manche).
     const current = await this.prisma.match.findUnique({
       where: { pandascoreId: match.id },
-      select: { gamesSummary: true },
+      select: { gamesSummary: true, status: true, scoreA: true, scoreB: true },
     });
     const gamesSummary = mergeGamesSummary(
       current?.gamesSummary,
@@ -303,6 +305,16 @@ export class IngestionService {
       },
       update: shared,
     });
+
+    // Signal front : ce qui est visible sur une page match a changé.
+    const visibleChange =
+      !current ||
+      current.status !== saved.status ||
+      current.scoreA !== saved.scoreA ||
+      current.scoreB !== saved.scoreB;
+    if (visibleChange) {
+      this.liveEvents.emitMatchUpdated({ matchId: saved.id, gameId: game });
+    }
 
     // finishedEventSent : « fin de match traitée » (enqueue des stats fait).
     if (saved.status === 'finished' && !saved.finishedEventSent) {

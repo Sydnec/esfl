@@ -46,9 +46,11 @@ function fakePrisma() {
 
 function service(prisma: PrismaService) {
   const queue = { add: vi.fn() };
+  const liveEvents = { emitMatchUpdated: vi.fn() };
   return new StatsIngestionService(
     prisma,
     queue as never,
+    liveEvents as never,
     { gameId: 'cs2' } as GridStatsProvider,
     { gameId: 'valorant' } as VlrStatsProvider,
     { gameId: 'lol' } as LeaguepediaStatsProvider,

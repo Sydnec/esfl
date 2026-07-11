@@ -22,6 +22,7 @@ export function toPublicUser(user: SafeUser): PublicUser {
     username: user.username,
     createdAt: user.createdAt.toISOString(),
     avatarUrl: user.avatarMime ? `/auth/users/${user.id}/avatar` : null,
+    isAdmin: user.isAdmin,
   };
 }
 

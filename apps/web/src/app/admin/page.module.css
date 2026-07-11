@@ -1,0 +1,124 @@
+.main {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: var(--space-4) var(--space-3);
+}
+
+.headerRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.title {
+  font-size: 1.5rem;
+}
+
+.generatedAt {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+.denied {
+  color: var(--color-text-muted);
+  text-align: center;
+  padding: var(--space-4) 0;
+}
+
+.error {
+  color: var(--color-danger, #c0392b);
+  margin-top: var(--space-2);
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-2) var(--space-3);
+}
+
+.tileLabel {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+.tileValue {
+  font-size: 1.25rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.tileAlert {
+  composes: tileValue;
+  color: var(--color-danger, #c0392b);
+}
+
+.section {
+  margin-top: var(--space-4);
+}
+
+.sectionTitle {
+  font-size: 1.1rem;
+  margin-bottom: var(--space-2);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.table th,
+.table td {
+  text-align: left;
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.table th {
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.warn {
+  color: var(--color-danger, #c0392b);
+}
+
+.ok {
+  color: var(--color-success, #27ae60);
+}
+
+.empty {
+  color: var(--color-text-muted);
+}
+
+.mono {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.8rem;
+  word-break: break-all;
+}
+
+.action {
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius);
+  background: none;
+  color: var(--color-accent);
+  padding: 2px var(--space-2);
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.action:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

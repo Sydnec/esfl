@@ -25,17 +25,23 @@ async function bootstrap() {
   });
 
   // Contexte utilisateur : un Bearer token valide devient un en-tête x-user-id
-  // pour les services internes. Les x-user-* entrants sont toujours écrasés.
+  // (et x-user-admin pour les comptes admin) pour les services internes.
+  // Les x-user-* entrants sont toujours écrasés.
   app.use((req: Request, _res: Response, next: NextFunction) => {
     delete req.headers['x-user-id'];
+    delete req.headers['x-user-admin'];
     const header = req.headers.authorization;
     if (header?.startsWith('Bearer ')) {
       try {
         const payload = verify(header.slice(7), process.env.JWT_ACCESS_SECRET ?? '') as {
           sub?: string;
+          isAdmin?: boolean;
         };
         if (payload.sub) {
           req.headers['x-user-id'] = payload.sub;
+          if (payload.isAdmin === true) {
+            req.headers['x-user-admin'] = '1';
+          }
         }
       } catch {
         // token invalide ou expiré : la requête reste anonyme

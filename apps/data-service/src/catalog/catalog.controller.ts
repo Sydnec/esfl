@@ -3,7 +3,9 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { GAME_IDS, GAME_LABELS } from '@esfl/contracts';
 import { Queue } from 'bullmq';
 import { AdminGuard } from '../common/admin.guard';
+import { FantasyClient } from '../fantasy-client/fantasy.client';
 import { enqueueIngestStats, INGESTION_QUEUE, IngestionJobName } from '../ingestion/ingestion.constants';
+import { PandascoreClient } from '../pandascore/pandascore.client';
 import { CatalogService } from './catalog.service';
 
 function parseIds(value: string | undefined): string[] {
@@ -23,6 +25,8 @@ function parseDate(value: string | undefined, label: string): Date | undefined {
 export class CatalogController {
   constructor(
     private readonly catalog: CatalogService,
+    private readonly pandascore: PandascoreClient,
+    private readonly fantasyClient: FantasyClient,
     @InjectQueue(INGESTION_QUEUE) private readonly ingestionQueue: Queue,
   ) {}
 
@@ -127,5 +131,17 @@ export class CatalogController {
   async triggerIngestStats(@Param('matchId') matchId: string, @Query('force') force?: string) {
     await enqueueIngestStats(this.ingestionQueue, matchId, force === 'true');
     return { enqueued: 'ingest-stats', matchId, force: force === 'true' };
+  }
+
+  /** Santé de l'ingestion : activité par jeu, catalogue, queue, quota — page admin du front. */
+  @Get('admin/health')
+  @UseGuards(AdminGuard)
+  async health() {
+    const followed = await this.fantasyClient.followedCompetitionIds();
+    return this.catalog.ingestionHealth(
+      this.ingestionQueue,
+      this.pandascore.requestsLastHour,
+      followed,
+    );
   }
 }

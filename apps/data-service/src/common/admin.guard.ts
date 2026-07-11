@@ -7,17 +7,17 @@ import {
 import type { Request } from 'express';
 
 /**
- * Réservé à l'admin : x-admin-token comparé à env ADMIN_TOKEN.
- * Refuse tout si ADMIN_TOKEN n'est pas configuré.
+ * Réservé à l'admin : soit un compte admin passé par le gateway
+ * (x-user-admin, dérivé du JWT — les en-têtes entrants y sont écrasés),
+ * soit le token d'ops x-admin-token comparé à env ADMIN_TOKEN.
  */
 @Injectable()
 export class AdminGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
+    const headers = context.switchToHttp().getRequest<Request>().headers;
+    if (headers['x-user-admin'] === '1') return true;
     const expected = process.env.ADMIN_TOKEN;
-    const provided = context.switchToHttp().getRequest<Request>().headers['x-admin-token'];
-    if (!expected || provided !== expected) {
-      throw new UnauthorizedException('Accès admin requis');
-    }
-    return true;
+    if (expected && headers['x-admin-token'] === expected) return true;
+    throw new UnauthorizedException('Accès admin requis');
   }
 }

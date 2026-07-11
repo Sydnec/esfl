@@ -5,6 +5,7 @@ import { Queue } from 'bullmq';
 import { Prisma } from '../../generated/client';
 import type { Match } from '../../generated/client';
 import { mergeGamesSummary } from '../common/games-summary';
+import { LiveEventsService } from '../live/live-events.service';
 import { PrismaService } from '../prisma.service';
 import { buildPlayerIndex, matchPlayer, normalizeName } from './matching';
 import { BallchasingStatsProvider } from './ballchasing.provider';
@@ -21,6 +22,7 @@ export class StatsIngestionService {
   constructor(
     private readonly prisma: PrismaService,
     @InjectQueue(QUEUES.STATS_INGESTED) private readonly statsIngestedQueue: Queue,
+    private readonly liveEvents: LiveEventsService,
     private readonly grid: GridStatsProvider,
     vlr: VlrStatsProvider,
     leaguepedia: LeaguepediaStatsProvider,
@@ -262,6 +264,7 @@ export class StatsIngestionService {
       removeOnComplete: 1000,
       removeOnFail: 5000,
     });
+    this.liveEvents.emitMatchUpdated({ matchId: match.id, gameId: match.gameId });
     this.logger.log(`stats.ingested publié pour ${match.id} (source: ${source})`);
   }
 }

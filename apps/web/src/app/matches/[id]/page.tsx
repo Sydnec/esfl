@@ -10,6 +10,7 @@ import { flagEmoji } from '@/lib/flags';
 import { agentIconSrc } from '@/lib/agents';
 import { formatDateTime, formatKickoff } from '@/lib/format';
 import { formatStat, STAT_COLUMNS } from '@/lib/stat-columns';
+import { useMatchUpdates } from '@/lib/useMatchUpdates';
 import type { FantasyPointsLine, MatchStatsLine, MatchSummary, PlayerRef } from '@/lib/types';
 import styles from './page.module.css';
 
@@ -62,11 +63,17 @@ export default function MatchPage() {
 
   useEffect(() => {
     void load();
+    // Filet de sécurité si le flux SSE tombe : re-poll périodique.
     const interval = setInterval(() => {
       if (!document.hidden) void load();
     }, POLL_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [load]);
+
+  // Mise à jour instantanée : refetch dès que le match change côté serveur.
+  useMatchUpdates((update) => {
+    if (update.matchId === id) void load();
+  });
 
   // Manches disposant d'un détail joueur (onglets M1, M2… de la section perfs).
   const mapTabs = useMemo(() => {

@@ -1,9 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { GAME_IDS, GAME_SHORT_LABELS, GameId } from '@esfl/contracts';
 import { request } from '@/lib/api';
+import { useMatchUpdates } from '@/lib/useMatchUpdates';
 import type { Competition, MatchSummary } from '@/lib/types';
 import { MatchGrid } from './MatchCard';
 import styles from './MatchesOverview.module.css';
@@ -55,6 +56,15 @@ export function MatchesOverview() {
     }, POLL_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [loadMatches]);
+
+  // Mise à jour instantanée via SSE, lissée : un cycle de sync touche
+  // plusieurs matchs d'affilée, un seul refetch par fenêtre de 3 s suffit.
+  const lastLiveRefresh = useRef(0);
+  useMatchUpdates(() => {
+    if (Date.now() - lastLiveRefresh.current < 3_000) return;
+    lastLiveRefresh.current = Date.now();
+    void loadMatches();
+  });
 
   function toggleCompetition(id: string) {
     setExcluded((current) => {

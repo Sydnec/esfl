@@ -43,6 +43,8 @@ export interface PublicUser {
   createdAt: string;
   /** Chemin de l'avatar (servi par l'API) ou null. */
   avatarUrl: string | null;
+  /** Accès aux pages et endpoints d'administration. */
+  isAdmin: boolean;
 }
 
 export interface AuthResponse {
@@ -55,4 +57,6 @@ export interface AccessTokenPayload {
   sub: string;
   email: string;
   username: string;
+  /** Traduit en x-user-admin par le gateway pour les services internes. */
+  isAdmin?: boolean;
 }

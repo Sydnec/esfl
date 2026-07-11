@@ -28,6 +28,7 @@ export class TokensService {
       sub: user.id,
       email: user.email,
       username: user.username,
+      isAdmin: user.isAdmin,
     };
     return this.jwt.signAsync(payload, {
       secret: this.config.getOrThrow<string>('JWT_ACCESS_SECRET'),

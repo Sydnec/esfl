@@ -14,6 +14,8 @@ model User {
   id            String         @id @default(cuid())
   email         String         @unique
   username      String         @unique
+  /** Accès aux pages et endpoints d'administration. */
+  isAdmin       Boolean        @default(false) @map("is_admin")
   /** Image de profil stockée en base (petite, ≤ 2 Mo). */
   avatar        Bytes?
   avatarMime    String?        @map("avatar_mime")
