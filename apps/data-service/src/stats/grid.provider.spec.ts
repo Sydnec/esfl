@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { GridSeriesState, mapGridSeriesState } from './grid.provider';
+import { GridSeriesState, mapGridGames, mapGridSeriesState } from './grid.provider';
 
 const state: GridSeriesState = {
   finished: true,
@@ -37,5 +37,40 @@ describe('mapGridSeriesState', () => {
 
   it('retourne vide sans équipes', () => {
     expect(mapGridSeriesState({ finished: true }, 'Vitality', 'NAVI')).toHaveLength(0);
+  });
+});
+
+describe('mapGridGames', () => {
+  it('inclut la map en cours (started) mais pas les manches à venir du BO', () => {
+    const live: GridSeriesState = {
+      finished: false,
+      games: [
+        {
+          sequenceNumber: 1,
+          started: true,
+          finished: true,
+          map: { name: 'dust2' },
+          teams: [
+            { name: 'Vitality', score: 13 },
+            { name: 'NAVI', score: 9 },
+          ],
+        },
+        {
+          sequenceNumber: 2,
+          started: true,
+          finished: false,
+          map: { name: 'mirage' },
+          teams: [
+            { name: 'Vitality', score: 3 },
+            { name: 'NAVI', score: 5 },
+          ],
+        },
+        { sequenceNumber: 3, started: false, finished: false, map: null, teams: [] },
+      ],
+    };
+    expect(mapGridGames(live, 'Vitality', 'NAVI')).toEqual([
+      { position: 1, map: 'dust2', scoreA: 13, scoreB: 9 },
+      { position: 2, map: 'mirage', scoreA: 3, scoreB: 5 },
+    ]);
   });
 });

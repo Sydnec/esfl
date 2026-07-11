@@ -27,6 +27,7 @@ export interface GridSeriesStateGame {
   sequenceNumber?: number;
   map?: { name?: string } | null;
   teams?: Array<{ name?: string; score?: number }>;
+  started?: boolean;
   finished?: boolean;
 }
 
@@ -43,14 +44,16 @@ interface GridSeriesConnection {
   }>;
 }
 
-/** Manches Grid → détail map + score, côté A/B résolu par noms d'équipes. */
+/** Manches Grid → détail map + score, côté A/B résolu par noms d'équipes.
+ * La map en cours (started, pas finished) est incluse pour l'affichage live ;
+ * les manches d'un BO pas encore jouées (ni started ni finished) sont exclues. */
 export function mapGridGames(
   state: GridSeriesState,
   teamAName: string,
   teamBName: string,
 ): Array<{ position: number; map: string | null; scoreA: number | null; scoreB: number | null }> {
   return (state.games ?? [])
-    .filter((game) => game.finished !== false && game.sequenceNumber)
+    .filter((game) => (game.finished !== false || game.started === true) && game.sequenceNumber)
     .map((game) => {
       const teamA = (game.teams ?? []).find((team) => teamNamesMatch(team.name ?? '', teamAName));
       const teamB = (game.teams ?? []).find((team) => teamNamesMatch(team.name ?? '', teamBName));
@@ -156,7 +159,7 @@ export class GridStatsProvider implements GameStatsProvider {
         seriesState(id: $id) {
           finished
           teams { name players { name kills deaths killAssistsGiven } }
-          games { sequenceNumber finished map { name } teams { name score } }
+          games { sequenceNumber started finished map { name } teams { name score } }
         }
       }`,
       { id: seriesId },
