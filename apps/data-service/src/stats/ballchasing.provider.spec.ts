@@ -58,7 +58,7 @@ describe('findBallchasingReplays', () => {
       { id: 'autre', blue: { name: 'Vitality' }, orange: { name: 'Karmine Corp' } },
       { id: 'ranked', blue: {}, orange: {} },
     ];
-    const found = findBallchasingReplays(replays, 'Karmine Corp', 'Team BDS');
+    const found = findBallchasingReplays(replays, { name: 'Karmine Corp' }, { name: 'Team BDS' });
     expect(found.map((replay) => replay.id)).toEqual(['r1', 'r2']);
   });
 
@@ -87,7 +87,7 @@ describe('findBallchasingReplays', () => {
         orange: { name: 'Karmine Corp' },
       },
     ];
-    const found = findBallchasingReplays(replays, 'Team BDS', 'Karmine Corp');
+    const found = findBallchasingReplays(replays, { name: 'Team BDS' }, { name: 'Karmine Corp' });
     // Tri chronologique : l'upload du joueur (16:57:25Z) précède celui de
     // l'arbitre (16:57:26Z) d'une seconde, c'est lui qui est conservé.
     expect(found.map((replay) => replay.id)).toEqual(['upload-joueur', 'manche-suivante']);
@@ -96,7 +96,7 @@ describe('findBallchasingReplays', () => {
 
 describe('mapBallchasingReplays', () => {
   it('somme les manches par joueur, côté résolu replay par replay', () => {
-    const lines = mapBallchasingReplays([game1, game2], 'Team BDS', 'Karmine Corp');
+    const lines = mapBallchasingReplays([game1, game2], { name: 'Team BDS' }, { name: 'Karmine Corp' });
     expect(lines).toHaveLength(3);
 
     const mm = lines.find((line) => line.externalName === 'M0nkey M00n');
@@ -119,7 +119,7 @@ describe('mapBallchasingReplays', () => {
         ],
       },
     };
-    const lines = mapBallchasingReplays([withReferee], 'Team BDS', 'Karmine Corp');
+    const lines = mapBallchasingReplays([withReferee], { name: 'Team BDS' }, { name: 'Karmine Corp' });
     expect(lines.map((line) => line.externalName)).not.toContain('RLCS REFEREE 16');
     expect(lines).toHaveLength(3);
   });
@@ -129,7 +129,7 @@ describe('mapBallchasingReplays', () => {
       blue: { name: 'Team BDS', players: [{ name: 'Seikoo', stats: { core: { saves: 2 } } }, {}] },
       orange: { name: 'Karmine Corp', players: [] },
     };
-    const lines = mapBallchasingReplays([partial], 'Team BDS', 'Karmine Corp');
+    const lines = mapBallchasingReplays([partial], { name: 'Team BDS' }, { name: 'Karmine Corp' });
     expect(lines).toHaveLength(1);
     expect(lines[0].normalized).toEqual({ goals: 0, assists: 0, saves: 2, shots: 0, score: 0 });
   });
@@ -137,7 +137,7 @@ describe('mapBallchasingReplays', () => {
 
 describe('mapBallchasingGames', () => {
   it('projette chaque replay en manche, score ramené au côté A/B', () => {
-    expect(mapBallchasingGames([game1, game2], 'Team BDS')).toEqual([
+    expect(mapBallchasingGames([game1, game2], { name: 'Team BDS' })).toEqual([
       { position: 1, map: 'DFH Stadium', scoreA: 3, scoreB: 1 },
       { position: 2, map: 'Mannfield', scoreA: 4, scoreB: 2 },
     ]);
@@ -149,7 +149,7 @@ describe('mapBallchasingGames', () => {
       blue: { name: 'Team BDS', stats: { core: { goals: 5 } } },
       orange: { name: 'Karmine Corp', stats: { core: { goals: 2 } } },
     };
-    expect(mapBallchasingGames([detail], 'Karmine Corp')).toEqual([
+    expect(mapBallchasingGames([detail], { name: 'Karmine Corp' })).toEqual([
       { position: 1, map: 'Utopia Coliseum', scoreA: 2, scoreB: 5 },
     ]);
   });

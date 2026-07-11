@@ -7,7 +7,17 @@ const state: GridSeriesState = {
     {
       name: 'Vitality',
       players: [
-        { name: 'ZywOo', kills: 55, deaths: 38, killAssistsGiven: 12 },
+        {
+          name: 'ZywOo',
+          kills: 55,
+          deaths: 38,
+          killAssistsGiven: 12,
+          objectives: [
+            { type: 'plantBomb', completionCount: 4 },
+            { type: 'defuseBomb', completionCount: 2 },
+            { type: 'explodeBomb', completionCount: 1 },
+          ],
+        },
         { name: 'apEX', kills: 30, deaths: 41, killAssistsGiven: 18 },
       ],
     },
@@ -20,7 +30,7 @@ const state: GridSeriesState = {
 
 describe('mapGridSeriesState', () => {
   it('mappe kills/deaths/assists avec le côté résolu par équipe', () => {
-    const lines = mapGridSeriesState(state, 'Vitality', 'NAVI');
+    const lines = mapGridSeriesState(state, { name: 'Vitality' }, { name: 'NAVI' });
     expect(lines).toHaveLength(3);
     const zywoo = lines.find((line) => line.externalName === 'ZywOo');
     expect(zywoo?.side).toBe('A');
@@ -30,13 +40,15 @@ describe('mapGridSeriesState', () => {
       assists: 12,
       adr: null,
       rating: null,
+      plants: 4,
+      defuses: 2,
     });
     // Équipe non résolue → side null (pas de création côté ingestion).
     expect(lines.find((line) => line.externalName === 'JoueurInconnu')?.side).toBeNull();
   });
 
   it('retourne vide sans équipes', () => {
-    expect(mapGridSeriesState({ finished: true }, 'Vitality', 'NAVI')).toHaveLength(0);
+    expect(mapGridSeriesState({ finished: true }, { name: 'Vitality' }, { name: 'NAVI' })).toHaveLength(0);
   });
 });
 
@@ -68,7 +80,7 @@ describe('mapGridGames', () => {
         { sequenceNumber: 3, started: false, finished: false, map: null, teams: [] },
       ],
     };
-    expect(mapGridGames(live, 'Vitality', 'NAVI')).toEqual([
+    expect(mapGridGames(live, { name: 'Vitality' }, { name: 'NAVI' })).toEqual([
       { position: 1, map: 'dust2', scoreA: 13, scoreB: 9 },
       { position: 2, map: 'mirage', scoreA: 3, scoreB: 5 },
     ]);

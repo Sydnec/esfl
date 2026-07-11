@@ -1,7 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { Match, Prisma } from '../../generated/client';
-import { normalizeName, teamNamesMatch } from './matching';
+import type { Match, Prisma, Team } from '../../generated/client';
+import { PrismaService } from '../prisma.service';
+import { inferOpponentAlias, normalizeName, TeamRef, teamMatches } from './matching';
 import { politeFetch } from './polite-fetch';
 import type { GameStatsProvider, MatchContext, ProviderResult, ProviderStatLine } from './provider';
 
@@ -79,8 +80,8 @@ function isSameGame(a: BallchasingReplaySummary, b: BallchasingReplaySummary): b
  */
 export function findBallchasingReplays(
   replays: BallchasingReplaySummary[],
-  teamAName: string,
-  teamBName: string,
+  teamA: TeamRef,
+  teamB: TeamRef,
 ): BallchasingReplaySummary[] {
   const kept: BallchasingReplaySummary[] = [];
   const sorted = [...replays].sort(
@@ -89,10 +90,10 @@ export function findBallchasingReplays(
   for (const replay of sorted) {
     const blue = replay.blue?.name ?? '';
     const orange = replay.orange?.name ?? '';
-    const teamsMatch =
-      (teamNamesMatch(blue, teamAName) && teamNamesMatch(orange, teamBName)) ||
-      (teamNamesMatch(blue, teamBName) && teamNamesMatch(orange, teamAName));
-    if (!teamsMatch) continue;
+    const bothMatch =
+      (teamMatches(blue, teamA) && teamMatches(orange, teamB)) ||
+      (teamMatches(blue, teamB) && teamMatches(orange, teamA));
+    if (!bothMatch) continue;
     if (kept.some((existing) => isSameGame(existing, replay))) continue;
     kept.push(replay);
   }
@@ -106,8 +107,8 @@ export function findBallchasingReplays(
  */
 export function mapBallchasingReplays(
   replays: BallchasingReplayDetail[],
-  teamAName: string,
-  teamBName: string,
+  teamA: TeamRef,
+  teamB: TeamRef,
 ): ProviderStatLine[] {
   const byPlayer = new Map<
     string,
@@ -116,9 +117,9 @@ export function mapBallchasingReplays(
 
   for (const replay of replays) {
     for (const teamSide of [replay.blue, replay.orange]) {
-      const side = teamNamesMatch(teamSide?.name ?? '', teamAName)
+      const side = teamMatches(teamSide?.name ?? '', teamA)
         ? 'A'
-        : teamNamesMatch(teamSide?.name ?? '', teamBName)
+        : teamMatches(teamSide?.name ?? '', teamB)
           ? 'B'
           : null;
       for (const entry of teamSide?.players ?? []) {
@@ -164,10 +165,10 @@ export function mapBallchasingReplays(
 /** Manches de la série : score par manche, côté A/B résolu par noms d'équipes. */
 export function mapBallchasingGames(
   replays: BallchasingReplayDetail[],
-  teamAName: string,
+  teamA: TeamRef,
 ): Array<{ position: number; map: string | null; scoreA: number | null; scoreB: number | null }> {
   return replays.map((replay, index) => {
-    const blueIsA = teamNamesMatch(replay.blue?.name ?? '', teamAName);
+    const blueIsA = teamMatches(replay.blue?.name ?? '', teamA);
     const blueGoals = replay.blue?.stats?.core?.goals ?? replay.blue?.goals ?? null;
     const orangeGoals = replay.orange?.stats?.core?.goals ?? replay.orange?.goals ?? null;
     return {
@@ -185,7 +186,10 @@ export class BallchasingStatsProvider implements GameStatsProvider {
   readonly gameId = 'rl' as const;
   private readonly logger = new Logger(BallchasingStatsProvider.name);
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   async fetchStats(match: Match, context: MatchContext): Promise<ProviderResult | null> {
     const token = this.config.get<string>('BALLCHASING_API_KEY');
@@ -209,11 +213,21 @@ export class BallchasingStatsProvider implements GameStatsProvider {
     const listing = await this.get<{ list?: BallchasingReplaySummary[] }>(url, token);
     if (!listing) return null;
 
-    const summaries = findBallchasingReplays(
-      listing.list ?? [],
-      context.teamA.name,
-      context.teamB.name,
-    );
+    let summaries = findBallchasingReplays(listing.list ?? [], context.teamA, context.teamB);
+    if (summaries.length === 0) {
+      // Corrélation par l'adversaire : une seule équipe reconnue dans la
+      // fenêtre → le nom d'en face est appris comme alias, puis on refiltre.
+      const pairs = (listing.list ?? []).map((replay) => ({
+        nameA: replay.blue?.name ?? '',
+        nameB: replay.orange?.name ?? '',
+      }));
+      const inferred = inferOpponentAlias(pairs, context.teamA, context.teamB);
+      if (inferred) {
+        const target = inferred.team === 'A' ? context.teamA : context.teamB;
+        await this.learnAlias(target, inferred.alias);
+        summaries = findBallchasingReplays(listing.list ?? [], context.teamA, context.teamB);
+      }
+    }
     if (summaries.length === 0) {
       this.logger.warn(
         `Ballchasing : replays ${context.teamA.name} vs ${context.teamB.name} introuvables`,
@@ -243,16 +257,26 @@ export class BallchasingStatsProvider implements GameStatsProvider {
       details.push(detail);
     }
 
-    const lines = mapBallchasingReplays(details, context.teamA.name, context.teamB.name);
+    const lines = mapBallchasingReplays(details, context.teamA, context.teamB);
     if (lines.length === 0) {
       this.logger.warn(`Ballchasing : aucune ligne de stats pour le match ${match.id}`);
       return null;
     }
     return {
       lines,
-      games: mapBallchasingGames(details, context.teamA.name),
+      games: mapBallchasingGames(details, context.teamA),
       pageUrl: details[0]?.id ? `https://ballchasing.com/replay/${details[0].id}` : null,
     };
+  }
+
+  /** Persiste un alias appris et met à jour l'objet en mémoire (contexte du fetch en cours). */
+  private async learnAlias(team: Team, alias: string): Promise<void> {
+    await this.prisma.team.update({
+      where: { id: team.id },
+      data: { aliases: { push: alias } },
+    });
+    team.aliases = [...(team.aliases ?? []), alias];
+    this.logger.log(`Alias appris via ballchasing : « ${alias} » → ${team.name}`);
   }
 
   private async get<T>(url: string, token: string): Promise<T | null> {

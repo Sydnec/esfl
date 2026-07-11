@@ -181,16 +181,18 @@ export class StatsIngestionService {
   /**
    * Marque la couverture Grid des matchs CS2 (gridCovered) : les matchs que
    * Grid ne référence pas n'auront jamais de stats et sont exclus du
-   * catalogue. Vérifiés : matchs sans verdict, équipes connues, entre J-2 et
-   * J+3. Un match à venir introuvable reste null (la série peut apparaître
-   * tard) ; il devient false une fois commencé.
+   * catalogue. Vérifiés : matchs sans verdict positif (null **et** false —
+   * Grid référence parfois une série tardivement, un false récent est
+   * re-vérifié à chaque cycle tant que le match est dans la fenêtre),
+   * équipes connues, entre J-2 et J+3. Les plus récents d'abord : ce sont
+   * eux qui conditionnent le live et l'ingestion en cours.
    */
   async checkGridCoverage(): Promise<number> {
     const now = Date.now();
     const matches = await this.prisma.match.findMany({
       where: {
         gameId: 'cs2',
-        gridCovered: null,
+        gridCovered: { not: true },
         teamAId: { not: null },
         teamBId: { not: null },
         scheduledAt: {
@@ -198,7 +200,7 @@ export class StatsIngestionService {
           lte: new Date(now + 72 * 3600 * 1000),
         },
       },
-      orderBy: { scheduledAt: 'asc' },
+      orderBy: { scheduledAt: 'desc' },
       take: 30,
     });
 
@@ -208,7 +210,7 @@ export class StatsIngestionService {
       if (!reference) continue;
       const context = await this.loadContext(match);
       if (!context.teamA || !context.teamB) continue;
-      const seriesId = await this.grid.findSeries(reference, context.teamA.name, context.teamB.name);
+      const seriesId = await this.grid.findSeries(reference, context.teamA, context.teamB);
       const started = match.status !== 'not_started' || reference.getTime() < now;
       if (seriesId) {
         await this.prisma.match.update({ where: { id: match.id }, data: { gridCovered: true } });

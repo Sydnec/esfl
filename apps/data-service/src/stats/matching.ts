@@ -20,6 +20,71 @@ export function teamNamesMatch(a: string, b: string): boolean {
   return na === nb || na.includes(nb) || nb.includes(na);
 }
 
+/** Équipe locale vue des providers : nom Pandascore + alias appris. */
+export interface TeamRef {
+  name: string;
+  aliases?: string[];
+}
+
+/** Un nom externe correspond à une équipe locale par son nom ou l'un de ses alias. */
+export function teamMatches(externalName: string, team: TeamRef): boolean {
+  if (teamNamesMatch(externalName, team.name)) return true;
+  return (team.aliases ?? []).some((alias) => teamNamesMatch(externalName, alias));
+}
+
+/** Affiche d'une rencontre côté provider, pour la corrélation adverse. */
+export interface OpponentPair {
+  nameA: string;
+  nameB: string;
+  /** Écart avec le coup d'envoi local (ms), si la source date la rencontre. */
+  deltaMs?: number | null;
+}
+
+/**
+ * Corrélation par l'adversaire : parmi les affiches d'un provider, si une
+ * seule équipe est reconnue et que l'autre nom ne correspond à rien, ce nom
+ * est un alias probable de l'équipe locale adverse. On n'apprend que si un
+ * unique candidat se dégage (une équipe peut jouer plusieurs fois dans la
+ * fenêtre : deux candidats distincts = ambigu, on s'abstient).
+ */
+export function inferOpponentAlias(
+  pairs: OpponentPair[],
+  teamA: TeamRef,
+  teamB: TeamRef,
+  maxDeltaMs?: number,
+): { team: 'A' | 'B'; alias: string } | null {
+  const candidates = new Map<string, { team: 'A' | 'B'; alias: string }>();
+  for (const pair of pairs) {
+    if (
+      maxDeltaMs !== undefined &&
+      pair.deltaMs !== undefined &&
+      pair.deltaMs !== null &&
+      Math.abs(pair.deltaMs) > maxDeltaMs
+    ) {
+      continue;
+    }
+    const flags = [
+      { name: pair.nameA, other: pair.nameB },
+      { name: pair.nameB, other: pair.nameA },
+    ].map(({ name, other }) => ({
+      matchesA: teamMatches(name, teamA),
+      matchesB: teamMatches(name, teamB),
+      otherMatchesAny: teamMatches(other, teamA) || teamMatches(other, teamB),
+      other,
+    }));
+    for (const flag of flags) {
+      if (flag.otherMatchesAny || !flag.other) continue;
+      if (flag.matchesA && !flag.matchesB) {
+        candidates.set(`B:${normalizeName(flag.other)}`, { team: 'B', alias: flag.other });
+      } else if (flag.matchesB && !flag.matchesA) {
+        candidates.set(`A:${normalizeName(flag.other)}`, { team: 'A', alias: flag.other });
+      }
+    }
+  }
+  if (candidates.size !== 1) return null;
+  return candidates.values().next().value ?? null;
+}
+
 export interface NamedPlayer {
   id: string;
   name: string;

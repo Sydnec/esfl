@@ -38,6 +38,8 @@ model Team {
   imageUrl     String? @map("image_url")
   /** Code pays ISO2 (drapeau). */
   location     String?
+  /** Noms alternatifs chez les providers de stats (appris par corrélation adverse). */
+  aliases      String[] @default([]) @map("aliases")
   players      Player[]
   competitions CompetitionTeam[]
 

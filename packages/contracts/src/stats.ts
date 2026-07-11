@@ -9,10 +9,14 @@ export const cs2StatsSchema = z.object({
   kills: z.number(),
   deaths: z.number(),
   assists: z.number(),
-  /** Average damage per round. */
+  /** Average damage per round — indisponible via Grid open access, null. */
   adr: z.number().nullable(),
-  /** Rating HLTV-like si disponible. */
+  /** Rating HLTV-like si disponible — indisponible via Grid open access, null. */
   rating: z.number().nullable(),
+  /** Bombes posées (objectives Grid). Optionnel : absent des ingestions antérieures. */
+  plants: z.number().nullable().optional(),
+  /** Bombes défusées (objectives Grid). */
+  defuses: z.number().nullable().optional(),
 });
 export type Cs2Stats = z.infer<typeof cs2StatsSchema>;
 
