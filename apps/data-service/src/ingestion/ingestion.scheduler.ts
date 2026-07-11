@@ -42,7 +42,8 @@ export class IngestionScheduler implements OnModuleInit {
     await this.queue.upsertJobScheduler('check-grid-coverage', { every: 30 * 60 * 1000 }, {
       name: 'check-grid-coverage',
     });
-    // Stats live des matchs Valorant en cours (page VLR, throttlée par hôte).
+    // Stats live des matchs en cours — jeux dont le provider expose
+    // fetchLiveStats : Valorant (page VLR) et CS2 (series state Grid).
     await this.queue.upsertJobScheduler('sync-live-stats', { every: 3 * 60 * 1000 }, {
       name: 'sync-live-stats',
     });

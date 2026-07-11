@@ -49,4 +49,11 @@ export interface GameStatsProvider {
   readonly source: string;
   readonly gameId: GameId;
   fetchStats(match: Match, context: MatchContext): Promise<ProviderResult | null>;
+  /**
+   * Instantané des stats d'un match en cours, pour les sources qui publient
+   * pendant la série (page VLR vivante, series state Grid). Optionnel : les
+   * jeux sans source live n'affichent que le score Pandascore. Retour null
+   * sans bruit si rien n'est disponible — le cycle suivant repassera.
+   */
+  fetchLiveStats?(match: Match, context: MatchContext): Promise<ProviderResult | null>;
 }

@@ -7,9 +7,9 @@ import type { Match } from '../../generated/client';
 import { mergeGamesSummary } from '../common/games-summary';
 import { PrismaService } from '../prisma.service';
 import { buildPlayerIndex, matchPlayer, normalizeName } from './matching';
+import { BallchasingStatsProvider } from './ballchasing.provider';
 import { GridStatsProvider } from './grid.provider';
 import { LeaguepediaStatsProvider } from './leaguepedia.provider';
-import { OctaneStatsProvider } from './octane.provider';
 import type { GameStatsProvider, MatchContext, ProviderResult } from './provider';
 import { VlrStatsProvider } from './vlr.provider';
 
@@ -22,11 +22,11 @@ export class StatsIngestionService {
     private readonly prisma: PrismaService,
     @InjectQueue(QUEUES.STATS_INGESTED) private readonly statsIngestedQueue: Queue,
     private readonly grid: GridStatsProvider,
-    private readonly vlr: VlrStatsProvider,
+    vlr: VlrStatsProvider,
     leaguepedia: LeaguepediaStatsProvider,
-    octane: OctaneStatsProvider,
+    ballchasing: BallchasingStatsProvider,
   ) {
-    this.providers = [grid, vlr, leaguepedia, octane];
+    this.providers = [grid, vlr, leaguepedia, ballchasing];
   }
 
   /**
@@ -78,33 +78,34 @@ export class StatsIngestionService {
   }
 
   /**
-   * Suivi des matchs Valorant en cours : la page VLR est vivante pendant la
-   * série (scores de map, agents, stats partielles) — on la resynchronise
-   * pour offrir le même affichage qu'un match terminé. Sans retry : le
-   * cycle suivant repassera.
+   * Suivi des matchs en cours pour les jeux dont le provider expose
+   * fetchLiveStats (page VLR vivante, series state Grid) : resynchronisés
+   * à chaque cycle pour offrir le même affichage qu'un match terminé.
+   * Sans retry : le cycle suivant repassera.
    */
   async syncLiveStats(): Promise<number> {
-    const running = await this.prisma.match.findMany({
-      where: {
-        gameId: 'valorant',
-        status: 'running',
-        teamAId: { not: null },
-        teamBId: { not: null },
-      },
-    });
-    if (running.length === 0) return 0;
-
     let synced = 0;
-    for (const match of running) {
-      const context = await this.loadContext(match);
-      const result = await this.vlr.fetchLiveStats(match, context).catch(() => null);
-      if (!result || result.lines.length === 0) continue;
-      await this.persistResult(match, context, this.vlr.source, result);
-      await this.publish(match, this.vlr.source);
-      synced += 1;
+    for (const provider of this.providers) {
+      if (!provider.fetchLiveStats) continue;
+      const running = await this.prisma.match.findMany({
+        where: {
+          gameId: provider.gameId,
+          status: 'running',
+          teamAId: { not: null },
+          teamBId: { not: null },
+        },
+      });
+      for (const match of running) {
+        const context = await this.loadContext(match);
+        const result = await provider.fetchLiveStats(match, context).catch(() => null);
+        if (!result || result.lines.length === 0) continue;
+        await this.persistResult(match, context, provider.source, result);
+        await this.publish(match, provider.source);
+        synced += 1;
+      }
     }
     if (synced > 0) {
-      this.logger.log(`Stats live synchronisées pour ${synced} match(s) Valorant`);
+      this.logger.log(`Stats live synchronisées pour ${synced} match(s)`);
     }
     return synced;
   }

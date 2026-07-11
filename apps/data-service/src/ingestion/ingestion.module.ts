@@ -4,9 +4,9 @@ import { QUEUES } from '@esfl/contracts';
 import { FantasyClient } from '../fantasy-client/fantasy.client';
 import { PandascoreClient } from '../pandascore/pandascore.client';
 import { PrismaService } from '../prisma.service';
+import { BallchasingStatsProvider } from '../stats/ballchasing.provider';
 import { GridStatsProvider } from '../stats/grid.provider';
 import { LeaguepediaStatsProvider } from '../stats/leaguepedia.provider';
-import { OctaneStatsProvider } from '../stats/octane.provider';
 import { StatsIngestionService } from '../stats/stats-ingestion';
 import { VlrStatsProvider } from '../stats/vlr.provider';
 import { INGESTION_QUEUE } from './ingestion.constants';
@@ -31,7 +31,7 @@ import { IngestionService } from './ingestion.service';
     GridStatsProvider,
     VlrStatsProvider,
     LeaguepediaStatsProvider,
-    OctaneStatsProvider,
+    BallchasingStatsProvider,
   ],
   exports: [IngestionService, BullModule],
 })
