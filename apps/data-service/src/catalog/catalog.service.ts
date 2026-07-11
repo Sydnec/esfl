@@ -168,21 +168,31 @@ export class CatalogService {
     followedCompetitionIds: string[] | null,
   ) {
     const now = Date.now();
-    const since = new Date(now - 48 * 3600 * 1000);
-    const finished = await this.prisma.match.findMany({
-      where: { status: 'finished', endAt: { gte: since } },
+    const since48h = new Date(now - 48 * 3600 * 1000);
+    // Fenêtre large (7 j) pour la couverture par jeu ; le détail des matchs
+    // sans stats et l'activité restent sur 48 h.
+    const finished7j = await this.prisma.match.findMany({
+      where: { status: 'finished', endAt: { gte: new Date(now - 7 * 24 * 3600 * 1000) } },
       select: { id: true, gameId: true, name: true, endAt: true, gridCovered: true },
       orderBy: { endAt: 'desc' },
     });
     const withStats = new Set(
       (
         await this.prisma.playerMatchStats.findMany({
-          where: { matchId: { in: finished.map((match) => match.id) } },
+          where: { matchId: { in: finished7j.map((match) => match.id) } },
           distinct: ['matchId'],
           select: { matchId: true },
         })
       ).map((row) => row.matchId),
     );
+    const finished = finished7j.filter((match) => match.endAt && match.endAt >= since48h);
+
+    const couverture7j: Record<string, { finis: number; avecStats: number }> = {};
+    for (const match of finished7j) {
+      couverture7j[match.gameId] ??= { finis: 0, avecStats: 0 };
+      couverture7j[match.gameId].finis += 1;
+      if (withStats.has(match.id)) couverture7j[match.gameId].avecStats += 1;
+    }
 
     const running = await this.prisma.match.findMany({
       where: { status: 'running' },
@@ -317,6 +327,7 @@ export class CatalogService {
     return {
       generatedAt: new Date().toISOString(),
       parJeu,
+      couverture7j,
       enCours,
       catalogue,
       sources,

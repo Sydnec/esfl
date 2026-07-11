@@ -104,6 +104,7 @@ export class CatalogController {
       'sync-series',
       'sync-matches',
       'sync-rosters',
+      'sync-live',
       'check-grid-coverage',
       'sync-live-stats',
     ];

@@ -25,12 +25,22 @@ interface RunningMatch {
   statsMaj: string | null;
 }
 
+const SYNC_JOBS: Array<{ job: string; label: string }> = [
+  { job: 'sync-series', label: 'Catalogue des compétitions' },
+  { job: 'sync-matches', label: 'Matchs des compétitions suivies' },
+  { job: 'sync-rosters', label: 'Rosters' },
+  { job: 'sync-live', label: 'Fenêtre live (scores, statuts)' },
+  { job: 'sync-live-stats', label: 'Stats live' },
+  { job: 'check-grid-coverage', label: 'Couverture Grid (CS2)' },
+];
+
 interface IngestionHealth {
   generatedAt: string;
   parJeu: Record<
     string,
     { enCours: number; aVenir24h: number; finis: number; avecStats: number }
   >;
+  couverture7j: Record<string, { finis: number; avecStats: number }>;
   enCours: RunningMatch[];
   catalogue: Record<
     string,
@@ -57,6 +67,11 @@ interface IngestionHealth {
 
 function gameLabel(gameId: string): string {
   return GAME_LABELS[gameId as GameId] ?? gameId;
+}
+
+function coverage(row: { finis: number; avecStats: number } | undefined): string {
+  if (!row || row.finis === 0) return '—';
+  return `${row.avecStats}/${row.finis} (${Math.round((row.avecStats / row.finis) * 100)} %)`;
 }
 
 export default function AdminPage() {
@@ -92,6 +107,18 @@ export default function AdminPage() {
       await load();
     } catch {
       setError('Relance impossible');
+    } finally {
+      setPending(null);
+    }
+  }
+
+  async function forceSync(job: string) {
+    setPending(job);
+    try {
+      await authedFetch(`/data/admin/sync/${job}`, { method: 'POST' });
+      setError(null);
+    } catch {
+      setError(`Impossible de lancer ${job}`);
     } finally {
       setPending(null);
     }
@@ -139,12 +166,21 @@ export default function AdminPage() {
                 {health.queue.failed}
               </span>
             </div>
-            <div className={styles.tile}>
-              <span className={styles.tileLabel}>Couverture Grid (CS2)</span>
-              <span className={styles.tileValue}>
-                {health.couvertureGrid.couverts} ✓ · {health.couvertureGrid.horsCouverture} ✗ ·{' '}
-                {health.couvertureGrid.aVerifier} ?
-              </span>
+          </section>
+
+          <section className={styles.section}>
+            <h2 className={styles.sectionTitle}>Synchronisations forcées</h2>
+            <div className={styles.actions}>
+              {SYNC_JOBS.map(({ job, label }) => (
+                <button
+                  key={job}
+                  className={styles.action}
+                  disabled={pending === job}
+                  onClick={() => void forceSync(job)}
+                >
+                  {pending === job ? 'Lancement…' : label}
+                </button>
+              ))}
             </div>
           </section>
 
@@ -158,12 +194,15 @@ export default function AdminPage() {
                   <th>À venir (24 h)</th>
                   <th>Finis (48 h)</th>
                   <th>Avec stats</th>
+                  <th>Couverture (7 j)</th>
                   <th>Source stats</th>
                 </tr>
               </thead>
               <tbody>
                 {health.sources.map((source) => {
                   const row = health.parJeu[source.gameId];
+                  const cover = health.couverture7j[source.gameId];
+                  const incomplete = cover && cover.avecStats < cover.finis;
                   return (
                     <tr key={source.gameId}>
                       <td>{gameLabel(source.gameId)}</td>
@@ -177,6 +216,7 @@ export default function AdminPage() {
                       >
                         {row?.avecStats ?? 0}
                       </td>
+                      <td className={incomplete ? styles.warn : undefined}>{coverage(cover)}</td>
                       <td>
                         {source.source}
                         {source.live ? ' (live)' : ''} —{' '}
@@ -184,6 +224,14 @@ export default function AdminPage() {
                           <span className={styles.ok}>configurée</span>
                         ) : (
                           <span className={styles.warn}>clé manquante</span>
+                        )}
+                        {source.gameId === 'cs2' && (
+                          <span className={styles.gridDetail}>
+                            {' '}
+                            · Grid : {health.couvertureGrid.couverts} ✓,{' '}
+                            {health.couvertureGrid.horsCouverture} ✗,{' '}
+                            {health.couvertureGrid.aVerifier} ?
+                          </span>
                         )}
                       </td>
                     </tr>
