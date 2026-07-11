@@ -42,24 +42,61 @@ export interface BallchasingReplayDetail {
   status?: string;
   date?: string;
   map_name?: string;
-  blue?: { name?: string; goals?: number; players?: BallchasingPlayer[] };
-  orange?: { name?: string; goals?: number; players?: BallchasingPlayer[] };
+  // Buts d'équipe : `goals` dans le listing, `stats.core.goals` dans le détail.
+  blue?: {
+    name?: string;
+    goals?: number;
+    players?: BallchasingPlayer[];
+    stats?: { core?: { goals?: number } };
+  };
+  orange?: {
+    name?: string;
+    goals?: number;
+    players?: BallchasingPlayer[];
+    stats?: { core?: { goals?: number } };
+  };
 }
 
-/** Replays d'une série : les deux noms d'équipes doivent correspondre. */
+/** Deux uploads d'une même manche : même map, mêmes scores, départs à < 2 min
+ * (chaque client enregistre son propre replay — les ids diffèrent, pas la
+ * partie ; une vraie manche dure > 5 min, pas de faux positif possible). */
+const DUPLICATE_WINDOW_MS = 2 * 60 * 1000;
+
+function isSameGame(a: BallchasingReplaySummary, b: BallchasingReplaySummary): boolean {
+  if ((a.map_name ?? null) !== (b.map_name ?? null)) return false;
+  if ((a.blue?.goals ?? 0) !== (b.blue?.goals ?? 0)) return false;
+  if ((a.orange?.goals ?? 0) !== (b.orange?.goals ?? 0)) return false;
+  const timeA = a.date ? Date.parse(a.date) : NaN;
+  const timeB = b.date ? Date.parse(b.date) : NaN;
+  if (Number.isNaN(timeA) || Number.isNaN(timeB)) return false;
+  return Math.abs(timeA - timeB) < DUPLICATE_WINDOW_MS;
+}
+
+/**
+ * Replays d'une série : les deux noms d'équipes doivent correspondre, et une
+ * même manche uploadée par plusieurs comptes (staff des deux équipes,
+ * arbitre…) ne compte qu'une fois.
+ */
 export function findBallchasingReplays(
   replays: BallchasingReplaySummary[],
   teamAName: string,
   teamBName: string,
 ): BallchasingReplaySummary[] {
-  return replays.filter((replay) => {
+  const kept: BallchasingReplaySummary[] = [];
+  const sorted = [...replays].sort(
+    (a, b) => (a.date ? Date.parse(a.date) : 0) - (b.date ? Date.parse(b.date) : 0),
+  );
+  for (const replay of sorted) {
     const blue = replay.blue?.name ?? '';
     const orange = replay.orange?.name ?? '';
-    return (
+    const teamsMatch =
       (teamNamesMatch(blue, teamAName) && teamNamesMatch(orange, teamBName)) ||
-      (teamNamesMatch(blue, teamBName) && teamNamesMatch(orange, teamAName))
-    );
-  });
+      (teamNamesMatch(blue, teamBName) && teamNamesMatch(orange, teamAName));
+    if (!teamsMatch) continue;
+    if (kept.some((existing) => isSameGame(existing, replay))) continue;
+    kept.push(replay);
+  }
+  return kept;
 }
 
 /**
@@ -106,18 +143,22 @@ export function mapBallchasingReplays(
     }
   }
 
-  return Array.from(byPlayer.values()).map((acc) => ({
-    externalName: acc.externalName,
-    side: acc.side,
-    raw: { games: acc.games, ...acc.core } as unknown as Prisma.InputJsonValue,
-    normalized: {
-      goals: acc.core.goals,
-      assists: acc.core.assists,
-      saves: acc.core.saves,
-      shots: acc.core.shots,
-      score: acc.core.score,
-    },
-  }));
+  return Array.from(byPlayer.values())
+    // Un score série de 0 est impossible pour un joueur réel : c'est un
+    // spectateur dans le lobby (arbitre RLCS notamment), pas un participant.
+    .filter((acc) => acc.core.score > 0 || acc.core.shots > 0 || acc.core.saves > 0)
+    .map((acc) => ({
+      externalName: acc.externalName,
+      side: acc.side,
+      raw: { games: acc.games, ...acc.core } as unknown as Prisma.InputJsonValue,
+      normalized: {
+        goals: acc.core.goals,
+        assists: acc.core.assists,
+        saves: acc.core.saves,
+        shots: acc.core.shots,
+        score: acc.core.score,
+      },
+    }));
 }
 
 /** Manches de la série : score par manche, côté A/B résolu par noms d'équipes. */
@@ -127,11 +168,13 @@ export function mapBallchasingGames(
 ): Array<{ position: number; map: string | null; scoreA: number | null; scoreB: number | null }> {
   return replays.map((replay, index) => {
     const blueIsA = teamNamesMatch(replay.blue?.name ?? '', teamAName);
+    const blueGoals = replay.blue?.stats?.core?.goals ?? replay.blue?.goals ?? null;
+    const orangeGoals = replay.orange?.stats?.core?.goals ?? replay.orange?.goals ?? null;
     return {
       position: index + 1,
       map: replay.map_name ?? null,
-      scoreA: (blueIsA ? replay.blue?.goals : replay.orange?.goals) ?? null,
-      scoreB: (blueIsA ? replay.orange?.goals : replay.blue?.goals) ?? null,
+      scoreA: blueIsA ? blueGoals : orangeGoals,
+      scoreB: blueIsA ? orangeGoals : blueGoals,
     };
   });
 }
