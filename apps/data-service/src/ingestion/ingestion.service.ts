@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
-import { GAME_IDS, GameId, MatchFinishedEvent, QUEUES } from '@esfl/contracts';
+import { GAME_IDS, GameId } from '@esfl/contracts';
 import type { Competition, Prisma } from '../../generated/client';
 import { Queue } from 'bullmq';
 import { mergeGamesSummary } from '../common/games-summary';
@@ -27,7 +27,6 @@ export class IngestionService {
     private readonly prisma: PrismaService,
     private readonly pandascore: PandascoreClient,
     private readonly fantasyClient: FantasyClient,
-    @InjectQueue(QUEUES.MATCH_FINISHED) private readonly matchFinishedQueue: Queue,
     @InjectQueue(INGESTION_QUEUE) private readonly ingestionQueue: Queue,
   ) {}
 
@@ -305,13 +304,8 @@ export class IngestionService {
       update: shared,
     });
 
+    // finishedEventSent : « fin de match traitée » (enqueue des stats fait).
     if (saved.status === 'finished' && !saved.finishedEventSent) {
-      await this.publishMatchFinished({
-        matchId: saved.id,
-        gameId: game,
-        competitionId: competition.id,
-        finishedAt: (saved.endAt ?? new Date()).toISOString(),
-      });
       // Stats uniquement pour les fins de match récentes : quand une ligue
       // ajoute une compétition en cours, ses matchs déjà anciens n'auront
       // jamais de roster — inutile de dépenser du budget API pour eux.
@@ -322,9 +316,8 @@ export class IngestionService {
       if (isRecent) {
         await enqueueIngestStats(this.ingestionQueue, saved.id);
       }
-      // Flag posé en dernier : si un enqueue échoue, il n'est pas persisté
-      // et le cycle suivant retente tout le bloc (publications idempotentes
-      // côté consommateurs, jobId déterministe côté stats).
+      // Flag posé en dernier : si l'enqueue échoue, il n'est pas persisté
+      // et le cycle suivant retente (jobId déterministe, pas de doublon).
       await this.prisma.match.update({
         where: { id: saved.id },
         data: { finishedEventSent: true },
@@ -332,11 +325,4 @@ export class IngestionService {
     }
   }
 
-  async publishMatchFinished(event: MatchFinishedEvent): Promise<void> {
-    await this.matchFinishedQueue.add('match-finished', event, {
-      removeOnComplete: 1000,
-      removeOnFail: 5000,
-    });
-    this.logger.log(`match.finished publié pour ${event.matchId}`);
-  }
 }

@@ -17,7 +17,6 @@ import { IngestionService } from './ingestion.service';
 @Module({
   imports: [
     BullModule.registerQueue({ name: INGESTION_QUEUE }),
-    BullModule.registerQueue({ name: QUEUES.MATCH_FINISHED }),
     BullModule.registerQueue({ name: QUEUES.STATS_INGESTED }),
   ],
   providers: [

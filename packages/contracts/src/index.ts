@@ -3,3 +3,4 @@ export * from './events';
 export * from './auth';
 export * from './stats';
 export * from './fantasy';
+export * from './paris-date';

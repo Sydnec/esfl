@@ -4,8 +4,8 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { parisDate } from '@esfl/contracts';
 import type { League, MatchDay } from '../../generated/client';
-import { parisDate } from '../common/paris-date';
 import { DataClient, DataMatch, DataPlayer } from '../data-client/data.client';
 import { PrismaService } from '../prisma.service';
 import { isLockedForDay, unlockDate } from './lock';

@@ -7,7 +7,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "pnpm --filter @esfl/contracts build && pnpm --parallel --filter './apps/**' dev",
+    "dev": "pnpm --filter @esfl/contracts build && pnpm --parallel --filter './apps/**' --filter @esfl/contracts dev",
     "dev:infra": "docker compose -f docker-compose.dev.yml up -d",
     "build": "pnpm -r build",
     "lint": "eslint .",

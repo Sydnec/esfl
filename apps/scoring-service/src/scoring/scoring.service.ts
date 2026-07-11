@@ -1,10 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { GameId } from '@esfl/contracts';
+import { GameId, parisDate } from '@esfl/contracts';
 import { computeScore, mapsPlayed, SCORING_VERSION } from '../calculators/calculators';
 import { DataClient, DataMatch } from '../clients/data.client';
 import { FantasyClient, FantasyRoster } from '../clients/fantasy.client';
 import { PrismaService } from '../prisma.service';
-import { parisDate } from './paris-date';
 
 @Injectable()
 export class ScoringService {
