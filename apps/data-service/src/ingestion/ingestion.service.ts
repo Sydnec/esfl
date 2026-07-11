@@ -9,7 +9,7 @@ import { buildPlayerIndex, matchPlayer, normalizeName } from '../stats/matching'
 import { PandascoreClient } from '../pandascore/pandascore.client';
 import type { PSMatch, PSSerie, PSStream, PSTeamRef } from '../pandascore/pandascore.types';
 import { PrismaService } from '../prisma.service';
-import { INGESTION_QUEUE } from './ingestion.processor';
+import { enqueueIngestStats, INGESTION_QUEUE } from './ingestion.constants';
 
 /** Stream à afficher : français en priorité, sinon le flux officiel. */
 function pickStream(streams: PSStream[] | null): string | null {
@@ -248,10 +248,12 @@ export class IngestionService {
       return result?.score ?? null;
     };
 
-    const winnerRef = opponents.find((o) => o.id === match.winner_id);
-    const winnerTeam = winnerRef
-      ? await this.prisma.team.findUnique({ where: { pandascoreId: winnerRef.id } })
-      : null;
+    // Le vainqueur est forcément l'un des deux opposants déjà upsertés :
+    // son id local se déduit de sa position, sans requête.
+    const winnerIndex = match.winner_id
+      ? opponents.slice(0, 2).findIndex((o) => o.id === match.winner_id)
+      : -1;
+    const winnerTeamId = winnerIndex === 0 ? teamAId : winnerIndex === 1 ? teamBId : null;
 
     const status = match.status === 'postponed' ? 'not_started' : match.status;
     // Manches gagnées : winner.id pandascore → côté A ou B du match local.
@@ -287,7 +289,7 @@ export class IngestionService {
       teamBId: teamBId ?? null,
       scoreA: scoreFor(teamAId),
       scoreB: scoreFor(teamBId),
-      winnerTeamId: winnerTeam?.id ?? null,
+      winnerTeamId: winnerTeamId ?? null,
       bestOf: match.number_of_games,
       streamUrl: pickStream(match.streams_list),
       gamesSummary,
@@ -310,33 +312,23 @@ export class IngestionService {
         competitionId: competition.id,
         finishedAt: (saved.endAt ?? new Date()).toISOString(),
       });
+      // Stats uniquement pour les fins de match récentes : quand une ligue
+      // ajoute une compétition en cours, ses matchs déjà anciens n'auront
+      // jamais de roster — inutile de dépenser du budget API pour eux.
+      // Dates toutes nulles (trou de données Pandascore) : on tente quand même.
+      const finishedAt = saved.endAt ?? saved.beginAt ?? saved.scheduledAt;
+      const isRecent =
+        !finishedAt || Date.now() - finishedAt.getTime() < 48 * 3600 * 1000;
+      if (isRecent) {
+        await enqueueIngestStats(this.ingestionQueue, saved.id);
+      }
+      // Flag posé en dernier : si un enqueue échoue, il n'est pas persisté
+      // et le cycle suivant retente tout le bloc (publications idempotentes
+      // côté consommateurs, jobId déterministe côté stats).
       await this.prisma.match.update({
         where: { id: saved.id },
         data: { finishedEventSent: true },
       });
-      // Stats uniquement pour les fins de match récentes : quand une ligue
-      // ajoute une compétition en cours, ses matchs déjà anciens n'auront
-      // jamais de roster — inutile de dépenser du budget API pour eux.
-      const finishedAt = saved.endAt ?? saved.beginAt ?? saved.scheduledAt;
-      const isRecent =
-        finishedAt && Date.now() - finishedAt.getTime() < 48 * 3600 * 1000;
-      if (isRecent) {
-        // Les sources externes publient parfois avec des heures de retard :
-        // retries espacés de 15 min → ~31h de couverture.
-        await this.ingestionQueue.add(
-          'ingest-stats',
-          { matchId: saved.id },
-          {
-            // Un seul job par match : des chaînes dupliquées multiplient les
-            // retries et déclenchent les rate limits (Fandom notamment).
-            jobId: `ingest-stats:${saved.id}`,
-            attempts: 8,
-            backoff: { type: 'exponential', delay: 15 * 60 * 1000 },
-            removeOnComplete: true,
-            removeOnFail: 1000,
-          },
-        );
-      }
     }
   }
 

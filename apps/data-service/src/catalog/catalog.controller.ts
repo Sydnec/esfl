@@ -3,7 +3,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { GAME_IDS, GAME_LABELS } from '@esfl/contracts';
 import { Queue } from 'bullmq';
 import { AdminGuard } from '../common/admin.guard';
-import { INGESTION_QUEUE, IngestionJobName } from '../ingestion/ingestion.processor';
+import { enqueueIngestStats, INGESTION_QUEUE, IngestionJobName } from '../ingestion/ingestion.constants';
 import { CatalogService } from './catalog.service';
 
 function parseIds(value: string | undefined): string[] {
@@ -125,19 +125,7 @@ export class CatalogController {
   @Post('admin/ingest-stats/:matchId')
   @UseGuards(AdminGuard)
   async triggerIngestStats(@Param('matchId') matchId: string, @Query('force') force?: string) {
-    await this.ingestionQueue.add(
-      'ingest-stats',
-      { matchId, force: force === 'true' },
-      {
-        // Dédupliqué par match : re-forcer pendant qu'un job tourne n'empile
-        // pas une deuxième chaîne de retries (rate limits externes).
-        jobId: `ingest-stats:${matchId}`,
-        attempts: 8,
-        backoff: { type: 'exponential', delay: 15 * 60 * 1000 },
-        removeOnComplete: true,
-        removeOnFail: 1000,
-      },
-    );
+    await enqueueIngestStats(this.ingestionQueue, matchId, force === 'true');
     return { enqueued: 'ingest-stats', matchId, force: force === 'true' };
   }
 }

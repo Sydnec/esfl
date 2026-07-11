@@ -1,6 +1,50 @@
+import type { Queue } from 'bullmq';
+
 /** Constantes partagées entre service, processor, scheduler et controller
  * (fichier dédié pour éviter les imports circulaires). */
 export const INGESTION_QUEUE = 'data-ingestion';
+
+/** Un seul jobId par match, partagé par tous les producteurs (sync auto +
+ * endpoint admin) pour que BullMQ déduplique les chaînes de retries.
+ * BullMQ ≥ 5.58.7 interdit `:` dans les jobId personnalisés. */
+export function ingestStatsJobId(matchId: string): string {
+  return `ingest-stats-${matchId}`;
+}
+
+/**
+ * Enqueue un job ingest-stats dédupliqué par match. Une chaîne de retries
+ * encore vivante (attente, backoff, en cours) n'est pas doublée — les sources
+ * externes sont rate-limitées. En revanche un job terminé ou en échec définitif
+ * occupe toujours son jobId dans BullMQ et rendrait l'add silencieusement
+ * inopérant : on le purge pour que le re-déclenchement reparte réellement.
+ */
+export async function enqueueIngestStats(
+  queue: Queue,
+  matchId: string,
+  force = false,
+): Promise<void> {
+  const jobId = ingestStatsJobId(matchId);
+  const existing = await queue.getJob(jobId);
+  if (existing) {
+    const state = await existing.getState();
+    if (state === 'completed' || state === 'failed') {
+      await existing.remove();
+    }
+  }
+  await queue.add(
+    'ingest-stats',
+    { matchId, force },
+    {
+      jobId,
+      // Les sources externes publient parfois avec des heures de retard :
+      // retries espacés de 15 min → ~31h de couverture.
+      attempts: 8,
+      backoff: { type: 'exponential', delay: 15 * 60 * 1000 },
+      removeOnComplete: true,
+      removeOnFail: 1000,
+    },
+  );
+}
 
 export type IngestionJobName =
   | 'sync-series'
