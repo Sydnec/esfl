@@ -7,9 +7,11 @@ import { INGESTION_QUEUE } from './ingestion.constants';
 
 /**
  * Planifie les jobs répétables d'ingestion (uniquement si le token Pandascore
- * est présent). Cadences calibrées pour le free tier (1000 req/h) :
- * le catalogue bouge peu, et seuls les matchs/rosters des compétitions
- * suivies par une ligue sont synchronisés.
+ * est présent). Cadences calibrées pour le free tier (1000 req/h) : les
+ * matchs de toutes les compétitions actives sont synchronisés (la page
+ * d'accueil montre tout le planning), les rosters uniquement pour les
+ * compétitions suivies par une ligue, et la fenêtre live ne requête que les
+ * compétitions ayant un match imminent ou en cours.
  */
 @Injectable()
 export class IngestionScheduler implements OnModuleInit {

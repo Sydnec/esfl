@@ -27,7 +27,7 @@ interface RunningMatch {
 
 const SYNC_JOBS: Array<{ job: string; label: string }> = [
   { job: 'sync-series', label: 'Catalogue des compétitions' },
-  { job: 'sync-matches', label: 'Matchs des compétitions suivies' },
+  { job: 'sync-matches', label: 'Matchs (toutes compétitions actives)' },
   { job: 'sync-rosters', label: 'Rosters' },
   { job: 'sync-live', label: 'Fenêtre live (scores, statuts)' },
   { job: 'sync-live-stats', label: 'Stats live' },

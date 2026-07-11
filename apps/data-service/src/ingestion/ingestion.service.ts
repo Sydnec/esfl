@@ -60,10 +60,9 @@ export class IngestionService {
   }
 
   /**
-   * Compétitions à synchroniser en continu : suivies par au moins une ligue
-   * ET actives (sans date de fin ou terminées depuis moins de 3 jours).
-   * Le ciblage sur les compétitions suivies est ce qui protège le quota
-   * Pandascore : le référentiel complet peut contenir des centaines de séries.
+   * Compétitions suivies par au moins une ligue ET actives — le périmètre
+   * des rosters, la donnée la plus chère à synchroniser et utile uniquement
+   * au fantasy (picks).
    */
   private async followedActiveCompetitions() {
     const followed = await this.fantasyClient.followedCompetitionIds();
@@ -78,8 +77,22 @@ export class IngestionService {
     });
   }
 
+  /**
+   * Toutes les compétitions actives du catalogue (sans date de fin ou
+   * terminées depuis moins de 3 jours) : le planning de la page d'accueil
+   * montre tous les matchs, pas seulement ceux des compétitions suivies.
+   * L'espacement des requêtes Pandascore (4 s) borne le débit du cycle.
+   */
+  private activeCompetitions() {
+    const cutoff = new Date(Date.now() - 3 * 24 * 3600 * 1000);
+    return this.prisma.competition.findMany({
+      where: { OR: [{ endAt: null }, { endAt: { gte: cutoff } }] },
+      orderBy: { beginAt: 'asc' },
+    });
+  }
+
   async syncAllActiveMatches(): Promise<void> {
-    const competitions = await this.followedActiveCompetitions();
+    const competitions = await this.activeCompetitions();
     for (const competition of competitions) {
       try {
         await this.syncMatchesForCompetition(competition.id);
@@ -171,9 +184,20 @@ export class IngestionService {
    * détecter rapidement débuts et fins de match (cadence 3 min, quota tenu).
    */
   async syncLiveWindow(): Promise<void> {
-    const competitions = await this.followedActiveCompetitions();
     const from = new Date(Date.now() - 12 * 3600 * 1000);
     const to = new Date(Date.now() + 6 * 3600 * 1000);
+    // Cadence 3 min × toutes les compétitions actives exploserait le quota :
+    // on ne paie que celles dont l'état local montre un match dans la fenêtre
+    // (running, ou programmé dedans) — déterminé en base, gratuitement.
+    const concerned = await this.prisma.match.groupBy({
+      by: ['competitionId'],
+      where: {
+        OR: [{ status: 'running' }, { scheduledAt: { gte: from, lte: to } }],
+      },
+    });
+    const competitions = await this.prisma.competition.findMany({
+      where: { id: { in: concerned.map((group) => group.competitionId) } },
+    });
     for (const competition of competitions) {
       try {
         const matches = await this.pandascore.listMatchesInWindow(
