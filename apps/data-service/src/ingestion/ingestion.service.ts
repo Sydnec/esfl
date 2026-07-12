@@ -46,8 +46,12 @@ export class IngestionService {
     return count;
   }
 
-  /** Synchronise matchs + équipes d'une compétition, publie les fins de match. */
-  async syncMatchesForCompetition(competitionId: string): Promise<void> {
+  /**
+   * Synchronise matchs + équipes d'une compétition. `enqueueStats` déclenche
+   * l'ingestion des stats détaillées à la fin des matchs — réservé aux
+   * compétitions suivies (seul le fantasy en a besoin).
+   */
+  async syncMatchesForCompetition(competitionId: string, enqueueStats = true): Promise<void> {
     const competition = await this.prisma.competition.findUnique({ where: { id: competitionId } });
     if (!competition) {
       throw new NotFoundException(`Compétition inconnue : ${competitionId}`);
@@ -55,7 +59,7 @@ export class IngestionService {
     const game = competition.gameId as GameId;
     const matches = await this.pandascore.listMatchesForSerie(game, competition.pandascoreId);
     for (const match of matches) {
-      await this.upsertMatch(competition, match);
+      await this.upsertMatch(competition, match, enqueueStats);
     }
   }
 
@@ -93,9 +97,14 @@ export class IngestionService {
 
   async syncAllActiveMatches(): Promise<void> {
     const competitions = await this.activeCompetitions();
+    // Les stats détaillées ne sont ingérées que pour les compétitions suivies :
+    // ce sont les seules dont le fantasy a besoin, et les sources (Grid,
+    // Leaguepedia) sont rate-limitées. Fantasy indisponible → aucun enqueue,
+    // finishedEventSent reste false et le cycle suivant rattrapera.
+    const followed = new Set((await this.fantasyClient.followedCompetitionIds()) ?? []);
     for (const competition of competitions) {
       try {
-        await this.syncMatchesForCompetition(competition.id);
+        await this.syncMatchesForCompetition(competition.id, followed.has(competition.id));
       } catch (error) {
         this.logger.error(`syncMatches ${competition.name} : ${String(error)}`);
       }
@@ -173,14 +182,14 @@ export class IngestionService {
     }
   }
 
-  /** Sync ciblé d'une compétition (déclenché quand une ligue l'ajoute). */
+  /** Sync ciblé d'une compétition (déclenché quand une ligue l'ajoute) : suivie, donc stats incluses. */
   async syncCompetition(competitionId: string): Promise<void> {
-    await this.syncMatchesForCompetition(competitionId);
+    await this.syncMatchesForCompetition(competitionId, true);
     await this.syncRostersForCompetition(competitionId);
   }
 
   /**
-   * Fenêtre « live » : 1 requête par compétition suivie sur [-12h, +6h] pour
+   * Fenêtre « live » : 1 requête par compétition sur [-12h, +6h] pour
    * détecter rapidement débuts et fins de match (cadence 3 min, quota tenu).
    */
   async syncLiveWindow(): Promise<void> {
@@ -198,6 +207,7 @@ export class IngestionService {
     const competitions = await this.prisma.competition.findMany({
       where: { id: { in: concerned.map((group) => group.competitionId) } },
     });
+    const followed = new Set((await this.fantasyClient.followedCompetitionIds()) ?? []);
     for (const competition of competitions) {
       try {
         const matches = await this.pandascore.listMatchesInWindow(
@@ -207,7 +217,7 @@ export class IngestionService {
           to,
         );
         for (const match of matches) {
-          await this.upsertMatch(competition, match);
+          await this.upsertMatch(competition, match, followed.has(competition.id));
         }
       } catch (error) {
         this.logger.error(`syncLive ${competition.name} : ${String(error)}`);
@@ -259,7 +269,11 @@ export class IngestionService {
     return team.id;
   }
 
-  private async upsertMatch(competition: Competition, match: PSMatch): Promise<void> {
+  private async upsertMatch(
+    competition: Competition,
+    match: PSMatch,
+    enqueueStats: boolean,
+  ): Promise<void> {
     const game = competition.gameId as GameId;
     const opponents = match.opponents.filter((o) => o.type === 'Team').map((o) => o.opponent);
     const [teamAId, teamBId] = await Promise.all(
@@ -340,24 +354,24 @@ export class IngestionService {
       this.liveEvents.emitMatchUpdated({ matchId: saved.id, gameId: game });
     }
 
-    // finishedEventSent : « fin de match traitée » (enqueue des stats fait).
-    if (saved.status === 'finished' && !saved.finishedEventSent) {
-      // Stats uniquement pour les fins de match récentes : quand une ligue
-      // ajoute une compétition en cours, ses matchs déjà anciens n'auront
-      // jamais de roster — inutile de dépenser du budget API pour eux.
-      // Dates toutes nulles (trou de données Pandascore) : on tente quand même.
+    // Stats détaillées : seulement pour les compétitions suivies (le fantasy
+    // en a besoin ; la home n'affiche que score/statut) et les fins récentes.
+    // Non suivi → finishedEventSent laissé à false : si la compétition est
+    // adoptée plus tard (< 48h), l'ingestion se déclenchera enfin.
+    // Dates toutes nulles (trou de données Pandascore) : on tente quand même.
+    if (enqueueStats && saved.status === 'finished' && !saved.finishedEventSent) {
       const finishedAt = saved.endAt ?? saved.beginAt ?? saved.scheduledAt;
       const isRecent =
         !finishedAt || Date.now() - finishedAt.getTime() < 48 * 3600 * 1000;
       if (isRecent) {
         await enqueueIngestStats(this.ingestionQueue, saved.id);
+        // Flag posé après l'enqueue : s'il échoue, il n'est pas persisté et
+        // le cycle suivant retente (jobId déterministe, pas de doublon).
+        await this.prisma.match.update({
+          where: { id: saved.id },
+          data: { finishedEventSent: true },
+        });
       }
-      // Flag posé en dernier : si l'enqueue échoue, il n'est pas persisté
-      // et le cycle suivant retente (jobId déterministe, pas de doublon).
-      await this.prisma.match.update({
-        where: { id: saved.id },
-        data: { finishedEventSent: true },
-      });
     }
   }
 

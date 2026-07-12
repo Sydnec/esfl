@@ -176,10 +176,12 @@ export class CatalogService {
       select: { id: true, gameId: true, name: true, endAt: true, gridCovered: true },
       orderBy: { endAt: 'desc' },
     });
+    // Les stats ne sont ingérées que pour les compétitions suivies : l'ensemble
+    // des matchs avec stats est petit, un distinct non filtré évite un IN de
+    // milliers d'ids.
     const withStats = new Set(
       (
         await this.prisma.playerMatchStats.findMany({
-          where: { matchId: { in: finished7j.map((match) => match.id) } },
           distinct: ['matchId'],
           select: { matchId: true },
         })
@@ -240,9 +242,13 @@ export class CatalogService {
     for (const match of running) jeu(match.gameId).enCours += 1;
     for (const gameId of upcomingByGame.keys()) jeu(gameId);
 
+    // Borné : au-delà, la liste est un symptôme global (source en panne),
+    // pas une liste d'actions unitaires — le compteur par jeu suffit.
+    const SANS_STATS_MAX = 100;
     const sansStats = finished
       .filter((match) => !withStats.has(match.id))
       // Les CS2 hors couverture Grid n'auront jamais de stats : signalés à part.
+      .slice(0, SANS_STATS_MAX)
       .map((match) => ({ ...match, endAt: match.endAt?.toISOString() ?? null }));
 
     const enCours = running.map((match) => ({

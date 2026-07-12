@@ -1,6 +1,6 @@
 /**
- * Rapprochement d'entités entre sources externes (Octane, Leaguepedia, VLR,
- * Grid) et notre référentiel Pandascore. Pur pour être testable.
+ * Rapprochement d'entités entre sources externes (ballchasing, Leaguepedia,
+ * VLR, Grid) et notre référentiel Pandascore. Pur pour être testable.
  */
 
 /** Minuscules, sans diacritiques, sans ponctuation/espaces. */
@@ -26,10 +26,17 @@ export interface TeamRef {
   aliases?: string[];
 }
 
-/** Un nom externe correspond à une équipe locale par son nom ou l'un de ses alias. */
+/**
+ * Un nom externe correspond à une équipe locale par son nom (rapprochement
+ * flou, le nom Pandascore est fiable) ou par égalité exacte à l'un de ses
+ * alias. Les alias sont matchés en exact — pas en sous-chaîne : un alias court
+ * appris automatiquement (« LP ») ne doit jamais absorber une équipe tierce
+ * dont le nom le contient (« LPL », « Liquid Pro »).
+ */
 export function teamMatches(externalName: string, team: TeamRef): boolean {
   if (teamNamesMatch(externalName, team.name)) return true;
-  return (team.aliases ?? []).some((alias) => teamNamesMatch(externalName, alias));
+  const normalized = normalizeName(externalName);
+  return (team.aliases ?? []).some((alias) => normalizeName(alias) === normalized);
 }
 
 /** Affiche d'une rencontre côté provider, pour la corrélation adverse. */

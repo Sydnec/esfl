@@ -5,6 +5,13 @@ import type { NextFunction, Request, Response } from 'express';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
+  // Secret JWT obligatoire : sans lui, `verify` avec une clé vide accepterait
+  // des tokens forgés (dont isAdmin) — on échoue au démarrage plutôt que fail-open.
+  const jwtSecret = process.env.JWT_ACCESS_SECRET;
+  if (!jwtSecret) {
+    throw new Error('JWT_ACCESS_SECRET manquant : le gateway ne peut pas vérifier les tokens');
+  }
+
   // bodyParser désactivé : le gateway ne fait que proxyfier, un body déjà
   // consommé casserait le stream vers les services.
   const app = await NestFactory.create(AppModule, { bodyParser: false });
@@ -33,7 +40,7 @@ async function bootstrap() {
     const header = req.headers.authorization;
     if (header?.startsWith('Bearer ')) {
       try {
-        const payload = verify(header.slice(7), process.env.JWT_ACCESS_SECRET ?? '') as {
+        const payload = verify(header.slice(7), jwtSecret) as {
           sub?: string;
           isAdmin?: boolean;
         };

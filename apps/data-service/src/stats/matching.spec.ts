@@ -85,6 +85,15 @@ describe('teamMatches', () => {
     expect(teamMatches('Fake do Biru', team)).toBe(false);
     expect(teamMatches('LP', { name: 'largadosypelados' })).toBe(false);
   });
+
+  it('matche les alias en exact, jamais en sous-chaîne (pas de collision d’alias court)', () => {
+    const team = { name: 'largadosypelados', aliases: ['LP'] };
+    // « LP » ne doit pas absorber une équipe tierce dont le nom le contient.
+    expect(teamMatches('LPL', team)).toBe(false);
+    expect(teamMatches('Liquid Pro', team)).toBe(false);
+    // Le nom Pandascore, lui, reste rapproché en flou.
+    expect(teamMatches('largados y pelados', team)).toBe(true);
+  });
 });
 
 describe('inferOpponentAlias', () => {

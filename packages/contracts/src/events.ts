@@ -10,7 +10,7 @@ export const QUEUES = {
 export const statsIngestedEventSchema = z.object({
   matchId: z.string(),
   gameId: z.enum(GAME_IDS),
-  /** Provider ayant fourni les stats (grid, vlr, leaguepedia, octane, pandascore). */
+  /** Provider ayant fourni les stats (grid, vlr, leaguepedia, ballchasing, pandascore). */
   source: z.string(),
   ingestedAt: z.iso.datetime(),
 });
