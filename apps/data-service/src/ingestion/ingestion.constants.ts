@@ -17,17 +17,23 @@ export function ingestStatsJobId(matchId: string): string {
  * externes sont rate-limitées. En revanche un job terminé ou en échec définitif
  * occupe toujours son jobId dans BullMQ et rendrait l'add silencieusement
  * inopérant : on le purge pour que le re-déclenchement reparte réellement.
+ *
+ * `restart` (relance manuelle admin) : on retire aussi un job en attente ou en
+ * backoff (`delayed`/`waiting`) pour repartir tout de suite au lieu d'attendre
+ * sa prochaine tentative — jamais un job `active` (en cours d'exécution).
+ * Sans lui, une relance pendant un backoff serait un no-op silencieux.
  */
 export async function enqueueIngestStats(
   queue: Queue,
   matchId: string,
   force = false,
+  restart = false,
 ): Promise<void> {
   const jobId = ingestStatsJobId(matchId);
   const existing = await queue.getJob(jobId);
   if (existing) {
     const state = await existing.getState();
-    if (state === 'completed' || state === 'failed') {
+    if (state === 'completed' || state === 'failed' || (restart && state !== 'active')) {
       await existing.remove();
     }
   }

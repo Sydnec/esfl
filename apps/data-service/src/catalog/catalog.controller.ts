@@ -141,7 +141,7 @@ export class CatalogController {
   @Post('admin/ingest-stats/:matchId')
   @UseGuards(AdminGuard)
   async triggerIngestStats(@Param('matchId') matchId: string, @Query('force') force?: string) {
-    await enqueueIngestStats(this.ingestionQueue, matchId, force === 'true');
+    await enqueueIngestStats(this.ingestionQueue, matchId, force === 'true', true);
     return { enqueued: 'ingest-stats', matchId, force: force === 'true' };
   }
 
@@ -191,7 +191,7 @@ export class CatalogController {
   @UseGuards(AdminGuard)
   async setStatsPage(@Param('matchId') matchId: string, @Query('url') url?: string) {
     const { statsPageUrl } = await this.catalog.setValorantStatsPage(matchId, url ?? '');
-    await enqueueIngestStats(this.ingestionQueue, matchId, true);
+    await enqueueIngestStats(this.ingestionQueue, matchId, true, true);
     return { statsPageUrl, reingested: true };
   }
 
@@ -221,7 +221,9 @@ export class CatalogController {
     const resolved = await this.statsIngestion.resolveLeaguepediaNames(alias ?? '');
     const names = resolved.length > 0 ? resolved : [alias ?? ''];
     const { aliases, matchIds, added, redundant } = await this.catalog.addTeamAliases(teamId, names);
-    await Promise.all(matchIds.map((id) => enqueueIngestStats(this.ingestionQueue, id, true)));
+    await Promise.all(
+      matchIds.map((id) => enqueueIngestStats(this.ingestionQueue, id, true, true)),
+    );
     return { aliases, reingested: matchIds.length, added, redundant };
   }
 
