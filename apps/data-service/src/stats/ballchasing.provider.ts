@@ -222,7 +222,9 @@ export class BallchasingStatsProvider implements GameStatsProvider {
         nameB: replay.orange?.name ?? '',
       }));
       const inferred = inferOpponentAlias(pairs, context.teamA, context.teamB);
-      if (inferred) {
+      // Garde-fou : un nom déjà connu comme équipe est une vraie équipe tierce,
+      // pas un alias de la nôtre — on ne l'apprend pas (cf. Grid).
+      if (inferred && !(await this.isKnownTeam(inferred.alias))) {
         const target = inferred.team === 'A' ? context.teamA : context.teamB;
         await this.learnAlias(target, inferred.alias);
         summaries = findBallchasingReplays(listing.list ?? [], context.teamA, context.teamB);
@@ -277,6 +279,17 @@ export class BallchasingStatsProvider implements GameStatsProvider {
     });
     team.aliases = [...(team.aliases ?? []), alias];
     this.logger.log(`Alias appris via ballchasing : « ${alias} » → ${team.name}`);
+  }
+
+  /** Vrai si un nom correspond (forme normalisée) à une équipe RL déjà connue. */
+  private async isKnownTeam(name: string): Promise<boolean> {
+    const normalized = normalizeName(name);
+    if (!normalized) return false;
+    const teams = await this.prisma.team.findMany({
+      where: { gameId: this.gameId },
+      select: { name: true },
+    });
+    return teams.some((team) => normalizeName(team.name) === normalized);
   }
 
   private async get<T>(url: string, token: string): Promise<T | null> {

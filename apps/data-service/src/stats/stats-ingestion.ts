@@ -14,6 +14,18 @@ import { LeaguepediaStatsProvider } from './leaguepedia.provider';
 import type { GameStatsProvider, MatchContext, ProviderResult } from './provider';
 import { VlrStatsProvider } from './vlr.provider';
 
+/** Slug d'un lien lol.fandom.com/wiki/... ; null si ce n'est pas un tel lien. */
+function leaguepediaSlug(input: string): string | null {
+  const trimmed = input.trim();
+  if (!/lol\.fandom\.com\/wiki\//i.test(trimmed)) return null;
+  try {
+    const url = new URL(trimmed.startsWith('http') ? trimmed : `https://${trimmed}`);
+    return url.pathname.split('/wiki/')[1] || null;
+  } catch {
+    return null;
+  }
+}
+
 @Injectable()
 export class StatsIngestionService {
   private readonly logger = new Logger(StatsIngestionService.name);
@@ -25,10 +37,26 @@ export class StatsIngestionService {
     private readonly liveEvents: LiveEventsService,
     private readonly grid: GridStatsProvider,
     vlr: VlrStatsProvider,
-    leaguepedia: LeaguepediaStatsProvider,
+    private readonly leaguepedia: LeaguepediaStatsProvider,
     ballchasing: BallchasingStatsProvider,
   ) {
     this.providers = [grid, vlr, leaguepedia, ballchasing];
+  }
+
+  /**
+   * Noms fiables d'une équipe LoL à partir d'une saisie admin : si c'est un
+   * lien lol.fandom.com, on résout le nom canonique + variantes via Leaguepedia
+   * (redirections, renommages, formes courtes). Liste vide si ce n'est pas un
+   * lien Leaguepedia — l'appelant utilise alors la saisie telle quelle.
+   */
+  async resolveLeaguepediaNames(input: string): Promise<string[]> {
+    const slug = leaguepediaSlug(input);
+    if (!slug) return [];
+    const name = decodeURIComponent(slug).replace(/_/g, ' ').trim();
+    if (!name) return [];
+    const resolved = await this.leaguepedia.resolveTeamNames(name);
+    // Au pire (requête en échec) on garde au moins le nom tiré du lien.
+    return resolved.length > 0 ? resolved : [name];
   }
 
   /**
@@ -69,14 +97,54 @@ export class StatsIngestionService {
     const context = await this.loadContext(match);
     const result = await provider.fetchStats(match, context);
     if (!result || result.lines.length === 0) {
+      await this.recordFailureDiagnosis(match, context, provider, force);
       throw new Error(
         `Stats indisponibles pour le match ${matchId} via ${provider.source}, nouvelle tentative planifiée`,
       );
     }
 
     const persisted = await this.persistResult(match, context, provider.source, result);
+    // Succès : on efface un éventuel diagnostic d'échec précédent.
+    if (match.statsFailureKind) {
+      await this.prisma.match.update({
+        where: { id: match.id },
+        data: { statsFailureKind: null, statsSuggestion: Prisma.DbNull },
+      });
+    }
     this.logger.log(`${persisted} lignes de stats ${provider.source} pour le match ${matchId}`);
     await this.publish(match, provider.source);
+  }
+
+  /**
+   * Qualifie un échec d'ingestion pour ne surfacer côté admin que les vrais
+   * problèmes de nom : si la source expose une affiche où une seule des deux
+   * équipes est reconnue (candidats de `suggestTeamNames`), c'est un
+   * name-mismatch (le nom candidat est mémorisé pour le pré-remplissage) ;
+   * sinon la source n'a pas le match → no-coverage. Réutilise la fenêtre déjà
+   * récupérée par le provider, sans appel externe dédié côté ingestion.
+   * Ne diagnostique qu'une fois par chaîne d'échec (borne le coût des retries).
+   */
+  private async recordFailureDiagnosis(
+    match: Match,
+    context: MatchContext,
+    provider: GameStatsProvider,
+    force = false,
+  ): Promise<void> {
+    // Déjà diagnostiqué : on ne recalcule qu'à la relance manuelle (force).
+    if (match.statsFailureKind && !force) return;
+    let kind = 'no-coverage';
+    let suggestion: Prisma.InputJsonValue | typeof Prisma.DbNull = Prisma.DbNull;
+    if (provider.suggestTeamNames && context.teamA && context.teamB) {
+      const candidates = await provider.suggestTeamNames(match, context).catch(() => []);
+      if (candidates.length > 0) {
+        kind = 'name-mismatch';
+        suggestion = candidates as unknown as Prisma.InputJsonValue;
+      }
+    }
+    await this.prisma.match.update({
+      where: { id: match.id },
+      data: { statsFailureKind: kind, statsSuggestion: suggestion },
+    });
   }
 
   /**

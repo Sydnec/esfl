@@ -109,6 +109,15 @@ model Match {
   gridCovered   Boolean?    @map("grid_covered")
   /** URL de la page de stats chez le provider (mémorisée au premier fetch). */
   statsPageUrl  String?     @map("stats_page_url")
+  /**
+   * Diagnostic du dernier échec d'ingestion des stats (effacé au succès) :
+   * 'name-mismatch' = une équipe n'est pas reconnue par la source (vrai souci
+   * de binding, à corriger via alias), 'no-coverage' = match absent de la
+   * source. Sert à ne surfacer dans « à matcher » que les problèmes de nom.
+   */
+  statsFailureKind String? @map("stats_failure_kind")
+  /** Noms candidats vus par la source (name-mismatch) : [{side, name}], pré-remplissage admin. */
+  statsSuggestion  Json?   @map("stats_suggestion")
   stats         PlayerMatchStats[]
 
   @@index([competitionId])

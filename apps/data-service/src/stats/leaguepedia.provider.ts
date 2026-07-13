@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type { MapStatsEntry } from '@esfl/contracts';
 import type { Match, Prisma } from '../../generated/client';
 import { opponentAliasCandidates, OpponentPair, teamMatches, TeamRef } from './matching';
@@ -43,6 +44,26 @@ export interface LeaguepediaRow {
 /** Retire la désambiguïsation Leaguepedia : "Faker (Lee Sang-hyeok)" → "Faker". */
 function stripDisambiguation(link: string): string {
   return link.replace(/\s*\(.*\)$/, '');
+}
+
+/** Paires `nom=valeur` des Set-Cookie d'une réponse (sans les attributs). */
+function cookiePairs(response: Response): string[] {
+  const headers = response.headers as unknown as { getSetCookie?: () => string[] };
+  return (headers.getSetCookie?.() ?? [])
+    .map((cookie) => cookie.split(';')[0].trim())
+    .filter(Boolean);
+}
+
+/** Fusionne des groupes de cookies en un en-tête `Cookie` (dernière valeur gagne). */
+function mergeCookieHeader(...groups: string[][]): string {
+  const jar = new Map<string, string>();
+  for (const group of groups) {
+    for (const pair of group) {
+      const eq = pair.indexOf('=');
+      if (eq > 0) jar.set(pair.slice(0, eq), pair.slice(eq + 1));
+    }
+  }
+  return [...jar].map(([name, value]) => `${name}=${value}`).join('; ');
 }
 
 /** Ids Data Dragon qui ne se déduisent pas du nom affiché. */
@@ -202,6 +223,94 @@ export class LeaguepediaStatsProvider implements GameStatsProvider {
   private readonly logger = new Logger(LeaguepediaStatsProvider.name);
   /** bucketStart (ms) → lignes de la fenêtre + horodatage (TTL court). */
   private readonly windowCache = new Map<number, { rows: LeaguepediaRow[]; at: number }>();
+  /** En-tête Cookie de la session Leaguepedia authentifiée (null = anonyme). */
+  private sessionCookie: string | null = null;
+  /** Login en cours, pour ne pas se connecter plusieurs fois en parallèle. */
+  private loginInFlight: Promise<string | null> | null = null;
+
+  constructor(private readonly config: ConfigService) {}
+
+  /**
+   * Requête MediaWiki authentifiée si des identifiants sont configurés
+   * (`LEAGUEPEDIA_USERNAME`/`_BOT_PASSWORD`) : bien plus haute limite de lecture
+   * qu'en anonyme. Ajoute `assert=user` pour détecter une session expirée
+   * (l'API répond alors `assertuserfailed` au lieu de servir en anonyme).
+   */
+  private async fetchAuthed(url: URL, spacingMs: number): Promise<Response> {
+    const cookie = await this.ensureSession();
+    if (cookie) url.searchParams.set('assert', 'user');
+    return politeFetch(url, cookie ? { headers: { Cookie: cookie } } : {}, spacingMs);
+  }
+
+  /** Cookie de session (login paresseux, mémorisé) ; null si non configuré/échec. */
+  private async ensureSession(): Promise<string | null> {
+    const user = this.config.get<string>('LEAGUEPEDIA_USERNAME');
+    const pass = this.config.get<string>('LEAGUEPEDIA_BOT_PASSWORD');
+    if (!user || !pass) return null;
+    if (this.sessionCookie) return this.sessionCookie;
+    if (!this.loginInFlight) {
+      this.loginInFlight = this.login(user, pass).finally(() => {
+        this.loginInFlight = null;
+      });
+    }
+    return this.loginInFlight;
+  }
+
+  private invalidateSession(): void {
+    this.sessionCookie = null;
+  }
+
+  /** Login MediaWiki par bot password : jeton puis action=login, cookies mémorisés. */
+  private async login(user: string, pass: string): Promise<string | null> {
+    try {
+      const tokenUrl = new URL(API_URL);
+      tokenUrl.searchParams.set('action', 'query');
+      tokenUrl.searchParams.set('meta', 'tokens');
+      tokenUrl.searchParams.set('type', 'login');
+      tokenUrl.searchParams.set('format', 'json');
+      const tokenResponse = await politeFetch(tokenUrl, {}, 1_000);
+      const tokenCookies = cookiePairs(tokenResponse);
+      const tokenJson = (await tokenResponse.json()) as {
+        query?: { tokens?: { logintoken?: string } };
+      };
+      const loginToken = tokenJson.query?.tokens?.logintoken;
+      if (!loginToken) {
+        this.logger.warn('Leaguepedia : jeton de login indisponible');
+        return null;
+      }
+
+      const body = new URLSearchParams({
+        action: 'login',
+        lgname: user,
+        lgpassword: pass,
+        lgtoken: loginToken,
+        format: 'json',
+      });
+      const loginResponse = await politeFetch(
+        API_URL,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            Cookie: mergeCookieHeader(tokenCookies),
+          },
+          body: body.toString(),
+        },
+        1_000,
+      );
+      const loginJson = (await loginResponse.json()) as { login?: { result?: string } };
+      if (loginJson.login?.result !== 'Success') {
+        this.logger.warn(`Leaguepedia : login refusé (${loginJson.login?.result ?? 'inconnu'})`);
+        return null;
+      }
+      this.sessionCookie = mergeCookieHeader(tokenCookies, cookiePairs(loginResponse));
+      this.logger.log('Leaguepedia : session authentifiée établie');
+      return this.sessionCookie;
+    } catch (error) {
+      this.logger.warn(`Leaguepedia : login en erreur (${String(error)})`);
+      return null;
+    }
+  }
 
   async fetchStats(match: Match, context: MatchContext): Promise<ProviderResult | null> {
     if (!context.teamA || !context.teamB) return null;
@@ -290,18 +399,20 @@ export class LeaguepediaStatsProvider implements GameStatsProvider {
     const rows: LeaguepediaRow[] = [];
     for (let offset = 0; offset < 1500; offset += 500) {
       url.searchParams.set('offset', String(offset));
-      // Fandom rate-limite les bursts anonymes : ~2 requêtes/minute max,
-      // pagination comprise.
-      const response = await politeFetch(url, {}, 35_000);
+      // Fandom rate-limite fort les bursts anonymes ; authentifié (bot password)
+      // la limite est bien plus haute. Espacement conservé par prudence.
+      const response = await this.fetchAuthed(url, 35_000);
       if (!response.ok) {
         this.logger.warn(`Leaguepedia → ${response.status}`);
         return null;
       }
       const payload = (await response.json()) as {
         cargoquery?: Array<{ title: LeaguepediaRow }>;
-        error?: unknown;
+        error?: { code?: string };
       };
       if (payload.error) {
+        // Session expirée : on l'invalide pour que la prochaine tentative se reconnecte.
+        if (payload.error.code === 'assertuserfailed') this.invalidateSession();
         this.logger.warn(`Leaguepedia cargoquery en erreur : ${JSON.stringify(payload.error)}`);
         return null;
       }
@@ -312,5 +423,62 @@ export class LeaguepediaStatsProvider implements GameStatsProvider {
 
     this.windowCache.set(bucketStart, { rows, at: now });
     return rows;
+  }
+
+  /**
+   * Résout un nom d'équipe vers ses formes Leaguepedia via la table Cargo
+   * `TeamRedirects` (AllName → OtherName canonique) : renvoie le nom canonique
+   * (celui qu'utilisent les scoreboards) et toutes ses variantes/renommages.
+   * Coller un lien lol.fandom.com donne ainsi des alias fiables même si l'URL
+   * est une redirection, un ancien nom ou une forme courte. Best-effort :
+   * liste vide si la requête échoue (rate limit Fandom) — l'appelant retombe
+   * alors sur le nom d'origine.
+   */
+  async resolveTeamNames(name: string): Promise<string[]> {
+    const input = name.trim();
+    if (!input) return [];
+    // Le canonique est la page (`_pageName`) sur laquelle le nom est stocké :
+    // chaque forme (AllName) vit sur la page d'overview de l'équipe. Vide/inconnu
+    // → on garde la saisie.
+    const row = (await this.queryTeamRedirects('AllName', input))[0];
+    const canonical = row?.canonical?.trim() || input;
+    // Toutes les autres formes rattachées à cette même page d'overview.
+    const variants = await this.queryTeamRedirects('_pageName', canonical);
+    // Le canonique (nom des scoreboards) + ses variantes + la saisie d'origine
+    // (filet de sécurité si le canonique diffère mais que la saisie matche aussi).
+    const names = new Set<string>([canonical, input]);
+    for (const variant of variants) if (variant.allName) names.add(variant.allName);
+    return [...names];
+  }
+
+  private async queryTeamRedirects(
+    field: 'AllName' | '_pageName',
+    value: string,
+  ): Promise<Array<{ allName?: string; canonical?: string }>> {
+    const url = new URL(API_URL);
+    url.searchParams.set('action', 'cargoquery');
+    url.searchParams.set('format', 'json');
+    url.searchParams.set('limit', '100');
+    url.searchParams.set('tables', 'TeamRedirects');
+    // `_pageName` = page d'overview = nom canonique (les scoreboards l'utilisent).
+    url.searchParams.set('fields', 'AllName=allName,_pageName=canonical');
+    // Guillemets doubles autour de la valeur (gèrent les apostrophes des noms) ;
+    // on retire d'éventuels guillemets doubles pour ne pas casser le where.
+    url.searchParams.set('where', `${field}="${value.replace(/"/g, '')}"`);
+    try {
+      const response = await this.fetchAuthed(url, 20_000);
+      if (!response.ok) {
+        this.logger.warn(`Leaguepedia TeamRedirects → ${response.status}`);
+        return [];
+      }
+      const payload = (await response.json()) as {
+        cargoquery?: Array<{ title: { allName?: string; canonical?: string } }>;
+        error?: { code?: string };
+      };
+      if (payload.error?.code === 'assertuserfailed') this.invalidateSession();
+      return (payload.cargoquery ?? []).map((entry) => entry.title);
+    } catch {
+      return [];
+    }
   }
 }

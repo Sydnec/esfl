@@ -288,12 +288,39 @@ export class GridStatsProvider implements GameStatsProvider {
 
     const inferred = inferOpponentAlias(pairs, teamA, teamB, ALIAS_MAX_DELTA_MS);
     if (!inferred) return null;
+    // Garde-fou anti-faux-alias : si le nom inféré est déjà une équipe connue
+    // du catalogue, ce n'est pas une graphie alternative de la nôtre mais une
+    // vraie équipe tierce. L'adversaire a joué CETTE équipe-là dans la fenêtre
+    // (notre match était sans doute un forfait / non couvert par Grid) — on
+    // n'apprend rien et on ne rattache pas sa série, sinon on lui volerait ses
+    // stats à chaque ingestion (cas Julie&cie ré-associé à BRUTE).
+    if (await this.isKnownTeam(inferred.alias)) {
+      this.logger.warn(
+        `Grid : « ${inferred.alias} » est déjà une équipe connue — corrélation ignorée (pas un alias)`,
+      );
+      return null;
+    }
     const target = inferred.team === 'A' ? teamA : teamB;
     await this.learnAlias(target, inferred.alias);
     const learned = pairs.find(
       (pair) => pair.nameA === inferred.alias || pair.nameB === inferred.alias,
     );
     return learned?.seriesId ?? null;
+  }
+
+  /**
+   * Vrai si un nom correspond (forme normalisée) à une équipe CS2 déjà connue
+   * du catalogue. Chemin rare (seulement quand une corrélation se dégage), donc
+   * un scan des noms du jeu est acceptable.
+   */
+  private async isKnownTeam(name: string): Promise<boolean> {
+    const normalized = normalizeName(name);
+    if (!normalized) return false;
+    const teams = await this.prisma.team.findMany({
+      where: { gameId: this.gameId },
+      select: { name: true },
+    });
+    return teams.some((team) => normalizeName(team.name) === normalized);
   }
 
   /** Noms de séries CS2 proches du match dont une seule équipe est reconnue (matching manuel). */

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ConfigService } from '@nestjs/config';
 import type { MapStatsEntry } from '@esfl/contracts';
 import type { Match } from '../../generated/client';
 import { politeFetch } from './polite-fetch';
@@ -135,9 +136,12 @@ describe('LeaguepediaStatsProvider — cache de fenêtre', () => {
     players: [],
   } as unknown as MatchContext;
   const matchAt = (iso: string) => ({ id: 'm', beginAt: new Date(iso), scheduledAt: null }) as Match;
+  // Sans identifiants configurés → accès anonyme (pas de login supplémentaire).
+  const configMock = { get: () => undefined } as unknown as ConfigService;
+  const makeProvider = () => new LeaguepediaStatsProvider(configMock);
 
   it('mutualise la requête entre matchs d’un même bucket de 3h', async () => {
-    const provider = new LeaguepediaStatsProvider();
+    const provider = makeProvider();
     // 01:00 et 02:00 UTC tombent dans le même bucket [00:00, 03:00).
     await provider.fetchStats(matchAt('2026-07-10T01:00:00Z'), context);
     await provider.fetchStats(matchAt('2026-07-10T02:00:00Z'), context);
@@ -145,14 +149,14 @@ describe('LeaguepediaStatsProvider — cache de fenêtre', () => {
   });
 
   it('refait une requête pour un autre bucket', async () => {
-    const provider = new LeaguepediaStatsProvider();
+    const provider = makeProvider();
     await provider.fetchStats(matchAt('2026-07-10T01:00:00Z'), context);
     await provider.fetchStats(matchAt('2026-07-10T04:00:00Z'), context);
     expect(mockedFetch).toHaveBeenCalledTimes(2);
   });
 
   it('ne met pas en cache un échec réseau (retry possible)', async () => {
-    const provider = new LeaguepediaStatsProvider();
+    const provider = makeProvider();
     mockedFetch.mockResolvedValueOnce({ ok: false, status: 429 } as Response);
     const first = await provider.fetchStats(matchAt('2026-07-10T01:00:00Z'), context);
     expect(first).toBeNull();
