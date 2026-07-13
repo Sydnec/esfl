@@ -20,6 +20,11 @@ const SERIES_STATE_URL = 'https://api-op.grid.gg/live-data-feed/series-state/gra
 const CS2_TITLE_ID = '28';
 const SERIES_PAGE_SIZE = 50;
 const SERIES_MAX_PAGES = 4;
+// Grid open-access plafonne à 20 requêtes/min (erreur ENHANCE_YOUR_CALM au-delà).
+// Le défaut de politeFetch (1/s = 60/min) le dépasse : on espace à ~17/min pour
+// garder une marge — sinon un findSeries rate-limité renvoie null et se traduit
+// à tort en « no-coverage ». Les deux endpoints partagent l'hôte api-op.grid.gg.
+const GRID_MIN_SPACING_MS = 3_500;
 // Corrélation adverse : affiches à moins de 2h du coup d'envoi local.
 const ALIAS_MAX_DELTA_MS = 2 * 3600 * 1000;
 
@@ -398,11 +403,15 @@ export class GridStatsProvider implements GameStatsProvider {
     variables: Record<string, unknown>,
   ): Promise<T | null> {
     try {
-      const response = await politeFetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
-        body: JSON.stringify({ query, variables }),
-      });
+      const response = await politeFetch(
+        url,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+          body: JSON.stringify({ query, variables }),
+        },
+        GRID_MIN_SPACING_MS,
+      );
       if (!response.ok) {
         this.logger.warn(`Grid ${url} → ${response.status}`);
         return null;
