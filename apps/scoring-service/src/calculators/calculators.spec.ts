@@ -53,13 +53,29 @@ describe('calculateurs de points', () => {
       },
       1,
     );
-    expect(points).toBeCloseTo(30 + 4.8 - 12 + 12 + 4.5, 1);
+    // kills 30 + assists 4.8 - deaths 12 + acs 240×0.04 (9.6) + fk 3×1.5 (4.5)
+    expect(points).toBeCloseTo(30 + 4.8 - 12 + 9.6 + 4.5, 1);
   });
 
-  it('valorant : le taux acs n’est pas divisé par les maps', () => {
-    const stats = { kills: 40, deaths: 24, assists: 12, acs: 240, firstKills: 6 };
+  it('valorant v4 : ADR, KAST et first deaths comptent (taux non divisés par map)', () => {
+    const base = { kills: 20, deaths: 12, assists: 6, acs: 240, firstKills: 3 };
+    const { points: sans } = scoreValorant(base, 1);
+    const { points, breakdown } = scoreValorant(
+      { ...base, adr: 160, kast: 72, firstDeaths: 2 },
+      1,
+    );
+    // +160×0.02 (3.2) +72×0.05 (3.6) −2×0.8 (1.6)
+    expect(breakdown.adr).toBeCloseTo(3.2, 5);
+    expect(breakdown.kast).toBeCloseTo(3.6, 5);
+    expect(points - sans).toBeCloseTo(3.2 + 3.6 - 1.6, 5);
+  });
+
+  it('valorant : les taux (acs, adr, kast) ne sont pas divisés par les maps', () => {
+    const stats = { kills: 40, deaths: 24, assists: 12, acs: 240, firstKills: 6, adr: 160, kast: 72 };
     const { breakdown } = scoreValorant(stats, 2);
-    expect(breakdown.acs).toBe(12);
+    expect(breakdown.acs).toBeCloseTo(9.6, 5);
+    expect(breakdown.adr).toBeCloseTo(3.2, 5);
+    expect(breakdown.kast).toBeCloseTo(3.6, 5);
     expect(breakdown.kills).toBe(30);
   });
 

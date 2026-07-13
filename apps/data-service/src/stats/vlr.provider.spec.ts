@@ -79,6 +79,11 @@ describe('mapVlrMatchHtml', () => {
       assists: 8,
       acs: 255,
       firstKills: 6,
+      rating: 1.24,
+      kast: 74,
+      adr: 160,
+      hsPercent: 28,
+      firstDeaths: 3,
     });
     // Joueur inconnu du référentiel : quand même extrait, avec son côté.
     expect(lines.find((line) => line.externalName === 'NouveauSentinel')?.side).toBe('A');

@@ -27,6 +27,11 @@ interface VlrRowStats {
   deaths: number | null;
   assists: number | null;
   firstKills: number | null;
+  rating: number | null;
+  kast: number | null;
+  adr: number | null;
+  hsPercent: number | null;
+  firstDeaths: number | null;
 }
 
 /** Nom de map d'un en-tête de manche VLR (« Ascent PICK » → « Ascent »). */
@@ -77,6 +82,11 @@ export function mapVlrMatchHtml(
         .get();
       const acsCol = headers.findIndex((header) => header === 'acs');
       const fkCol = headers.findIndex((header) => header === 'fk');
+      const ratingCol = headers.findIndex((header) => header === 'r');
+      const kastCol = headers.findIndex((header) => header === 'kast');
+      const adrCol = headers.findIndex((header) => header === 'adr');
+      const hsCol = headers.findIndex((header) => header === 'hs%');
+      const fdCol = headers.findIndex((header) => header === 'fd');
 
       table
         .find('.ovw-row')
@@ -116,6 +126,11 @@ export function mapVlrMatchHtml(
             deaths: kdaValue('deaths'),
             assists: kdaValue('assists'),
             firstKills: readBoth(cellAt(fkCol)),
+            rating: readBoth(cellAt(ratingCol)),
+            kast: readBoth(cellAt(kastCol)),
+            adr: readBoth(cellAt(adrCol)),
+            hsPercent: readBoth(cellAt(hsCol)),
+            firstDeaths: readBoth(cellAt(fdCol)),
           });
         });
     });
@@ -187,6 +202,11 @@ export function mapVlrMatchHtml(
         deaths: stats.deaths,
         assists: stats.assists,
         firstKills: stats.firstKills,
+        firstDeaths: stats.firstDeaths,
+        rating: stats.rating,
+        kast: stats.kast,
+        adr: stats.adr,
+        hsPercent: stats.hsPercent,
       } as Prisma.InputJsonValue,
       normalized: {
         kills: stats.kills ?? 0,
@@ -194,6 +214,11 @@ export function mapVlrMatchHtml(
         assists: stats.assists ?? 0,
         acs: stats.acs,
         firstKills: stats.firstKills,
+        rating: stats.rating,
+        kast: stats.kast,
+        adr: stats.adr,
+        hsPercent: stats.hsPercent,
+        firstDeaths: stats.firstDeaths,
       },
       perMap: perMap?.length ? (perMap as unknown as Prisma.InputJsonValue) : null,
     });

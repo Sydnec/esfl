@@ -21,8 +21,13 @@ import {
  * v3 : CS2 enrichi au-delà du K/A/D — l'ADR étant absent de Grid open-access,
  * on valorise les manches ouvertes (firstKills) et les objectifs
  * (plants/defuses), seules données réellement disponibles.
+ *
+ * v4 : Valorant enrichi des données exposées par la nouvelle grille VLR —
+ * ADR (dégâts), KAST (implication dans les rounds) et first deaths (coût
+ * d'entrée). Le rating VLR (composite) et le HS% (mécanique) sont stockés
+ * mais pas notés pour ne pas double-compter / récompenser du bruit.
  */
-export const SCORING_VERSION = 'v3';
+export const SCORING_VERSION = 'v4';
 
 export interface ScoreResult {
   points: number;
@@ -74,8 +79,15 @@ export function scoreValorant(stats: ValorantStats, maps: number): ScoreResult {
     kills: (stats.kills / maps) * 1.5,
     assists: (stats.assists / maps) * 0.8,
     deaths: -(stats.deaths / maps),
-    acs: (stats.acs ?? 0) * 0.05,
+    // ACS et ADR sont corrélés (score de combat vs dégâts purs) : ACS reste le
+    // principal, l'ADR ajoute une part de dégâts à poids réduit.
+    acs: (stats.acs ?? 0) * 0.04,
+    adr: (stats.adr ?? 0) * 0.02,
+    // KAST : régularité / implication dans les rounds, déjà en % (non divisé).
+    kast: (stats.kast ?? 0) * 0.05,
     firstKills: ((stats.firstKills ?? 0) / maps) * 1.5,
+    // First deaths : coût des prises d'entrée ratées (un peu < le bonus firstKills).
+    firstDeaths: -((stats.firstDeaths ?? 0) / maps) * 0.8,
   };
   return finalize(breakdown);
 }

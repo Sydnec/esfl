@@ -29,6 +29,16 @@ export const valorantStatsSchema = z.object({
   /** Average combat score. */
   acs: z.number().nullable(),
   firstKills: z.number().nullable(),
+  /** Rating VLR 2.0 (métrique composite). Optionnel : absent des ingestions antérieures. */
+  rating: z.number().nullable().optional(),
+  /** Kill/Assist/Trade/Survive % — implication dans les rounds. */
+  kast: z.number().nullable().optional(),
+  /** Average damage per round. */
+  adr: z.number().nullable().optional(),
+  /** Pourcentage de headshots. */
+  hsPercent: z.number().nullable().optional(),
+  /** First deaths (morts d'entrée) — pendant négatif des first kills. */
+  firstDeaths: z.number().nullable().optional(),
 });
 export type ValorantStats = z.infer<typeof valorantStatsSchema>;
 

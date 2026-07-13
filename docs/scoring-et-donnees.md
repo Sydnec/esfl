@@ -1,6 +1,6 @@
 # Scoring fantasy & données par jeu
 
-Référence du calcul des points fantasy (version en cours : **v3**) et des
+Référence du calcul des points fantasy (version en cours : **v4**) et des
 données réellement récupérables par jeu/source. Toute modification des
 barèmes doit s'accompagner d'un bump de `SCORING_VERSION`
 (`apps/scoring-service/src/calculators/calculators.ts`) pour permettre un
@@ -37,15 +37,26 @@ fournit aucune donnée de dégâts. v3 compense en valorisant les manches ouvert
 (firstKills) et les objectifs (plants/defuses), seules données réellement
 disponibles au-delà du K/A/D.
 
-### Valorant
+### Valorant (v4)
 
 | Composante | Barème | Source |
 | ---------- | ------ | ------ |
 | kills | `(kills / maps) × 1,5` | VLR.gg |
 | assists | `(assists / maps) × 0,8` | VLR.gg |
 | deaths | `−(deaths / maps)` | VLR.gg |
-| acs | `(acs ?? 0) × 0,05` | VLR.gg |
+| acs | `(acs ?? 0) × 0,04` | VLR.gg |
+| adr | `(adr ?? 0) × 0,02` | VLR.gg |
+| kast | `(kast ?? 0) × 0,05` | VLR.gg |
 | firstKills | `(firstKills / maps) × 1,5` | VLR.gg |
+| firstDeaths | `−(firstDeaths / maps) × 0,8` | VLR.gg |
+
+v4 exploite les données exposées par la nouvelle grille VLR : ADR (dégâts), KAST
+(implication dans les rounds) et first deaths (coût des entrées ratées). L'ACS et
+l'ADR étant corrélés, l'ACS reste le principal et l'ADR ajoute une part de
+dégâts à poids réduit. Le **rating VLR 2.0** (composite) et le **HS%**
+(mécanique) sont stockés dans `normalized`/`raw` **mais pas notés** — le rating
+double-compterait toutes les autres composantes, le HS% récompenserait une
+précision sans lien direct avec l'impact.
 
 ### LoL
 
@@ -91,8 +102,13 @@ suit détaille ce que chaque source expose **réellement** (au-delà du schéma)
 
 ### Valorant — VLR.gg (scraping cheerio)
 
-- **Disponible** : kills, deaths, assists, ACS, first kills, agent + KDA par
-  map (`perMap`). Couverture large (tier 1-3). Stats live pendant la série.
+- **Disponible** : kills, deaths, assists, ACS, ADR, KAST, HS%, rating 2.0,
+  first kills, first deaths, agent + KDA/ACS par map (`perMap`). Couverture
+  large (tier 1-3). Stats live pendant la série.
+- Structure : grille `.ovw-table` (une par équipe), K/D/A dans une cellule
+  `.ovw-cell.mod-kda`. **VLR change régulièrement son HTML** — le parser
+  (`mapVlrMatchHtml`) est le point le plus fragile, à surveiller (une panne se
+  traduit par « plus aucune ingestion Valorant » alors que des matchs finissent).
 - Limite : le rapprochement dépend du nom d'équipe (matching manuel possible
   côté admin).
 
