@@ -34,6 +34,6 @@ import { IngestionService } from './ingestion.service';
     LeaguepediaStatsProvider,
     BallchasingStatsProvider,
   ],
-  exports: [IngestionService, PandascoreClient, FantasyClient, BullModule],
+  exports: [IngestionService, StatsIngestionService, PandascoreClient, FantasyClient, BullModule],
 })
 export class IngestionModule {}

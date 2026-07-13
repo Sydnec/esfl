@@ -156,6 +156,59 @@ export class CatalogService {
     };
   }
 
+  /**
+   * Équipes impliquées dans un match fini récent (7j) sans stats : candidates
+   * probables à un alias manquant. Dédupliquées, avec un match d'exemple.
+   */
+  async unmatchedTeams() {
+    const matches = await this.prisma.match.findMany({
+      where: {
+        status: 'finished',
+        endAt: { gte: new Date(Date.now() - 7 * 24 * 3600 * 1000) },
+        teamAId: { not: null },
+        teamBId: { not: null },
+        stats: { none: {} },
+      },
+      select: { id: true, name: true, gameId: true, endAt: true, teamAId: true, teamBId: true },
+      orderBy: { endAt: 'desc' },
+      take: 300,
+    });
+    const teamIds = [
+      ...new Set(matches.flatMap((match) => [match.teamAId, match.teamBId])),
+    ].filter((id): id is string => Boolean(id));
+    const teams = new Map(
+      (
+        await this.prisma.team.findMany({
+          where: { id: { in: teamIds } },
+          select: { id: true, name: true, gameId: true, aliases: true },
+        })
+      ).map((team) => [team.id, team]),
+    );
+
+    // Une entrée par équipe, avec le match le plus récent comme exemple.
+    const byTeam = new Map<
+      string,
+      { id: string; name: string; gameId: string; aliases: string[]; matchId: string; matchName: string; endAt: string | null }
+    >();
+    for (const match of matches) {
+      for (const teamId of [match.teamAId, match.teamBId]) {
+        if (!teamId || byTeam.has(teamId)) continue;
+        const team = teams.get(teamId);
+        if (!team) continue;
+        byTeam.set(teamId, {
+          id: team.id,
+          name: team.name,
+          gameId: team.gameId,
+          aliases: team.aliases,
+          matchId: match.id,
+          matchName: match.name,
+          endAt: match.endAt?.toISOString() ?? null,
+        });
+      }
+    }
+    return [...byTeam.values()];
+  }
+
   /** Recherche d'équipes par nom ou alias (matching manuel admin). */
   async searchTeams(query: string, gameId?: string) {
     const q = query.trim();

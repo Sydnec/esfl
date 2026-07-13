@@ -60,6 +60,22 @@ export function inferOpponentAlias(
   teamB: TeamRef,
   maxDeltaMs?: number,
 ): { team: 'A' | 'B'; alias: string } | null {
+  const candidates = opponentAliasCandidates(pairs, teamA, teamB, maxDeltaMs);
+  return candidates.length === 1 ? candidates[0] : null;
+}
+
+/**
+ * Tous les alias candidats (dédupliqués) : pour chaque affiche où une seule
+ * équipe locale est reconnue, le nom d'en face est un alias possible de
+ * l'adverse. Sert au matching manuel assisté (pré-remplissage admin) ; l'auto
+ * n'apprend que si un unique candidat se dégage.
+ */
+export function opponentAliasCandidates(
+  pairs: OpponentPair[],
+  teamA: TeamRef,
+  teamB: TeamRef,
+  maxDeltaMs?: number,
+): Array<{ team: 'A' | 'B'; alias: string }> {
   const candidates = new Map<string, { team: 'A' | 'B'; alias: string }>();
   for (const pair of pairs) {
     if (
@@ -88,8 +104,7 @@ export function inferOpponentAlias(
       }
     }
   }
-  if (candidates.size !== 1) return null;
-  return candidates.values().next().value ?? null;
+  return [...candidates.values()];
 }
 
 export interface NamedPlayer {

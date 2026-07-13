@@ -2,7 +2,14 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Match, Prisma, Team } from '../../generated/client';
 import { PrismaService } from '../prisma.service';
-import { inferOpponentAlias, normalizeName, OpponentPair, TeamRef, teamMatches } from './matching';
+import {
+  inferOpponentAlias,
+  normalizeName,
+  opponentAliasCandidates,
+  OpponentPair,
+  TeamRef,
+  teamMatches,
+} from './matching';
 import { politeFetch } from './polite-fetch';
 import type { GameStatsProvider, MatchContext, ProviderResult, ProviderStatLine } from './provider';
 
@@ -287,6 +294,36 @@ export class GridStatsProvider implements GameStatsProvider {
       (pair) => pair.nameA === inferred.alias || pair.nameB === inferred.alias,
     );
     return learned?.seriesId ?? null;
+  }
+
+  /** Noms de séries CS2 proches du match dont une seule équipe est reconnue (matching manuel). */
+  async suggestTeamNames(
+    match: Match,
+    context: MatchContext,
+  ): Promise<Array<{ side: 'A' | 'B'; name: string }>> {
+    const apiKey = this.config.get<string>('GRID_API_KEY');
+    if (!apiKey || !context.teamA || !context.teamB) return [];
+    const reference = match.beginAt ?? match.scheduledAt;
+    if (!reference) return [];
+    const gte = new Date(reference.getTime() - 12 * 3600 * 1000).toISOString();
+    const lte = new Date(reference.getTime() + 12 * 3600 * 1000).toISOString();
+
+    const pairs: OpponentPair[] = [];
+    let after: string | null = null;
+    for (let page = 0; page < SERIES_MAX_PAGES; page += 1) {
+      const connection = await this.fetchSeriesPage(apiKey, gte, lte, after);
+      for (const edge of connection?.edges ?? []) {
+        const names = (edge.node?.teams ?? []).map((team) => team.baseInfo?.name ?? '');
+        if (names.length < 2) continue;
+        pairs.push({ nameA: names[0], nameB: names[1] });
+      }
+      if (!connection?.pageInfo?.hasNextPage || !connection.pageInfo.endCursor) break;
+      after = connection.pageInfo.endCursor;
+    }
+    return opponentAliasCandidates(pairs, context.teamA, context.teamB).map((candidate) => ({
+      side: candidate.team,
+      name: candidate.alias,
+    }));
   }
 
   /** Persiste un alias appris et met à jour l'objet en mémoire (contexte du fetch en cours). */

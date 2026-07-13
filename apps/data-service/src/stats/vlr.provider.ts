@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import * as cheerio from 'cheerio';
 import type { MapStatsEntry } from '@esfl/contracts';
 import type { Match, Prisma } from '../../generated/client';
-import { normalizeName, teamMatches, TeamRef } from './matching';
+import { normalizeName, opponentAliasCandidates, OpponentPair, teamMatches, TeamRef } from './matching';
 import { politeFetch } from './polite-fetch';
 import type {
   GameStatsProvider,
@@ -310,5 +310,33 @@ export class VlrStatsProvider implements GameStatsProvider {
       }
     }
     return null;
+  }
+
+  /** Affiches VLR récentes dont une seule équipe est reconnue (matching manuel). */
+  async suggestTeamNames(
+    match: Match,
+    context: MatchContext,
+  ): Promise<Array<{ side: 'A' | 'B'; name: string }>> {
+    if (!context.teamA || !context.teamB) return [];
+    const pairs: OpponentPair[] = [];
+    for (const listing of ['/matches', '/matches/results']) {
+      const pages = listing === '/matches/results' ? RESULT_PAGES_TO_SCAN : 1;
+      for (let page = 1; page <= pages; page += 1) {
+        const response = await politeFetch(`${BASE_URL}${listing}?page=${page}`);
+        if (!response.ok) break;
+        const $ = cheerio.load(await response.text());
+        for (const element of $('a.match-item').toArray()) {
+          const names = $(element)
+            .find('.match-item-vs-team-name')
+            .map((_i, name) => $(name).text().trim())
+            .get();
+          if (names.length >= 2) pairs.push({ nameA: names[0], nameB: names[1] });
+        }
+      }
+    }
+    return opponentAliasCandidates(pairs, context.teamA, context.teamB).map((candidate) => ({
+      side: candidate.team,
+      name: candidate.alias,
+    }));
   }
 }

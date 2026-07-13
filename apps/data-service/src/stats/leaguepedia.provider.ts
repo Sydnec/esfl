@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { MapStatsEntry } from '@esfl/contracts';
 import type { Match, Prisma } from '../../generated/client';
-import { teamMatches, TeamRef } from './matching';
+import { opponentAliasCandidates, OpponentPair, teamMatches, TeamRef } from './matching';
 import { politeFetch } from './polite-fetch';
 import type {
   GameStatsProvider,
@@ -222,6 +222,32 @@ export class LeaguepediaStatsProvider implements GameStatsProvider {
       lines,
       games: mapLeaguepediaGames(rows, context.teamA, context.teamB),
     };
+  }
+
+  /** Affiches LoL de la fenêtre dont une seule équipe est reconnue (matching manuel). */
+  async suggestTeamNames(
+    match: Match,
+    context: MatchContext,
+  ): Promise<Array<{ side: 'A' | 'B'; name: string }>> {
+    if (!context.teamA || !context.teamB) return [];
+    const reference = match.beginAt ?? match.scheduledAt;
+    if (!reference) return [];
+    const rows = await this.fetchWindowRows(reference);
+    if (!rows) return [];
+    const seen = new Set<string>();
+    const pairs: OpponentPair[] = [];
+    for (const row of rows) {
+      const nameA = row.Team1 ?? '';
+      const nameB = row.Team2 ?? '';
+      const key = `${nameA}|${nameB}`;
+      if (!nameA || !nameB || seen.has(key)) continue;
+      seen.add(key);
+      pairs.push({ nameA, nameB });
+    }
+    return opponentAliasCandidates(pairs, context.teamA, context.teamB).map((candidate) => ({
+      side: candidate.team,
+      name: candidate.alias,
+    }));
   }
 
   /**

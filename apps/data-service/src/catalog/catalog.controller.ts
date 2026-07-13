@@ -15,6 +15,7 @@ import { AdminGuard } from '../common/admin.guard';
 import { FantasyClient } from '../fantasy-client/fantasy.client';
 import { enqueueIngestStats, INGESTION_QUEUE, IngestionJobName } from '../ingestion/ingestion.constants';
 import { PandascoreClient } from '../pandascore/pandascore.client';
+import { StatsIngestionService } from '../stats/stats-ingestion';
 import { CatalogService } from './catalog.service';
 
 function parseIds(value: string | undefined): string[] {
@@ -36,6 +37,7 @@ export class CatalogController {
     private readonly catalog: CatalogService,
     private readonly pandascore: PandascoreClient,
     private readonly fantasyClient: FantasyClient,
+    private readonly statsIngestion: StatsIngestionService,
     @InjectQueue(INGESTION_QUEUE) private readonly ingestionQueue: Queue,
   ) {}
 
@@ -141,6 +143,20 @@ export class CatalogController {
   async triggerIngestStats(@Param('matchId') matchId: string, @Query('force') force?: string) {
     await enqueueIngestStats(this.ingestionQueue, matchId, force === 'true');
     return { enqueued: 'ingest-stats', matchId, force: force === 'true' };
+  }
+
+  /** Équipes de matchs finis récents sans stats (candidates à un alias). */
+  @Get('admin/unmatched-teams')
+  @UseGuards(AdminGuard)
+  unmatchedTeams() {
+    return this.catalog.unmatchedTeams();
+  }
+
+  /** Noms provider candidats autour d'un match (pré-remplissage du matching manuel). */
+  @Get('admin/matches/:matchId/suggestions')
+  @UseGuards(AdminGuard)
+  matchSuggestions(@Param('matchId') matchId: string) {
+    return this.statsIngestion.suggestTeamNames(matchId);
   }
 
   /** Recherche d'équipes pour le matching manuel (page admin). */

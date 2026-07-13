@@ -56,4 +56,14 @@ export interface GameStatsProvider {
    * sans bruit si rien n'est disponible — le cycle suivant repassera.
    */
   fetchLiveStats?(match: Match, context: MatchContext): Promise<ProviderResult | null>;
+  /**
+   * Noms d'équipe candidats vus par la source autour du match, quand une seule
+   * des deux équipes locales est reconnue : le nom d'en face est un alias
+   * probable de l'équipe non résolue. Alimente le matching manuel assisté
+   * (pré-remplissage admin). Optionnel selon les jeux.
+   */
+  suggestTeamNames?(
+    match: Match,
+    context: MatchContext,
+  ): Promise<Array<{ side: 'A' | 'B'; name: string }>>;
 }

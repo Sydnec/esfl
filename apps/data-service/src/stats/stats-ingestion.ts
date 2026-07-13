@@ -240,6 +240,25 @@ export class StatsIngestionService {
     });
   }
 
+  /**
+   * Suggestions de noms provider pour le matching manuel : les deux équipes
+   * locales du match + les noms candidats vus par la source (côté A/B) quand
+   * une seule équipe est reconnue. Null si le match ou son contexte manque.
+   */
+  async suggestTeamNames(matchId: string) {
+    const match = await this.prisma.match.findUnique({ where: { id: matchId } });
+    if (!match) return null;
+    const context = await this.loadContext(match);
+    if (!context.teamA || !context.teamB) return null;
+    const provider = this.providers.find((candidate) => candidate.gameId === match.gameId);
+    const candidates = provider?.suggestTeamNames
+      ? await provider.suggestTeamNames(match, context).catch(() => [])
+      : [];
+    const asRef = (team: MatchContext['teamA']) =>
+      team ? { id: team.id, name: team.name, aliases: team.aliases } : null;
+    return { teamA: asRef(context.teamA), teamB: asRef(context.teamB), candidates };
+  }
+
   private async loadContext(match: Match): Promise<MatchContext> {
     const teamIds = [match.teamAId, match.teamBId].filter((id): id is string => Boolean(id));
     const [teams, players] = await Promise.all([
