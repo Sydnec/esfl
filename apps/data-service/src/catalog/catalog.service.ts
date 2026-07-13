@@ -248,6 +248,32 @@ export class CatalogService {
     return { statsPageUrl: path };
   }
 
+  /** Recherche de matchs par nom (admin : poser une page VLR / relancer sur n'importe quel match). */
+  async searchMatches(query: string) {
+    const q = query.trim();
+    if (q.length < 2) return [];
+    const matches = await this.prisma.match.findMany({
+      where: { name: { contains: q, mode: 'insensitive' } },
+      select: { id: true, name: true, gameId: true, status: true, endAt: true, statsPageUrl: true },
+      orderBy: { scheduledAt: 'desc' },
+      take: 25,
+    });
+    const withStats = new Set(
+      (
+        await this.prisma.playerMatchStats.findMany({
+          where: { matchId: { in: matches.map((match) => match.id) } },
+          distinct: ['matchId'],
+          select: { matchId: true },
+        })
+      ).map((row) => row.matchId),
+    );
+    return matches.map((match) => ({
+      ...match,
+      endAt: match.endAt?.toISOString() ?? null,
+      hasStats: withStats.has(match.id),
+    }));
+  }
+
   /** Recherche d'équipes par nom ou alias (matching manuel admin). */
   async searchTeams(query: string, gameId?: string) {
     const q = query.trim();

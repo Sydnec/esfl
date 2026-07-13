@@ -171,6 +171,13 @@ export class CatalogController {
     return { statsPageUrl, reingested: true };
   }
 
+  /** Recherche de matchs par nom (poser une page VLR / relancer, hors fenêtre 48h). */
+  @Get('admin/matches')
+  @UseGuards(AdminGuard)
+  searchMatches(@Query('search') search?: string) {
+    return this.catalog.searchMatches(search ?? '');
+  }
+
   /** Recherche d'équipes pour le matching manuel (page admin). */
   @Get('admin/teams')
   @UseGuards(AdminGuard)

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { GAME_LABELS, GameId } from '@esfl/contracts';
 import { useAuth } from '@/components/AuthProvider';
 import { formatDateTime } from '@/lib/format';
+import { MatchFinder } from './MatchFinder';
 import { TeamMatcher } from './TeamMatcher';
 import styles from './page.module.css';
 
@@ -405,6 +406,8 @@ export default function AdminPage() {
               </table>
             )}
           </section>
+
+          <MatchFinder />
 
           {health.queue.echecs.length > 0 && (
             <section className={styles.section}>
