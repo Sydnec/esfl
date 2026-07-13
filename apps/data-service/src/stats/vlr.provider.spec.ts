@@ -2,76 +2,73 @@ import { describe, expect, it } from 'vitest';
 import type { MapStatsEntry } from '@esfl/contracts';
 import { mapVlrMatchHtml } from './vlr.provider';
 
-function statRow(name: string, agent: string | null, values: number[]): string {
-  const agentCell = agent
-    ? `<td class="mod-agent"><img title="${agent}" alt="${agent}" src="/img/vlr/game/agents/${agent.toLowerCase()}.png"></td>`
-    : '<td></td>';
+// Reproduit la grille .ovw-table de vlr.gg (une table par équipe). Ordre des
+// valeurs : R, ACS, K, D, A, +/-, KAST, ADR, HS%, FK, FD, +/-.
+const cell = (value: number | string) =>
+  `<div class="ovw-cell"><span class="side mod-both">${value}</span></div>`;
+
+const kdaCell = (k: number | string, d: number | string, a: number | string) =>
+  `<div class="ovw-cell mod-kda">` +
+  `<span class="ovw-kda-stat" data-col="kills"><span class="side mod-both">${k}</span></span>/` +
+  `<span class="ovw-kda-stat" data-col="deaths"><span class="side mod-both">${d}</span></span>/` +
+  `<span class="ovw-kda-stat" data-col="assists"><span class="side mod-both">${a}</span></span>` +
+  `</div>`;
+
+function statRow(name: string, tag: string, agent: string | null, v: Array<number | string>): string {
+  const agentHtml = agent
+    ? `<div class="ovw-agents"><span class="mod-agent"><img title="${agent}" alt="${agent}" src="/img/vlr/game/agents/${agent.toLowerCase()}.png"></span></div>`
+    : '';
   return `
-      <tr>
-        <td class="mod-player"><div><a><div class="text-of">${name}</div></a></div></td>
-        ${agentCell}
-        ${values.map((value) => `<td class="mod-stat"><span class="side mod-both">${value}</span></td>`).join('\n')}
-      </tr>`;
+    <div class="ovw-row">
+      <div class="ovw-cell mod-player">
+        <div class="ovw-player"><a><div class="ovw-player-name text-of">${name}</div><div class="ovw-player-tag">${tag}</div></a></div>
+        ${agentHtml}
+      </div>
+      ${cell(v[0])}${cell(v[1])}${kdaCell(v[2], v[3], v[4])}${cell(v[5])}${cell(v[6])}${cell(v[7])}${cell(v[8])}${cell(v[9])}${cell(v[10])}${cell(v[11])}
+    </div>`;
 }
 
-const tableHead = `
-    <thead>
-      <tr>
-        <th>Player</th><th></th><th>R2.0</th><th>ACS</th><th>K</th><th>D</th><th>A</th>
-        <th>+/–</th><th>KAST</th><th>ADR</th><th>HS%</th><th>FK</th><th>FD</th><th>+/–</th>
-      </tr>
-    </thead>`;
+const emptyRow = (name: string, tag: string, agent: string | null) =>
+  statRow(name, tag, agent, Array.from({ length: 12 }, () => '&nbsp;'));
 
-// Structure minimale reproduisant une page match vlr.gg : bloc agrégé
-// « all » avec un tableau PAR ÉQUIPE (gauche = Sentinels, droite = Fnatic),
-// + un bloc par manche avec en-tête (map, scores) et colonne agent.
-// Ordre des valeurs : R2.0, ACS, K, D, A, +/-, KAST, ADR, HS%, FK, FD, +/-.
+const head = `
+  <div class="ovw-row mod-head">
+    <div class="ovw-th"></div><div class="ovw-th">R</div><div class="ovw-th">ACS</div>
+    <div class="ovw-th mod-kda">K/D/A</div><div class="ovw-th">+/–</div><div class="ovw-th">KAST</div>
+    <div class="ovw-th">ADR</div><div class="ovw-th">HS%</div><div class="ovw-th">FK</div>
+    <div class="ovw-th">FD</div><div class="ovw-th">+/–</div>
+  </div>`;
+
+const ovwTable = (rows: string) => `<div class="ovw-table">${head}${rows}</div>`;
+
+const mapHeader = (mapName: string, scoreL: number, scoreR: number) => `
+  <div class="vm-stats-game-header">
+    <div class="team"><div class="score">${scoreL}</div><div class="team-name">Sentinels</div></div>
+    <div class="map"><span>${mapName}</span></div>
+    <div class="team mod-right"><div class="score">${scoreR}</div><div class="team-name">Fnatic</div></div>
+  </div>`;
+
+// Bloc agrégé « all » : une table Sentinels (gauche), une table Fnatic (droite),
+// + deux blocs par manche avec en-tête (map, scores) et colonne agent.
 const html = `
 <div class="vm-stats-game" data-game-id="all">
-  <table class="wf-table-inset">
-    ${tableHead}
-    <tbody>
-      ${statRow('TenZ', null, [1.24, 255, 42, 30, 8, 12, 74, 160, 28, 6, 3, 3])}
-      ${statRow('NouveauSentinel', null, [0.9, 180, 25, 32, 10, -7, 60, 120, 20, 2, 5, -3])}
-    </tbody>
-  </table>
-  <table class="wf-table-inset">
-    ${tableHead}
-    <tbody>
-      ${statRow('Boaster', null, [1.02, 200, 30, 31, 12, -1, 68, 130, 22, 3, 4, -1])}
-    </tbody>
-  </table>
+  ${ovwTable(
+    statRow('TenZ', 'SEN', null, [1.24, 255, 42, 30, 8, 12, 74, 160, 28, 6, 3, 3]) +
+      statRow('NouveauSentinel', 'SEN', null, [0.9, 180, 25, 32, 10, -7, 60, 120, 20, 2, 5, -3]),
+  )}
+  ${ovwTable(statRow('Boaster', 'FNC', null, [1.02, 200, 30, 31, 12, -1, 68, 130, 22, 3, 4, -1]))}
 </div>
 <div class="vm-stats-game" data-game-id="171001">
-  <div class="vm-stats-game-header">
-    <div class="team"><div class="score">13</div><div class="team-name">Sentinels</div></div>
-    <div class="map"><span>Ascent
-PICK</span></div>
-    <div class="team mod-right"><div class="score">7</div><div class="team-name">Fnatic</div></div>
-  </div>
-  <table class="wf-table-inset">
-    ${tableHead}
-    <tbody>
-      ${statRow('TenZ', 'Jett', [1.4, 270, 25, 14, 3, 11, 78, 170, 30, 4, 1, 3])}
-    </tbody>
-  </table>
+  ${mapHeader('Ascent\nPICK', 13, 7)}
+  ${ovwTable(statRow('TenZ', 'SEN', 'Jett', [1.4, 270, 25, 14, 3, 11, 78, 170, 30, 4, 1, 3]))}
 </div>
 <div class="vm-stats-game" data-game-id="171002">
-  <div class="vm-stats-game-header">
-    <div class="team"><div class="score">10</div><div class="team-name">Sentinels</div></div>
-    <div class="map"><span>Bind</span></div>
-    <div class="team mod-right"><div class="score">13</div><div class="team-name">Fnatic</div></div>
-  </div>
-  <table class="wf-table-inset">
-    ${tableHead}
-    <tbody>
-      ${statRow('TenZ', 'Omen', [1.1, 240, 17, 16, 5, 1, 70, 150, 26, 2, 2, 0])}
-    </tbody>
-  </table>
+  ${mapHeader('Bind', 10, 13)}
+  ${ovwTable(statRow('TenZ', 'SEN', 'Omen', [1.1, 240, 17, 16, 5, 1, 70, 150, 26, 2, 2, 0]))}
 </div>`;
 
 describe('mapVlrMatchHtml', () => {
-  it('extrait toutes les lignes avec pseudo et côté A/B résolu par tableau', () => {
+  it('extrait toutes les lignes avec pseudo et côté A/B résolu par tag d’équipe', () => {
     const lines = mapVlrMatchHtml(html, { name: 'Sentinels' }, { name: 'Fnatic' });
     expect(lines).toHaveLength(3);
     const tenz = lines.find((line) => line.externalName === 'TenZ');
@@ -115,43 +112,21 @@ describe('mapVlrMatchHtml', () => {
   });
 
   it('map en cours : agents connus, stats nulles ; map pas commencée : ignorée', () => {
-    const emptyRow = (name: string, agent: string | null) => {
-      const agentCell = agent
-        ? `<td class="mod-agent"><img title="${agent}" alt="${agent}" src="/img/vlr/game/agents/${agent.toLowerCase()}.png"></td>`
-        : '<td></td>';
-      const cells = Array.from(
-        { length: 12 },
-        () => '<td class="mod-stat"><span class="side mod-both">&nbsp;</span></td>',
-      ).join('\n');
-      return `<tr><td class="mod-player"><div><a><div class="text-of">${name}</div></a></div></td>${agentCell}${cells}</tr>`;
-    };
     const live = `
 <div class="vm-stats-game" data-game-id="all">
-  <table>${tableHead}<tbody>${statRow('TenZ', null, [1.24, 255, 20, 14, 3, 6, 74, 160, 28, 3, 1, 2])}</tbody></table>
+  ${ovwTable(statRow('TenZ', 'SEN', null, [1.24, 255, 20, 14, 3, 6, 74, 160, 28, 3, 1, 2]))}
 </div>
 <div class="vm-stats-game" data-game-id="1">
-  <div class="vm-stats-game-header">
-    <div class="team"><div class="score">13</div><div class="team-name">Sentinels</div></div>
-    <div class="map"><span>Ascent</span></div>
-    <div class="team mod-right"><div class="score">7</div><div class="team-name">Fnatic</div></div>
-  </div>
-  <table>${tableHead}<tbody>${statRow('TenZ', 'Jett', [1.4, 270, 20, 14, 3, 11, 78, 170, 30, 3, 1, 2])}</tbody></table>
+  ${mapHeader('Ascent', 13, 7)}
+  ${ovwTable(statRow('TenZ', 'SEN', 'Jett', [1.4, 270, 20, 14, 3, 11, 78, 170, 30, 3, 1, 2]))}
 </div>
 <div class="vm-stats-game" data-game-id="2">
-  <div class="vm-stats-game-header">
-    <div class="team"><div class="score">4</div><div class="team-name">Sentinels</div></div>
-    <div class="map"><span>Split</span></div>
-    <div class="team mod-right"><div class="score">7</div><div class="team-name">Fnatic</div></div>
-  </div>
-  <table>${tableHead}<tbody>${emptyRow('TenZ', 'Omen')}</tbody></table>
+  ${mapHeader('Split', 4, 7)}
+  ${ovwTable(emptyRow('TenZ', 'SEN', 'Omen'))}
 </div>
 <div class="vm-stats-game" data-game-id="3">
-  <div class="vm-stats-game-header">
-    <div class="team"><div class="score">0</div><div class="team-name">Sentinels</div></div>
-    <div class="map"><span>Breeze</span></div>
-    <div class="team mod-right"><div class="score">0</div><div class="team-name">Fnatic</div></div>
-  </div>
-  <table>${tableHead}<tbody>${emptyRow('TenZ', null)}</tbody></table>
+  ${mapHeader('Breeze', 0, 0)}
+  ${ovwTable(emptyRow('TenZ', 'SEN', null))}
 </div>`;
     const lines = mapVlrMatchHtml(live, { name: 'Sentinels' }, { name: 'Fnatic' });
     const perMap = lines[0].perMap as MapStatsEntry[];
@@ -166,7 +141,7 @@ describe('mapVlrMatchHtml', () => {
   it('sans en-tête de manche exploitable → side null, extraction intacte', () => {
     const aggregateOnly = `
 <div class="vm-stats-game" data-game-id="all">
-  <table>${tableHead}<tbody>${statRow('TenZ', null, [1, 200, 20, 15, 5, 5, 70, 140, 25, 3, 2, 1])}</tbody></table>
+  ${ovwTable(statRow('TenZ', 'SEN', null, [1, 200, 20, 15, 5, 5, 70, 140, 25, 3, 2, 1]))}
 </div>`;
     const lines = mapVlrMatchHtml(aggregateOnly, { name: 'Sentinels' }, { name: 'Fnatic' });
     expect(lines).toHaveLength(1);

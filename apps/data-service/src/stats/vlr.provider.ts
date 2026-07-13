@@ -18,8 +18,8 @@ const RESULT_PAGES_TO_SCAN = 3;
 interface VlrRowStats {
   /** Pseudo affiché par VLR (repris dans raw). */
   name: string;
-  /** Index du tableau dans le bloc : 0 = équipe gauche, 1 = droite. */
-  tableIdx: number;
+  /** Tag d'équipe VLR de la ligne (ex. « 2G ») : sert à résoudre le côté A/B. */
+  teamTag: string;
   agent: string | null;
   agentImage: string | null;
   acs: number | null;
@@ -39,8 +39,12 @@ function headerMapName(text: string): string | null {
  * Parse la page d'un match VLR.gg : tableau agrégé « all maps » pour
  * normalized, et blocs par manche (agent + KDA de chaque map) pour perMap.
  * Extraction pure (pseudo + côté A/B), sans rapprochement : la résolution
- * d'identité vit dans l'ingestion. Colonnes repérées par les en-têtes
- * ACS/K/D/A/FK pour résister aux réordonnancements mineurs.
+ * d'identité vit dans l'ingestion.
+ *
+ * VLR a remplacé les `<table>` par une grille `.ovw-table` (`.ovw-row` /
+ * `.ovw-cell`) : les 10 joueurs sont dans une seule table, groupés par équipe
+ * (tag). Colonnes repérées par en-têtes (ACS/FK) ; le K/D/A vit dans une cellule
+ * `.ovw-cell.mod-kda` (spans `.ovw-kda-stat[data-col]`).
  */
 export function mapVlrMatchHtml(
   html: string,
@@ -49,38 +53,48 @@ export function mapVlrMatchHtml(
 ): ProviderStatLine[] {
   const $ = cheerio.load(html);
 
-  /** Tableaux joueurs d'un bloc .vm-stats-game, par pseudo normalisé. */
+  const readBoth = (cell: ReturnType<typeof $> | null): number | null => {
+    if (!cell || cell.length === 0) return null;
+    const both = cell.find('.side.mod-both').first().text().trim();
+    const cleaned = (both || cell.text().trim()).replace(/[^\d.-]/g, '');
+    // Cellule vide (map en cours sur une page live) ≠ zéro.
+    if (!cleaned) return null;
+    const value = Number(cleaned);
+    return Number.isFinite(value) ? value : null;
+  };
+
+  /**
+   * Joueurs d'un bloc .vm-stats-game, par pseudo normalisé. Le bloc contient
+   * une grille `.ovw-table` par équipe (chacune avec son en-tête + 5 lignes).
+   */
   const parseBlock = (block: ReturnType<typeof $>): Map<string, VlrRowStats> => {
     const rows = new Map<string, VlrRowStats>();
-    block.find('table').each((tableIdx, table) => {
-      const headers = $(table)
-        .find('thead th')
+    block.find('.ovw-table').each((_ti, tableEl) => {
+      const table = $(tableEl);
+      const headers = table
+        .find('.ovw-row.mod-head .ovw-th')
         .map((_i, th) => $(th).text().trim().toLowerCase())
         .get();
-      const columnOf = (label: string) => headers.findIndex((header) => header === label);
-      const cols = {
-        acs: columnOf('acs'),
-        kills: columnOf('k'),
-        deaths: columnOf('d'),
-        assists: columnOf('a'),
-        firstKills: columnOf('fk'),
-      };
-      if (cols.kills < 0 || cols.deaths < 0 || cols.assists < 0) return;
+      const acsCol = headers.findIndex((header) => header === 'acs');
+      const fkCol = headers.findIndex((header) => header === 'fk');
 
-      $(table)
-        .find('tbody tr')
+      table
+        .find('.ovw-row')
+        .not('.mod-head')
         .each((_rowIdx, row) => {
-          const name = $(row).find('.mod-player .text-of').first().text().trim();
+          const name = $(row).find('.ovw-player-name').first().text().trim();
           if (!name) return;
-
-          const cells = $(row).find('td');
-          const readStat = (colIndex: number): number | null => {
-            if (colIndex < 0 || colIndex >= cells.length) return null;
-            const cell = $(cells[colIndex]);
-            const both = cell.find('.side.mod-both').first().text().trim();
-            const text = both || cell.text().trim();
+          const cells = $(row).find('.ovw-cell');
+          const cellAt = (index: number) =>
+            index >= 0 && index < cells.length ? $(cells[index]) : null;
+          const kdaCell = $(row).find('.ovw-cell.mod-kda').first();
+          const kdaValue = (col: string): number | null => {
+            const text = kdaCell
+              .find(`.ovw-kda-stat[data-col="${col}"] .side.mod-both`)
+              .first()
+              .text()
+              .trim();
             const cleaned = text.replace(/[^\d.-]/g, '');
-            // Cellule vide (map en cours sur une page live) ≠ zéro.
             if (!cleaned) return null;
             const value = Number(cleaned);
             return Number.isFinite(value) ? value : null;
@@ -90,14 +104,18 @@ export function mapVlrMatchHtml(
 
           rows.set(normalizeName(name), {
             name,
-            tableIdx,
+            teamTag: $(row).find('.ovw-player-tag').first().text().trim(),
             agent: agentImg.attr('title') ?? agentImg.attr('alt') ?? null,
-            agentImage: agentSrc ? (agentSrc.startsWith('/') ? `${BASE_URL}${agentSrc}` : agentSrc) : null,
-            acs: readStat(cols.acs),
-            kills: readStat(cols.kills),
-            deaths: readStat(cols.deaths),
-            assists: readStat(cols.assists),
-            firstKills: readStat(cols.firstKills),
+            agentImage: agentSrc
+              ? agentSrc.startsWith('/')
+                ? `${BASE_URL}${agentSrc}`
+                : agentSrc
+              : null,
+            acs: readBoth(cellAt(acsCol)),
+            kills: kdaValue('kills'),
+            deaths: kdaValue('deaths'),
+            assists: kdaValue('assists'),
+            firstKills: readBoth(cellAt(fkCol)),
           });
         });
     });
@@ -110,20 +128,18 @@ export function mapVlrMatchHtml(
   const aggregate = parseBlock($(allBlock));
   if (aggregate.size === 0) return [];
 
-  // Orientation gauche/droite → A/B : le bloc « all » n'a pas d'en-tête
-  // d'équipe, on lit celui du premier bloc de manche (même convention que
-  // mapVlrGames). Sans en-tête exploitable, side reste null (pas de
-  // création de fiche côté ingestion).
+  // Côté A/B : les joueurs sont groupés par tag d'équipe et l'équipe de gauche
+  // (en-tête .team-name) est listée en premier. Le tag de la 1re ligne = gauche.
   const headerNames = $('.vm-stats-game-header .team-name')
     .map((_i, el) => $(el).text().trim())
     .get();
   const leftIsA = headerNames.length >= 2 ? teamMatches(headerNames[0], teamA) : false;
   const leftIsB = headerNames.length >= 2 ? teamMatches(headerNames[0], teamB) : false;
-  const sideOf = (tableIdx: number): 'A' | 'B' | null => {
-    if (!leftIsA && !leftIsB) return null;
-    if (tableIdx > 1) return null;
-    const left = tableIdx === 0;
-    return (leftIsA ? left : !left) ? 'A' : 'B';
+  const leftTag = aggregate.values().next().value?.teamTag ?? null;
+  const sideOf = (teamTag: string): 'A' | 'B' | null => {
+    if ((!leftIsA && !leftIsB) || !leftTag) return null;
+    const isLeft = teamTag === leftTag;
+    return (leftIsA ? isLeft : !isLeft) ? 'A' : 'B';
   };
 
   // Détail par manche : blocs individuels dans l'ordre du DOM — même
@@ -163,7 +179,7 @@ export function mapVlrMatchHtml(
     const perMap = perMapByPlayer.get(nameKey);
     lines.push({
       externalName: stats.name,
-      side: sideOf(stats.tableIdx),
+      side: sideOf(stats.teamTag),
       raw: {
         player: stats.name,
         acs: stats.acs,
