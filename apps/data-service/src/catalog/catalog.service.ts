@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import type { Queue } from 'bullmq';
-import { normalizeName } from '../stats/matching';
+import { normalizeName, teamNamesMatch } from '../stats/matching';
 import { PrismaService } from '../prisma.service';
 
 /**
@@ -21,6 +21,48 @@ function normalizeVlrPath(raw: string): string | null {
   }
   if (!path.startsWith('/')) path = `/${path}`;
   return /^\/\d+/.test(path) ? path : null;
+}
+
+/**
+ * Extrait le nom d'équipe d'un lien Leaguepedia (lol.fandom.com/wiki/Nom_Equipe)
+ * pour l'utiliser comme alias : le titre de page correspond au nom que
+ * Leaguepedia met dans ses scoreboards. Une saisie qui n'est pas une telle URL
+ * est renvoyée telle quelle (l'admin a tapé le nom directement).
+ */
+function fandomTeamName(raw: string): string {
+  const trimmed = raw.trim();
+  if (!/lol\.fandom\.com\/wiki\//i.test(trimmed)) return trimmed;
+  try {
+    const url = new URL(trimmed.startsWith('http') ? trimmed : `https://${trimmed}`);
+    const slug = url.pathname.split('/wiki/')[1] ?? '';
+    const name = decodeURIComponent(slug).replace(/_/g, ' ').trim();
+    return name || trimmed;
+  } catch {
+    return trimmed;
+  }
+}
+
+/** Noms lisibles des jobs BullMQ, pour la liste des échecs de la page admin. */
+const JOB_LABELS: Record<string, string> = {
+  'ingest-stats': 'Ingestion des stats',
+  'sync-series': 'Sync du catalogue',
+  'sync-matches': 'Sync des matchs',
+  'sync-rosters': 'Sync des rosters',
+  'sync-live': 'Fenêtre live (scores)',
+  'sync-live-stats': 'Stats live',
+  'sync-competition': 'Sync d’une compétition',
+  'check-grid-coverage': 'Couverture Grid (CS2)',
+};
+
+/**
+ * Raison d'échec présentable : garde le message d'erreur applicatif (déjà en
+ * français côté providers) mais coupe la stack et les préfixes techniques
+ * verbeux pour n'afficher que la première ligne utile.
+ */
+function humanizeFailure(reason: string | null | undefined): string | null {
+  if (!reason) return null;
+  const firstLine = reason.split('\n')[0].trim();
+  return firstLine.replace(/^Error:\s*/i, '') || null;
 }
 
 @Injectable()
@@ -177,8 +219,14 @@ export class CatalogService {
   }
 
   /**
-   * Équipes impliquées dans un match fini récent (7j) sans stats : candidates
-   * probables à un alias manquant. Dédupliquées, avec un match d'exemple.
+   * Ce qui reste à corriger à la main sur les matchs finis récents (7j) sans
+   * stats. On ne surface que le vrai travail de matching, pas les trous de
+   * couverture (cf. `statsFailureKind`, posé à l'ingestion) :
+   * - jeux à alias (CS2/LoL/RL) : seulement les matchs `name-mismatch`, et pour
+   *   chacun uniquement l'équipe non reconnue, avec les noms candidats vus par
+   *   la source (`statsSuggestion`) pré-remplis ;
+   * - Valorant : tous les matchs sans stats (la remédiation est le lien VLR,
+   *   quelle que soit la cause) — dédupliqués par match côté front.
    */
   async unmatchedTeams() {
     const matches = await this.prisma.match.findMany({
@@ -188,8 +236,20 @@ export class CatalogService {
         teamAId: { not: null },
         teamBId: { not: null },
         stats: { none: {} },
+        OR: [
+          { gameId: 'valorant' },
+          { gameId: { not: 'valorant' }, statsFailureKind: 'name-mismatch' },
+        ],
       },
-      select: { id: true, name: true, gameId: true, endAt: true, teamAId: true, teamBId: true },
+      select: {
+        id: true,
+        name: true,
+        gameId: true,
+        endAt: true,
+        teamAId: true,
+        teamBId: true,
+        statsSuggestion: true,
+      },
       orderBy: { endAt: 'desc' },
       take: 300,
     });
@@ -205,28 +265,84 @@ export class CatalogService {
       ).map((team) => [team.id, team]),
     );
 
-    // Une entrée par équipe, avec le match le plus récent comme exemple.
-    const byTeam = new Map<
-      string,
-      { id: string; name: string; gameId: string; aliases: string[]; matchId: string; matchName: string; endAt: string | null }
-    >();
+    interface Entry {
+      id: string;
+      name: string;
+      gameId: string;
+      aliases: string[];
+      matchId: string;
+      matchName: string;
+      endAt: string | null;
+      /** Noms provider candidats pour cette équipe (pré-remplissage). */
+      candidates: string[];
+    }
+    const byTeam = new Map<string, Entry>();
+    const add = (teamId: string | null, match: (typeof matches)[number], candidates: string[]) => {
+      if (!teamId || byTeam.has(teamId)) return;
+      const team = teams.get(teamId);
+      if (!team) return;
+      byTeam.set(teamId, {
+        id: team.id,
+        name: team.name,
+        gameId: team.gameId,
+        aliases: team.aliases,
+        matchId: match.id,
+        matchName: match.name,
+        endAt: match.endAt?.toISOString() ?? null,
+        candidates,
+      });
+    };
+
     for (const match of matches) {
-      for (const teamId of [match.teamAId, match.teamBId]) {
-        if (!teamId || byTeam.has(teamId)) continue;
-        const team = teams.get(teamId);
-        if (!team) continue;
-        byTeam.set(teamId, {
-          id: team.id,
-          name: team.name,
-          gameId: team.gameId,
-          aliases: team.aliases,
-          matchId: match.id,
-          matchName: match.name,
-          endAt: match.endAt?.toISOString() ?? null,
-        });
+      if (match.gameId === 'valorant') {
+        // Piloté par le lien VLR : les deux équipes portent le match (dédup front).
+        add(match.teamAId, match, []);
+        add(match.teamBId, match, []);
+        continue;
+      }
+      // name-mismatch : seule l'équipe du côté non reconnu est en cause.
+      const suggestion = (match.statsSuggestion ?? []) as Array<{ side: 'A' | 'B'; name: string }>;
+      const namesBySide = new Map<'A' | 'B', string[]>();
+      for (const candidate of suggestion) {
+        namesBySide.set(candidate.side, [...(namesBySide.get(candidate.side) ?? []), candidate.name]);
+      }
+      for (const [side, names] of namesBySide) {
+        add(side === 'A' ? match.teamAId : match.teamBId, match, names);
       }
     }
     return [...byTeam.values()];
+  }
+
+  /**
+   * Ids des matchs finis récents, dans une compétition suivie, sans stats mais
+   * a priori récupérables : la source a la donnée, il manque juste le job
+   * d'ingestion (matchs recréés par un re-sync, > 48h, donc jamais ré-ingérés
+   * seuls). CS2 hors couverture Grid (gridCovered=false) est écarté — il
+   * n'aura jamais de stats ; la couverture non vérifiée (null) est retentée.
+   * `null` = fantasy-service injoignable : on ne tente rien plutôt que tout.
+   */
+  async reingestableMatchIds(
+    followedCompetitionIds: string[] | null,
+    days: number,
+  ): Promise<string[]> {
+    if (followedCompetitionIds === null) return [];
+    if (followedCompetitionIds.length === 0) return [];
+    const since = new Date(Date.now() - days * 24 * 3600 * 1000);
+    const matches = await this.prisma.match.findMany({
+      where: {
+        status: 'finished',
+        endAt: { gte: since },
+        teamAId: { not: null },
+        teamBId: { not: null },
+        stats: { none: {} },
+        competitionId: { in: followedCompetitionIds },
+        NOT: { gameId: 'cs2', gridCovered: false },
+      },
+      select: { id: true },
+      orderBy: { endAt: 'desc' },
+      take: 1000,
+    });
+    return matches.map((match) => match.id);
   }
 
   /**
@@ -294,19 +410,35 @@ export class CatalogService {
    * matchs récents de l'équipe à ré-ingérer pour que le rapprochement prenne
    * effet sans attendre. Alias dédupliqué par forme normalisée.
    */
-  async addTeamAlias(teamId: string, alias: string): Promise<{ aliases: string[]; matchIds: string[] }> {
-    const clean = alias.trim();
-    if (!clean || !normalizeName(clean)) {
-      throw new BadRequestException('Alias vide ou sans caractère alphanumérique');
-    }
+  async addTeamAliases(
+    teamId: string,
+    rawNames: string[],
+  ): Promise<{ aliases: string[]; matchIds: string[]; added: string[]; redundant: boolean }> {
     const team = await this.prisma.team.findUnique({ where: { id: teamId } });
     if (!team) throw new NotFoundException(`Équipe inconnue : ${teamId}`);
-    const exists = team.aliases.some((a) => normalizeName(a) === normalizeName(clean));
-    const aliases = exists ? team.aliases : [...team.aliases, clean];
-    if (!exists) {
+    const aliases = [...team.aliases];
+    const added: string[] = [];
+    for (const raw of rawNames) {
+      // Un lien lol.fandom.com résiduel est converti en nom ; sinon saisie brute.
+      const clean = fandomTeamName(raw);
+      if (!clean || !normalizeName(clean)) continue;
+      // Redondant : le matcher flou reconnaît déjà ce nom comme l'équipe —
+      // l'alias n'apporterait rien (évite « Volticons → Volticons », « LY »…).
+      if (teamNamesMatch(clean, team.name)) continue;
+      const normalized = normalizeName(clean);
+      if (aliases.some((existing) => normalizeName(existing) === normalized)) continue;
+      aliases.push(clean);
+      added.push(clean);
+    }
+    if (added.length > 0) {
       await this.prisma.team.update({ where: { id: teamId }, data: { aliases } });
     }
-    return { aliases, matchIds: await this.recentMatchIdsForTeam(teamId) };
+    return {
+      aliases,
+      matchIds: added.length > 0 ? await this.recentMatchIdsForTeam(teamId) : [],
+      added,
+      redundant: added.length === 0,
+    };
   }
 
   /** Retire un alias d'une équipe. */
@@ -493,19 +625,57 @@ export class CatalogService {
     ]);
 
     const counts = await queue.getJobCounts('waiting', 'active', 'delayed', 'failed');
-    const failedJobs = await queue.getFailed(0, 19);
-    const echecs = failedJobs.map((job) => ({
-      name: job.name,
-      data: job.data as Record<string, unknown>,
-      raison: job.failedReason ?? null,
-      tentatives: job.attemptsMade,
-    }));
-
-    const aliases = await this.prisma.team.findMany({
-      where: { NOT: { aliases: { isEmpty: true } } },
-      select: { gameId: true, name: true, aliases: true },
-      orderBy: { name: 'asc' },
+    const failedJobs = await queue.getFailed(0, 49);
+    // Cible lisible : les jobs ingest-stats portent un matchId, résolu en nom.
+    const failedMatchIds = [
+      ...new Set(
+        failedJobs
+          .map((job) => (job.data as { matchId?: string }).matchId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    const failedMatches = new Map(
+      (
+        await this.prisma.match.findMany({
+          where: { id: { in: failedMatchIds } },
+          select: { id: true, name: true, gameId: true },
+        })
+      ).map((match) => [match.id, match]),
+    );
+    const echecs = failedJobs.map((job) => {
+      const data = job.data as { matchId?: string };
+      const match = data.matchId ? failedMatches.get(data.matchId) : undefined;
+      // matchId présent mais match absent de la base : reliquat visant un match
+      // supprimé (purge + re-sync l'ont recréé sous un autre id) — plus rien à
+      // relancer, on ne conserve un matchId que s'il est résolvable.
+      const introuvable = Boolean(data.matchId) && !match;
+      return {
+        id: job.id ?? null,
+        job: job.name,
+        jobLabel: JOB_LABELS[job.name] ?? job.name,
+        matchId: match?.id ?? null,
+        gameId: match?.gameId ?? null,
+        cible: match?.name ?? null,
+        introuvable,
+        raison: humanizeFailure(job.failedReason),
+        tentatives: job.attemptsMade,
+      };
     });
+
+    // Les alias redondants (déjà reconnus via le nom) sont du bruit : on ne les
+    // affiche pas — seuls comptent les vrais rebindings de nom.
+    const aliases = (
+      await this.prisma.team.findMany({
+        where: { NOT: { aliases: { isEmpty: true } } },
+        select: { gameId: true, name: true, aliases: true },
+        orderBy: { name: 'asc' },
+      })
+    )
+      .map((team) => ({
+        ...team,
+        aliases: team.aliases.filter((alias) => !teamNamesMatch(alias, team.name)),
+      }))
+      .filter((team) => team.aliases.length > 0);
 
     return {
       generatedAt: new Date().toISOString(),
@@ -520,5 +690,33 @@ export class CatalogService {
       aliases,
       pandascore: { requetesDerniereHeure: pandascoreRequestsLastHour, quotaHoraire: 1000 },
     };
+  }
+
+  /**
+   * Purge les jobs en échec qui visent un match absent de la base : reliquats
+   * d'un match supprimé puis recréé sous un autre id (purge + re-sync). Ils ne
+   * pointent sur rien de relançable et polluent la liste des échecs.
+   */
+  async pruneObsoleteFailures(queue: Queue): Promise<{ removed: number }> {
+    const failed = await queue.getFailed(0, 499);
+    const targets = failed
+      .map((job) => ({ job, matchId: (job.data as { matchId?: string }).matchId }))
+      .filter((entry): entry is { job: (typeof failed)[number]; matchId: string } =>
+        Boolean(entry.matchId),
+      );
+    const ids = [...new Set(targets.map((target) => target.matchId))];
+    const existing = new Set(
+      (
+        await this.prisma.match.findMany({ where: { id: { in: ids } }, select: { id: true } })
+      ).map((match) => match.id),
+    );
+    let removed = 0;
+    for (const { job, matchId } of targets) {
+      if (!existing.has(matchId)) {
+        await job.remove();
+        removed += 1;
+      }
+    }
+    return { removed };
   }
 }

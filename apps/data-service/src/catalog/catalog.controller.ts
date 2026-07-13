@@ -145,6 +145,30 @@ export class CatalogController {
     return { enqueued: 'ingest-stats', matchId, force: force === 'true' };
   }
 
+  /**
+   * Bulk « Relancer » : réenqueue l'ingestion de tous les matchs finis récents,
+   * suivis, sans stats mais récupérables (hors CS2 non couvert par Grid).
+   * Répare en masse les matchs recréés par un re-sync sans job d'ingestion
+   * (> 48h, jamais ré-ingérés seuls). Fenêtre en jours via `?days=` (défaut 7,
+   * borné à 30).
+   */
+  @Post('admin/reingest-missing')
+  @UseGuards(AdminGuard)
+  async reingestMissing(@Query('days') daysRaw?: string) {
+    const days = Math.min(Math.max(Number.parseInt(daysRaw ?? '7', 10) || 7, 1), 30);
+    const followed = await this.fantasyClient.followedCompetitionIds();
+    const matchIds = await this.catalog.reingestableMatchIds(followed, days);
+    await Promise.all(matchIds.map((id) => enqueueIngestStats(this.ingestionQueue, id)));
+    return { enqueued: matchIds.length, days };
+  }
+
+  /** Purge les échecs de jobs visant un match supprimé (reliquats de purge/re-sync). */
+  @Post('admin/queue/prune-failures')
+  @UseGuards(AdminGuard)
+  pruneFailures() {
+    return this.catalog.pruneObsoleteFailures(this.ingestionQueue);
+  }
+
   /** Équipes de matchs finis récents sans stats (candidates à un alias). */
   @Get('admin/unmatched-teams')
   @UseGuards(AdminGuard)
@@ -192,9 +216,13 @@ export class CatalogController {
   @Post('admin/teams/:teamId/aliases')
   @UseGuards(AdminGuard)
   async addTeamAlias(@Param('teamId') teamId: string, @Query('alias') alias?: string) {
-    const { aliases, matchIds } = await this.catalog.addTeamAlias(teamId, alias ?? '');
+    // Lien lol.fandom.com → nom canonique + variantes fiables (redirections,
+    // renommages) via Leaguepedia ; sinon la saisie est utilisée telle quelle.
+    const resolved = await this.statsIngestion.resolveLeaguepediaNames(alias ?? '');
+    const names = resolved.length > 0 ? resolved : [alias ?? ''];
+    const { aliases, matchIds, added, redundant } = await this.catalog.addTeamAliases(teamId, names);
     await Promise.all(matchIds.map((id) => enqueueIngestStats(this.ingestionQueue, id, true)));
-    return { aliases, reingested: matchIds.length };
+    return { aliases, reingested: matchIds.length, added, redundant };
   }
 
   /** Retire un alias d'une équipe. */
