@@ -1,6 +1,16 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MapStatsEntry } from '@esfl/contracts';
-import { championImageUrl, LeaguepediaRow, mapLeaguepediaRows } from './leaguepedia.provider';
+import type { Match } from '../../generated/client';
+import { politeFetch } from './polite-fetch';
+import {
+  championImageUrl,
+  LeaguepediaRow,
+  LeaguepediaStatsProvider,
+  mapLeaguepediaRows,
+} from './leaguepedia.provider';
+import type { MatchContext } from './provider';
+
+vi.mock('./polite-fetch', () => ({ politeFetch: vi.fn() }));
 
 // Bo3 : Caps joue 3 games pour G2 contre Fnatic (2 victoires).
 const rows: LeaguepediaRow[] = [
@@ -104,5 +114,50 @@ describe('mapLeaguepediaRows', () => {
 
   it('retourne vide si aucune game ne correspond aux équipes', () => {
     expect(mapLeaguepediaRows(rows, { name: 'Karmine Corp' }, { name: 'Vitality' })).toHaveLength(0);
+  });
+});
+
+describe('LeaguepediaStatsProvider — cache de fenêtre', () => {
+  const mockedFetch = vi.mocked(politeFetch);
+
+  beforeEach(() => {
+    mockedFetch.mockReset();
+    // 3 rows (< 500) → une seule page par fenêtre.
+    mockedFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ cargoquery: rows.slice(0, 3).map((title) => ({ title })) }),
+    } as Response);
+  });
+
+  const context = {
+    teamA: { name: 'G2 Esports', aliases: [] },
+    teamB: { name: 'Fnatic', aliases: [] },
+    players: [],
+  } as unknown as MatchContext;
+  const matchAt = (iso: string) => ({ id: 'm', beginAt: new Date(iso), scheduledAt: null }) as Match;
+
+  it('mutualise la requête entre matchs d’un même bucket de 3h', async () => {
+    const provider = new LeaguepediaStatsProvider();
+    // 01:00 et 02:00 UTC tombent dans le même bucket [00:00, 03:00).
+    await provider.fetchStats(matchAt('2026-07-10T01:00:00Z'), context);
+    await provider.fetchStats(matchAt('2026-07-10T02:00:00Z'), context);
+    expect(mockedFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('refait une requête pour un autre bucket', async () => {
+    const provider = new LeaguepediaStatsProvider();
+    await provider.fetchStats(matchAt('2026-07-10T01:00:00Z'), context);
+    await provider.fetchStats(matchAt('2026-07-10T04:00:00Z'), context);
+    expect(mockedFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('ne met pas en cache un échec réseau (retry possible)', async () => {
+    const provider = new LeaguepediaStatsProvider();
+    mockedFetch.mockResolvedValueOnce({ ok: false, status: 429 } as Response);
+    const first = await provider.fetchStats(matchAt('2026-07-10T01:00:00Z'), context);
+    expect(first).toBeNull();
+    // Deuxième essai même bucket : nouvelle requête (le null n'a pas été caché).
+    await provider.fetchStats(matchAt('2026-07-10T01:00:00Z'), context);
+    expect(mockedFetch).toHaveBeenCalledTimes(2);
   });
 });

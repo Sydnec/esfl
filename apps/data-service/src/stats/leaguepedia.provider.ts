@@ -13,6 +13,16 @@ import type {
 
 const API_URL = 'https://lol.fandom.com/api.php';
 
+// Cache de fenêtre : la requête Cargo ramène TOUS les matchs LoL de la période
+// (le filtrage par équipe est côté client), donc tous les matchs d'une même
+// tranche horaire partagent le même résultat. On regroupe les références par
+// buckets de 3h et on mémorise les lignes quelques minutes : un cycle live ou
+// une rafale de fins de match d'un même tournoi ne paie qu'une requête au lieu
+// d'une par match — c'est ce qui saturait le rate limit Fandom.
+const WINDOW_BUCKET_MS = 3 * 3600 * 1000;
+const WINDOW_MARGIN_MS = 12 * 3600 * 1000;
+const WINDOW_CACHE_TTL_MS = 2 * 60 * 1000;
+
 /** Ligne brute cargoquery (join ScoreboardGames + ScoreboardPlayers). */
 export interface LeaguepediaRow {
   Link?: string;
@@ -190,23 +200,49 @@ export class LeaguepediaStatsProvider implements GameStatsProvider {
   readonly source = 'leaguepedia';
   readonly gameId = 'lol' as const;
   private readonly logger = new Logger(LeaguepediaStatsProvider.name);
+  /** bucketStart (ms) → lignes de la fenêtre + horodatage (TTL court). */
+  private readonly windowCache = new Map<number, { rows: LeaguepediaRow[]; at: number }>();
 
   async fetchStats(match: Match, context: MatchContext): Promise<ProviderResult | null> {
     if (!context.teamA || !context.teamB) return null;
     const reference = match.beginAt ?? match.scheduledAt;
     if (!reference) return null;
 
-    // Fenêtre ±12h : assez large pour les décalages de planning, assez
-    // étroite pour limiter le volume (la fenêtre ramène TOUS les matchs
-    // LoL de la période, le filtrage par équipes est côté client).
-    const from = new Date(reference.getTime() - 12 * 3600 * 1000)
-      .toISOString()
-      .replace('T', ' ')
-      .slice(0, 19);
-    const to = new Date(reference.getTime() + 12 * 3600 * 1000)
-      .toISOString()
-      .replace('T', ' ')
-      .slice(0, 19);
+    const rows = await this.fetchWindowRows(reference);
+    if (!rows) return null;
+
+    const lines = mapLeaguepediaRows(rows, context.teamA, context.teamB);
+    if (lines.length === 0) {
+      this.logger.warn(
+        `Leaguepedia : rien trouvé pour ${context.teamA.name} vs ${context.teamB.name}`,
+      );
+      return null;
+    }
+    return {
+      lines,
+      games: mapLeaguepediaGames(rows, context.teamA, context.teamB),
+    };
+  }
+
+  /**
+   * Lignes Cargo de la fenêtre englobant `reference`, mutualisées entre matchs.
+   * Buckets de 3h : la fenêtre [bucket-12h, bucket+3h+12h] couvre ±12h autour de
+   * n'importe quelle référence du bucket. Résultat mémorisé quelques minutes.
+   * Null (non caché) en cas d'échec réseau/API : le retry repassera.
+   */
+  private async fetchWindowRows(reference: Date): Promise<LeaguepediaRow[] | null> {
+    const bucketStart = Math.floor(reference.getTime() / WINDOW_BUCKET_MS) * WINDOW_BUCKET_MS;
+    const now = Date.now();
+    // Purge des entrées expirées (borne la taille du cache).
+    for (const [key, entry] of this.windowCache) {
+      if (now - entry.at >= WINDOW_CACHE_TTL_MS) this.windowCache.delete(key);
+    }
+    const cached = this.windowCache.get(bucketStart);
+    if (cached) return cached.rows;
+
+    const fmt = (ms: number) => new Date(ms).toISOString().replace('T', ' ').slice(0, 19);
+    const from = fmt(bucketStart - WINDOW_MARGIN_MS);
+    const to = fmt(bucketStart + WINDOW_BUCKET_MS + WINDOW_MARGIN_MS);
 
     const url = new URL(API_URL);
     url.searchParams.set('action', 'cargoquery');
@@ -220,10 +256,7 @@ export class LeaguepediaStatsProvider implements GameStatsProvider {
       'fields',
       'SP.Link,SP.Champion,SP.Kills,SP.Deaths,SP.Assists,SP.CS,SP.PlayerWin,SP.Team,SG.Team1,SG.Team2,SG.Gamelength_Number=Gamelength,SG.GameId=GameId,SG.N_GameInMatch=GameNumber',
     );
-    url.searchParams.set(
-      'where',
-      `SG.DateTime_UTC >= '${from}' AND SG.DateTime_UTC <= '${to}'`,
-    );
+    url.searchParams.set('where', `SG.DateTime_UTC >= '${from}' AND SG.DateTime_UTC <= '${to}'`);
 
     // Cargo tronque à 500 lignes : pagination par offset (les journées
     // chargées dépassent 500 lignes joueur×game et faisaient disparaître
@@ -250,16 +283,8 @@ export class LeaguepediaStatsProvider implements GameStatsProvider {
       rows.push(...page);
       if (page.length < 500) break;
     }
-    const lines = mapLeaguepediaRows(rows, context.teamA, context.teamB);
-    if (lines.length === 0) {
-      this.logger.warn(
-        `Leaguepedia : rien trouvé pour ${context.teamA.name} vs ${context.teamB.name}`,
-      );
-      return null;
-    }
-    return {
-      lines,
-      games: mapLeaguepediaGames(rows, context.teamA, context.teamB),
-    };
+
+    this.windowCache.set(bucketStart, { rows, at: now });
+    return rows;
   }
 }
