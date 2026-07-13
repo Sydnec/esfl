@@ -3,6 +3,26 @@ import type { Queue } from 'bullmq';
 import { normalizeName } from '../stats/matching';
 import { PrismaService } from '../prisma.service';
 
+/**
+ * Normalise une saisie admin (URL VLR.gg, chemin, ou id de match) en chemin
+ * relatif — la forme attendue par le provider (`${BASE_URL}${path}`). Null si
+ * la saisie ne ressemble pas à une page de match VLR (segment numérique en tête).
+ */
+function normalizeVlrPath(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  let path = trimmed;
+  if (/vlr\.gg/i.test(trimmed)) {
+    try {
+      path = new URL(trimmed.startsWith('http') ? trimmed : `https://${trimmed}`).pathname;
+    } catch {
+      return null;
+    }
+  }
+  if (!path.startsWith('/')) path = `/${path}`;
+  return /^\/\d+/.test(path) ? path : null;
+}
+
 @Injectable()
 export class CatalogService {
   constructor(private readonly prisma: PrismaService) {}
@@ -207,6 +227,25 @@ export class CatalogService {
       }
     }
     return [...byTeam.values()];
+  }
+
+  /**
+   * Fixe manuellement la page VLR d'un match Valorant (statsPageUrl) : le
+   * provider la parsera directement au lieu de chercher par nom d'équipe.
+   * Accepte une URL complète, un chemin, ou l'id de match VLR.
+   */
+  async setValorantStatsPage(matchId: string, rawUrl: string): Promise<{ statsPageUrl: string }> {
+    const match = await this.prisma.match.findUnique({ where: { id: matchId } });
+    if (!match) throw new NotFoundException(`Match inconnu : ${matchId}`);
+    if (match.gameId !== 'valorant') {
+      throw new BadRequestException('La page manuelle n’est disponible que pour Valorant (VLR).');
+    }
+    const path = normalizeVlrPath(rawUrl);
+    if (!path) {
+      throw new BadRequestException('URL VLR.gg invalide (attendu : lien, chemin, ou id de match).');
+    }
+    await this.prisma.match.update({ where: { id: matchId }, data: { statsPageUrl: path } });
+    return { statsPageUrl: path };
   }
 
   /** Recherche d'équipes par nom ou alias (matching manuel admin). */

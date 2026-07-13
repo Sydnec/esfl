@@ -159,6 +159,18 @@ export class CatalogController {
     return this.statsIngestion.suggestTeamNames(matchId);
   }
 
+  /**
+   * Fixe manuellement la page VLR d'un match Valorant et relance l'ingestion :
+   * le provider parse cette page au lieu de chercher par nom d'équipe.
+   */
+  @Post('admin/matches/:matchId/stats-page')
+  @UseGuards(AdminGuard)
+  async setStatsPage(@Param('matchId') matchId: string, @Query('url') url?: string) {
+    const { statsPageUrl } = await this.catalog.setValorantStatsPage(matchId, url ?? '');
+    await enqueueIngestStats(this.ingestionQueue, matchId, true);
+    return { statsPageUrl, reingested: true };
+  }
+
   /** Recherche d'équipes pour le matching manuel (page admin). */
   @Get('admin/teams')
   @UseGuards(AdminGuard)

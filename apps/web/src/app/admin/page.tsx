@@ -80,6 +80,8 @@ export default function AdminPage() {
   const [health, setHealth] = useState<IngestionHealth | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
+  /** URL VLR saisie par match (matchs Valorant sans stats). */
+  const [vlrUrl, setVlrUrl] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
     try {
@@ -98,6 +100,24 @@ export default function AdminPage() {
     }, REFRESH_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [loading, user, load]);
+
+  async function setStatsPage(matchId: string) {
+    const url = (vlrUrl[matchId] ?? '').trim();
+    if (!url) return;
+    setPending(matchId);
+    setError(null);
+    try {
+      await authedFetch(`/data/admin/matches/${matchId}/stats-page?url=${encodeURIComponent(url)}`, {
+        method: 'POST',
+      });
+      setVlrUrl((current) => ({ ...current, [matchId]: '' }));
+      await load();
+    } catch {
+      setError('Page VLR invalide ou match introuvable');
+    } finally {
+      setPending(null);
+    }
+  }
 
   async function retrigger(matchId: string, force: boolean) {
     setPending(matchId);
@@ -344,13 +364,40 @@ export default function AdminPage() {
                               : 'à vérifier'}
                       </td>
                       <td>
-                        <button
-                          className={styles.action}
-                          disabled={pending === match.id}
-                          onClick={() => void retrigger(match.id, false)}
-                        >
-                          Relancer
-                        </button>
+                        <div className={styles.searchRow}>
+                          <button
+                            className={styles.action}
+                            disabled={pending === match.id}
+                            onClick={() => void retrigger(match.id, false)}
+                          >
+                            Relancer
+                          </button>
+                          {match.gameId === 'valorant' && (
+                            <>
+                              <input
+                                className={styles.searchInput}
+                                placeholder="page VLR.gg…"
+                                value={vlrUrl[match.id] ?? ''}
+                                onChange={(event) =>
+                                  setVlrUrl((current) => ({
+                                    ...current,
+                                    [match.id]: event.target.value,
+                                  }))
+                                }
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Enter') void setStatsPage(match.id);
+                                }}
+                              />
+                              <button
+                                className={styles.action}
+                                disabled={pending === match.id || !(vlrUrl[match.id] ?? '').trim()}
+                                onClick={() => void setStatsPage(match.id)}
+                              >
+                                Appliquer
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
