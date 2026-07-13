@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Match, Prisma, Team } from '../../generated/client';
 import { PrismaService } from '../prisma.service';
-import { inferOpponentAlias, OpponentPair, TeamRef, teamMatches } from './matching';
+import { inferOpponentAlias, normalizeName, OpponentPair, TeamRef, teamMatches } from './matching';
 import { politeFetch } from './polite-fetch';
 import type { GameStatsProvider, MatchContext, ProviderResult, ProviderStatLine } from './provider';
 
@@ -31,7 +31,15 @@ export interface GridSeriesStateTeam {
 export interface GridSeriesStateGame {
   sequenceNumber?: number;
   map?: { name?: string } | null;
-  teams?: Array<{ name?: string; score?: number }>;
+  // Joueurs par manche : firstKill (booléen d'entrée par manche) est agrégé en
+  // nombre de manches ouvertes. multikills et loadoutValue ne sont pas
+  // alimentés par l'open-access Grid ; netWorth n'est qu'un instantané de fin
+  // de partie (non exploité).
+  teams?: Array<{
+    name?: string;
+    score?: number;
+    players?: Array<{ name?: string; firstKill?: boolean }>;
+  }>;
   started?: boolean;
   finished?: boolean;
 }
@@ -75,12 +83,28 @@ export function mapGridGames(
     });
 }
 
+/** Nombre de manches ouvertes (firstKill) par joueur, agrégé sur les games. */
+function firstKillsByPlayer(state: GridSeriesState): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const game of state.games ?? []) {
+    for (const team of game.teams ?? []) {
+      for (const player of team.players ?? []) {
+        if (!player.name || !player.firstKill) continue;
+        const key = normalizeName(player.name);
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+      }
+    }
+  }
+  return counts;
+}
+
 /** Mappe l'état final d'une série Grid vers nos stats CS2 normalisées. */
 export function mapGridSeriesState(
   state: GridSeriesState,
   teamA: TeamRef,
   teamB: TeamRef,
 ): ProviderStatLine[] {
+  const firstKills = firstKillsByPlayer(state);
   const lines: ProviderStatLine[] = [];
   for (const team of state.teams ?? []) {
     const side = teamMatches(team.name ?? '', teamA)
@@ -105,6 +129,7 @@ export function mapGridSeriesState(
           rating: null,
           plants: objectiveCount('plantBomb'),
           defuses: objectiveCount('defuseBomb'),
+          firstKills: firstKills.get(normalizeName(entry.name)) ?? 0,
         },
       });
     }
@@ -178,7 +203,10 @@ export class GridStatsProvider implements GameStatsProvider {
             name
             players { name kills deaths killAssistsGiven objectives { type completionCount } }
           }
-          games { sequenceNumber started finished map { name } teams { name score } }
+          games {
+            sequenceNumber started finished map { name }
+            teams { name score players { name firstKill } }
+          }
         }
       }`,
       { id: seriesId },

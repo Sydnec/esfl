@@ -17,6 +17,8 @@ export const cs2StatsSchema = z.object({
   plants: z.number().nullable().optional(),
   /** Bombes défusées (objectives Grid). */
   defuses: z.number().nullable().optional(),
+  /** Manches ouvertes (firstKill agrégé sur les games Grid). */
+  firstKills: z.number().nullable().optional(),
 });
 export type Cs2Stats = z.infer<typeof cs2StatsSchema>;
 

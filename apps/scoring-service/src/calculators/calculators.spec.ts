@@ -30,6 +30,18 @@ describe('calculateurs de points', () => {
     expect(bo3.points).toBeCloseTo(bo1.points, 5);
   });
 
+  it('cs2 : firstKills et objectifs enrichissent le K/A/D (v3)', () => {
+    const base = { kills: 20, deaths: 15, assists: 5, adr: null, rating: null };
+    const { points: sansExtra } = scoreCs2(base, 1);
+    const { points, breakdown } = scoreCs2(
+      { ...base, firstKills: 4, plants: 3, defuses: 2 },
+      1,
+    );
+    // +4×1.5 (first kills) +3×0.5 (plants) +2×0.5 (defuses) = +8.5
+    expect(breakdown.firstKills).toBeCloseTo(6, 5);
+    expect(points - sansExtra).toBeCloseTo(6 + 1.5 + 1, 5);
+  });
+
   it('valorant : ACS et first kills comptent', () => {
     const { points } = scoreValorant(
       {

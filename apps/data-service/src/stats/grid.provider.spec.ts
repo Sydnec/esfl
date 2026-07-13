@@ -26,6 +26,19 @@ const state: GridSeriesState = {
       players: [{ name: 'JoueurInconnu', kills: 20, deaths: 40, killAssistsGiven: 5 }],
     },
   ],
+  // firstKill par manche : ZywOo ouvre 2 des 2 games → firstKills = 2.
+  games: [
+    {
+      sequenceNumber: 1,
+      finished: true,
+      teams: [{ name: 'Vitality', players: [{ name: 'ZywOo', firstKill: true }] }],
+    },
+    {
+      sequenceNumber: 2,
+      finished: true,
+      teams: [{ name: 'Vitality', players: [{ name: 'ZywOo', firstKill: true }, { name: 'apEX', firstKill: false }] }],
+    },
+  ],
 };
 
 describe('mapGridSeriesState', () => {
@@ -42,6 +55,7 @@ describe('mapGridSeriesState', () => {
       rating: null,
       plants: 4,
       defuses: 2,
+      firstKills: 2,
     });
     // Équipe non résolue → side null (pas de création côté ingestion).
     expect(lines.find((line) => line.externalName === 'JoueurInconnu')?.side).toBeNull();
