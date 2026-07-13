@@ -1,8 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { GAME_IDS, GAME_LABELS, GameId } from '@esfl/contracts';
 import { useAuth } from '@/components/AuthProvider';
+import { formatDateTime } from '@/lib/format';
 import styles from './page.module.css';
 
 interface TeamHit {
@@ -17,6 +19,8 @@ interface UnmatchedTeam extends TeamHit {
   matchId: string;
   matchName: string;
   endAt: string | null;
+  /** Noms provider candidats vus par la source, pré-remplis (name-mismatch). */
+  candidates: string[];
 }
 
 interface Suggestions {
@@ -48,11 +52,23 @@ export function TeamMatcher() {
       setBusy(teamId);
       setNote(null);
       try {
-        const res = await authedFetch<{ aliases: string[]; reingested: number }>(
-          `/data/admin/teams/${teamId}/aliases?alias=${encodeURIComponent(clean)}`,
-          { method: 'POST' },
+        const res = await authedFetch<{
+          aliases: string[];
+          reingested: number;
+          added: string[];
+          redundant: boolean;
+        }>(`/data/admin/teams/${teamId}/aliases?alias=${encodeURIComponent(clean)}`, {
+          method: 'POST',
+        });
+        if (res.redundant) {
+          setNote(
+            `Le nom correspond déjà à ${label} : le souci n’est pas le nom mais la couverture. Rien ajouté.`,
+          );
+          return null;
+        }
+        setNote(
+          `Alias ajouté(s) à ${label} : ${res.added.join(', ')} — ${res.reingested} match(s) relancé(s).`,
         );
-        setNote(`Alias « ${clean} » ajouté à ${label} — ${res.reingested} match(s) relancé(s).`);
         return res.aliases;
       } catch {
         setNote('Ajout impossible (alias vide ou équipe introuvable)');
@@ -64,16 +80,49 @@ export function TeamMatcher() {
     [authedFetch],
   );
 
+  // Valorant : on ne devine pas un alias, on colle la page VLR du match, qui
+  // relance directement l'ingestion (le provider parse cette page).
+  const applyVlrPage = useCallback(
+    async (matchId: string, url: string, label: string): Promise<boolean> => {
+      const clean = url.trim();
+      if (!clean) return false;
+      setBusy(matchId);
+      setNote(null);
+      try {
+        await authedFetch(
+          `/data/admin/matches/${matchId}/stats-page?url=${encodeURIComponent(clean)}`,
+          { method: 'POST' },
+        );
+        setNote(`Page VLR appliquée à ${label} — ingestion relancée.`);
+        return true;
+      } catch {
+        setNote('Page VLR invalide ou match introuvable');
+        return false;
+      } finally {
+        setBusy(null);
+      }
+    },
+    [authedFetch],
+  );
+
   return (
     <section className={styles.section}>
       <h2 className={styles.sectionTitle}>Matching manuel des équipes</h2>
       <p className={styles.hint}>
-        Ajoute le nom qu’un provider donne à une équipe (ex. « LP » pour largadosypelados).
-        L’alias est utilisé par tous les jeux et relance l’ingestion des matchs récents.
+        Seuls les vrais problèmes de nom sont listés (les trous de couverture sont écartés). Pour
+        CS2 et Rocket League, ajoute le nom qu’un provider donne à une équipe (ex. « LP » pour
+        largadosypelados) — l’alias relance l’ingestion des matchs récents. Pour LoL, tu peux coller
+        le lien de l’équipe sur lol.fandom.com (le nom est extrait automatiquement). Pour Valorant,
+        colle directement le lien du match sur VLR.gg.
       </p>
       {note && <p className={styles.note}>{note}</p>}
       <div className={styles.matcherGrid}>
-        <UnmatchedPanel authedFetch={authedFetch} busy={busy} applyAlias={applyAlias} />
+        <UnmatchedPanel
+          authedFetch={authedFetch}
+          busy={busy}
+          applyAlias={applyAlias}
+          applyVlrPage={applyVlrPage}
+        />
         <SearchPanel authedFetch={authedFetch} busy={busy} applyAlias={applyAlias} />
       </div>
     </section>
@@ -81,21 +130,39 @@ export function TeamMatcher() {
 }
 
 type ApplyAlias = (teamId: string, alias: string, label: string) => Promise<string[] | null>;
+type ApplyVlrPage = (matchId: string, url: string, label: string) => Promise<boolean>;
 type AuthedFetch = <T>(path: string, init?: RequestInit) => Promise<T>;
+
+/** Une ligne du panneau « À matcher » : une équipe (alias) ou un match (lien VLR). */
+type PanelItem =
+  | { kind: 'team'; key: string; gameId: string; team: UnmatchedTeam }
+  | {
+      kind: 'match';
+      key: string;
+      gameId: string;
+      matchId: string;
+      matchName: string;
+      endAt: string | null;
+    };
 
 /** Panneau gauche : équipes à matcher + suggestions pré-remplies. */
 function UnmatchedPanel({
   authedFetch,
   busy,
   applyAlias,
+  applyVlrPage,
 }: {
   authedFetch: AuthedFetch;
   busy: string | null;
   applyAlias: ApplyAlias;
+  applyVlrPage: ApplyVlrPage;
 }) {
   const [teams, setTeams] = useState<UnmatchedTeam[]>([]);
   const [suggestions, setSuggestions] = useState<Record<string, string[]>>({});
   const [loadingSug, setLoadingSug] = useState<string | null>(null);
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [vlrDraft, setVlrDraft] = useState<Record<string, string>>({});
+  const [filter, setFilter] = useState<GameId | ''>('');
 
   const load = useCallback(async () => {
     try {
@@ -108,6 +175,39 @@ function UnmatchedPanel({
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Valorant se matche par match (on colle un lien de match), pas par équipe :
+  // on dédoublonne par match pour ne pas afficher deux lignes d'une rencontre.
+  // Les autres jeux restent une ligne par équipe (un alias par équipe).
+  const items = useMemo<PanelItem[]>(() => {
+    const result: PanelItem[] = [];
+    const seenMatch = new Set<string>();
+    for (const team of teams) {
+      if (team.gameId === 'valorant') {
+        if (seenMatch.has(team.matchId)) continue;
+        seenMatch.add(team.matchId);
+        result.push({
+          kind: 'match',
+          key: team.matchId,
+          gameId: team.gameId,
+          matchId: team.matchId,
+          matchName: team.matchName,
+          endAt: team.endAt,
+        });
+      } else {
+        result.push({ kind: 'team', key: team.id, gameId: team.gameId, team });
+      }
+    }
+    return result;
+  }, [teams]);
+
+  // Compteur par jeu pour les puces de filtre.
+  const countByGame = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of items) counts.set(item.gameId, (counts.get(item.gameId) ?? 0) + 1);
+    return counts;
+  }, [items]);
+  const visible = filter ? items.filter((item) => item.gameId === filter) : items;
 
   async function suggest(team: UnmatchedTeam) {
     setLoadingSug(team.id);
@@ -133,48 +233,151 @@ function UnmatchedPanel({
     }
   }
 
+  async function manualAdd(team: UnmatchedTeam) {
+    await pick(team, draft[team.id] ?? '');
+  }
+
+  // Valorant : applique la page VLR du match et retire toutes ses équipes du panneau.
+  async function applyVlr(matchId: string, matchName: string) {
+    const ok = await applyVlrPage(matchId, vlrDraft[matchId] ?? '', matchName);
+    if (ok) {
+      setVlrDraft((current) => ({ ...current, [matchId]: '' }));
+      setTeams((current) => current.filter((t) => t.matchId !== matchId));
+    }
+  }
+
   return (
     <div className={styles.matcherCol}>
-      <h3 className={styles.colTitle}>À matcher ({teams.length})</h3>
-      {teams.length === 0 ? (
-        <p className={styles.empty}>Aucune équipe en attente sur les matchs récents.</p>
+      <h3 className={styles.colTitle}>À matcher ({items.length})</h3>
+      {items.length > 0 && (
+        <div className={styles.filterRow}>
+          <button
+            className={filter === '' ? styles.filterChipActive : styles.filterChip}
+            onClick={() => setFilter('')}
+          >
+            Tous ({items.length})
+          </button>
+          {GAME_IDS.filter((id) => countByGame.has(id)).map((id) => (
+            <button
+              key={id}
+              className={filter === id ? styles.filterChipActive : styles.filterChip}
+              onClick={() => setFilter(id)}
+            >
+              {GAME_LABELS[id]} ({countByGame.get(id)})
+            </button>
+          ))}
+        </div>
+      )}
+      {items.length === 0 ? (
+        <p className={styles.empty}>Rien en attente sur les matchs récents.</p>
       ) : (
         <ul className={styles.unmatchedList}>
-          {teams.map((team) => (
-            <li key={team.id} className={styles.unmatchedItem}>
-              <div className={styles.unmatchedHead}>
-                <span>
-                  <strong>{team.name}</strong> · {gameLabel(team.gameId)}
-                </span>
-                <button
-                  className={styles.action}
-                  disabled={loadingSug === team.id}
-                  onClick={() => void suggest(team)}
-                >
-                  {loadingSug === team.id ? '…' : 'Suggérer'}
-                </button>
-              </div>
-              <span className={styles.matchCtx}>{team.matchName}</span>
-              {suggestions[team.id] &&
-                (suggestions[team.id].length === 0 ? (
-                  <span className={styles.empty}>Aucune suggestion trouvée côté provider.</span>
-                ) : (
-                  <span className={styles.aliasList}>
-                    {suggestions[team.id].map((name) => (
-                      <button
-                        key={name}
-                        className={styles.suggestChip}
-                        disabled={busy === team.id}
-                        onClick={() => void pick(team, name)}
-                        title="Adopter ce nom comme alias"
-                      >
-                        + {name}
-                      </button>
-                    ))}
+          {visible.map((item) =>
+            item.kind === 'match' ? (
+              <li key={item.key} className={styles.unmatchedItem}>
+                <div className={styles.unmatchedHead}>
+                  <span>
+                    <span className={styles.badge} data-game={item.gameId}>
+                      {gameLabel(item.gameId)}
+                    </span>{' '}
+                    <Link href={`/matches/${item.matchId}`}>
+                      <strong>{item.matchName}</strong>
+                    </Link>
                   </span>
-                ))}
-            </li>
-          ))}
+                </div>
+                {item.endAt && (
+                  <span className={styles.matchCtx}>{formatDateTime(item.endAt)}</span>
+                )}
+                <span className={styles.aliasList}>
+                  <input
+                    className={styles.searchInput}
+                    placeholder="lien du match VLR.gg…"
+                    value={vlrDraft[item.matchId] ?? ''}
+                    onChange={(event) =>
+                      setVlrDraft((current) => ({ ...current, [item.matchId]: event.target.value }))
+                    }
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') void applyVlr(item.matchId, item.matchName);
+                    }}
+                  />
+                  <button
+                    className={styles.action}
+                    disabled={busy === item.matchId || !(vlrDraft[item.matchId] ?? '').trim()}
+                    onClick={() => void applyVlr(item.matchId, item.matchName)}
+                  >
+                    Appliquer
+                  </button>
+                </span>
+              </li>
+            ) : (
+              <li key={item.key} className={styles.unmatchedItem}>
+                <div className={styles.unmatchedHead}>
+                  <span>
+                    <span className={styles.badge} data-game={item.gameId}>
+                      {gameLabel(item.gameId)}
+                    </span>{' '}
+                    <strong>{item.team.name}</strong>
+                  </span>
+                  <button
+                    className={styles.action}
+                    disabled={loadingSug === item.team.id}
+                    onClick={() => void suggest(item.team)}
+                  >
+                    {loadingSug === item.team.id ? '…' : 'Suggérer'}
+                  </button>
+                </div>
+                <span className={styles.matchCtx}>
+                  <Link href={`/matches/${item.team.matchId}`}>{item.team.matchName}</Link>
+                  {item.team.endAt ? ` · ${formatDateTime(item.team.endAt)}` : ''}
+                </span>
+                {(() => {
+                  // Chips pré-remplis via les candidats du diagnostic ; « Suggérer »
+                  // peut les rafraîchir à la demande.
+                  const shown = suggestions[item.team.id] ?? item.team.candidates;
+                  if (!shown) return null;
+                  return shown.length === 0 ? (
+                    <span className={styles.empty}>Aucune suggestion trouvée côté provider.</span>
+                  ) : (
+                    <span className={styles.aliasList}>
+                      {shown.map((name) => (
+                        <button
+                          key={name}
+                          className={styles.suggestChip}
+                          disabled={busy === item.team.id}
+                          onClick={() => void pick(item.team, name)}
+                          title="Adopter ce nom comme alias"
+                        >
+                          + {name}
+                        </button>
+                      ))}
+                    </span>
+                  );
+                })()}
+                <span className={styles.aliasList}>
+                  <input
+                    className={item.gameId === 'lol' ? styles.searchInput : styles.aliasInput}
+                    placeholder={
+                      item.gameId === 'lol' ? 'nom ou lien lol.fandom.com…' : 'alias manuel…'
+                    }
+                    value={draft[item.team.id] ?? ''}
+                    onChange={(event) =>
+                      setDraft((current) => ({ ...current, [item.team.id]: event.target.value }))
+                    }
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') void manualAdd(item.team);
+                    }}
+                  />
+                  <button
+                    className={styles.action}
+                    disabled={busy === item.team.id || !(draft[item.team.id] ?? '').trim()}
+                    onClick={() => void manualAdd(item.team)}
+                  >
+                    Ajouter
+                  </button>
+                </span>
+              </li>
+            ),
+          )}
         </ul>
       )}
     </div>
@@ -281,8 +484,8 @@ function SearchPanel({
               </button>
             ))}
             <input
-              className={styles.aliasInput}
-              placeholder="nom provider"
+              className={team.gameId === 'lol' ? styles.searchInput : styles.aliasInput}
+              placeholder={team.gameId === 'lol' ? 'nom ou lien lol.fandom.com…' : 'nom provider'}
               value={draft[team.id] ?? ''}
               onChange={(event) =>
                 setDraft((current) => ({ ...current, [team.id]: event.target.value }))

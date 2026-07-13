@@ -1,7 +1,81 @@
 .main {
-  max-width: 960px;
+  max-width: 1080px;
   margin: 0 auto;
   padding: var(--space-4) var(--space-3);
+}
+
+.tabs {
+  display: flex;
+  gap: var(--space-1);
+  border-bottom: 1px solid var(--color-border);
+  margin-top: var(--space-3);
+}
+
+.tab,
+.tabActive {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  border: none;
+  background: none;
+  color: var(--color-text-muted);
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+  font-size: 0.95rem;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.tabActive {
+  color: var(--color-text);
+  border-bottom-color: var(--color-accent);
+  font-weight: 500;
+}
+
+.tabBadge {
+  min-width: 1.2rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: var(--color-danger, #c0392b);
+  color: #fff;
+  font-size: 0.75rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.tableWrap {
+  overflow-x: auto;
+}
+
+.badge {
+  display: inline-block;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-text-muted);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.badge[data-game='cs2'] {
+  border-left-color: #e08a00;
+}
+
+.badge[data-game='valorant'] {
+  border-left-color: #fa4454;
+}
+
+.badge[data-game='lol'] {
+  border-left-color: #1e9de3;
+}
+
+.badge[data-game='rl'] {
+  border-left-color: #2f6fd0;
+}
+
+.reason {
+  color: var(--color-text-muted);
+  max-width: 28rem;
 }
 
 .headerRow {
@@ -29,6 +103,11 @@
 
 .error {
   color: var(--color-danger, #c0392b);
+  margin-top: var(--space-2);
+}
+
+.notice {
+  color: var(--color-text-muted);
   margin-top: var(--space-2);
 }
 
@@ -206,6 +285,29 @@
 
 .matcherCol {
   min-width: 0;
+}
+
+.filterRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
+}
+
+.filterChip,
+.filterChipActive {
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: none;
+  color: var(--color-text-muted);
+  padding: 0 var(--space-2);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.filterChipActive {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
 }
 
 .colTitle {
