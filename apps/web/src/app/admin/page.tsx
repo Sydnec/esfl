@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { GAME_LABELS, GameId } from '@esfl/contracts';
 import { useAuth } from '@/components/AuthProvider';
 import { formatDateTime } from '@/lib/format';
+import { TeamMatcher } from './TeamMatcher';
 import styles from './page.module.css';
 
 const REFRESH_INTERVAL_MS = 60_000;
@@ -183,6 +184,8 @@ export default function AdminPage() {
               ))}
             </div>
           </section>
+
+          <TeamMatcher />
 
           <section className={styles.section}>
             <h2 className={styles.sectionTitle}>Activité par jeu</h2>

@@ -1,5 +1,6 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import type { Queue } from 'bullmq';
+import { normalizeName } from '../stats/matching';
 import { PrismaService } from '../prisma.service';
 
 @Injectable()
@@ -153,6 +154,64 @@ export class CatalogService {
       teamA: teams.find((team) => team.id === match.teamAId) ?? null,
       teamB: teams.find((team) => team.id === match.teamBId) ?? null,
     };
+  }
+
+  /** Recherche d'équipes par nom ou alias (matching manuel admin). */
+  async searchTeams(query: string, gameId?: string) {
+    const q = query.trim();
+    if (q.length < 2) return [];
+    return this.prisma.team.findMany({
+      where: {
+        ...(gameId ? { gameId } : {}),
+        OR: [{ name: { contains: q, mode: 'insensitive' } }, { aliases: { has: q } }],
+      },
+      select: { id: true, gameId: true, name: true, acronym: true, aliases: true },
+      orderBy: { name: 'asc' },
+      take: 25,
+    });
+  }
+
+  /**
+   * Ajoute un alias provider à une équipe (matching manuel) et renvoie les
+   * matchs récents de l'équipe à ré-ingérer pour que le rapprochement prenne
+   * effet sans attendre. Alias dédupliqué par forme normalisée.
+   */
+  async addTeamAlias(teamId: string, alias: string): Promise<{ aliases: string[]; matchIds: string[] }> {
+    const clean = alias.trim();
+    if (!clean || !normalizeName(clean)) {
+      throw new BadRequestException('Alias vide ou sans caractère alphanumérique');
+    }
+    const team = await this.prisma.team.findUnique({ where: { id: teamId } });
+    if (!team) throw new NotFoundException(`Équipe inconnue : ${teamId}`);
+    const exists = team.aliases.some((a) => normalizeName(a) === normalizeName(clean));
+    const aliases = exists ? team.aliases : [...team.aliases, clean];
+    if (!exists) {
+      await this.prisma.team.update({ where: { id: teamId }, data: { aliases } });
+    }
+    return { aliases, matchIds: await this.recentMatchIdsForTeam(teamId) };
+  }
+
+  /** Retire un alias d'une équipe. */
+  async removeTeamAlias(teamId: string, alias: string): Promise<{ aliases: string[] }> {
+    const team = await this.prisma.team.findUnique({ where: { id: teamId } });
+    if (!team) throw new NotFoundException(`Équipe inconnue : ${teamId}`);
+    const target = normalizeName(alias);
+    const aliases = team.aliases.filter((a) => normalizeName(a) !== target);
+    await this.prisma.team.update({ where: { id: teamId }, data: { aliases } });
+    return { aliases };
+  }
+
+  /** Matchs finis < 7j sans stats impliquant l'équipe (à ré-ingérer après ajout d'alias). */
+  private async recentMatchIdsForTeam(teamId: string): Promise<string[]> {
+    const matches = await this.prisma.match.findMany({
+      where: {
+        status: 'finished',
+        endAt: { gte: new Date(Date.now() - 7 * 24 * 3600 * 1000) },
+        OR: [{ teamAId: teamId }, { teamBId: teamId }],
+      },
+      select: { id: true },
+    });
+    return matches.map((match) => match.id);
   }
 
   /**

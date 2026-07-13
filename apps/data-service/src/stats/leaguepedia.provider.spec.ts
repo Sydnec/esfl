@@ -63,7 +63,7 @@ const rows: LeaguepediaRow[] = [
 
 describe('mapLeaguepediaRows', () => {
   it('filtre par équipes, agrège le Bo3, résout le côté et la désambiguïsation', () => {
-    const lines = mapLeaguepediaRows(rows, 'G2 Esports', 'Fnatic');
+    const lines = mapLeaguepediaRows(rows, { name: 'G2 Esports' }, { name: 'Fnatic' });
     expect(lines).toHaveLength(1);
     const caps = lines[0];
     expect(caps.externalName).toBe('Caps');
@@ -79,7 +79,7 @@ describe('mapLeaguepediaRows', () => {
   });
 
   it('détaille chaque game : champion, KDA, cs/min et résultat', () => {
-    const lines = mapLeaguepediaRows(rows, 'G2 Esports', 'Fnatic');
+    const lines = mapLeaguepediaRows(rows, { name: 'G2 Esports' }, { name: 'Fnatic' });
     const perMap = lines[0].perMap as MapStatsEntry[];
     expect(perMap).toHaveLength(3);
     expect(perMap[0]).toMatchObject({
@@ -103,6 +103,6 @@ describe('mapLeaguepediaRows', () => {
   });
 
   it('retourne vide si aucune game ne correspond aux équipes', () => {
-    expect(mapLeaguepediaRows(rows, 'Karmine Corp', 'Vitality')).toHaveLength(0);
+    expect(mapLeaguepediaRows(rows, { name: 'Karmine Corp' }, { name: 'Vitality' })).toHaveLength(0);
   });
 });

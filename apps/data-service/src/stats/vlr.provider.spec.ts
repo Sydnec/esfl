@@ -72,7 +72,7 @@ PICK</span></div>
 
 describe('mapVlrMatchHtml', () => {
   it('extrait toutes les lignes avec pseudo et côté A/B résolu par tableau', () => {
-    const lines = mapVlrMatchHtml(html, 'Sentinels', 'Fnatic');
+    const lines = mapVlrMatchHtml(html, { name: 'Sentinels' }, { name: 'Fnatic' });
     expect(lines).toHaveLength(3);
     const tenz = lines.find((line) => line.externalName === 'TenZ');
     expect(tenz?.side).toBe('A');
@@ -89,13 +89,13 @@ describe('mapVlrMatchHtml', () => {
   });
 
   it('résout le côté avec les équipes inversées (droite = A)', () => {
-    const lines = mapVlrMatchHtml(html, 'Fnatic', 'Sentinels');
+    const lines = mapVlrMatchHtml(html, { name: 'Fnatic' }, { name: 'Sentinels' });
     expect(lines.find((line) => line.externalName === 'TenZ')?.side).toBe('B');
     expect(lines.find((line) => line.externalName === 'Boaster')?.side).toBe('A');
   });
 
   it('extrait le détail par manche avec agent et nom de map', () => {
-    const lines = mapVlrMatchHtml(html, 'Sentinels', 'Fnatic');
+    const lines = mapVlrMatchHtml(html, { name: 'Sentinels' }, { name: 'Fnatic' });
     const perMap = lines.find((line) => line.externalName === 'TenZ')?.perMap as MapStatsEntry[];
     expect(perMap).toHaveLength(2);
     expect(perMap[0]).toEqual({
@@ -153,7 +153,7 @@ describe('mapVlrMatchHtml', () => {
   </div>
   <table>${tableHead}<tbody>${emptyRow('TenZ', null)}</tbody></table>
 </div>`;
-    const lines = mapVlrMatchHtml(live, 'Sentinels', 'Fnatic');
+    const lines = mapVlrMatchHtml(live, { name: 'Sentinels' }, { name: 'Fnatic' });
     const perMap = lines[0].perMap as MapStatsEntry[];
     expect(perMap).toHaveLength(2);
     expect(perMap[0]).toMatchObject({ map: 'Ascent', agent: 'Jett', kills: 20 });
@@ -168,13 +168,13 @@ describe('mapVlrMatchHtml', () => {
 <div class="vm-stats-game" data-game-id="all">
   <table>${tableHead}<tbody>${statRow('TenZ', null, [1, 200, 20, 15, 5, 5, 70, 140, 25, 3, 2, 1])}</tbody></table>
 </div>`;
-    const lines = mapVlrMatchHtml(aggregateOnly, 'Sentinels', 'Fnatic');
+    const lines = mapVlrMatchHtml(aggregateOnly, { name: 'Sentinels' }, { name: 'Fnatic' });
     expect(lines).toHaveLength(1);
     expect(lines[0].side).toBeNull();
     expect(lines[0].perMap).toBeNull();
   });
 
   it('retourne vide sans bloc de stats « all »', () => {
-    expect(mapVlrMatchHtml('<div>rien</div>', 'Sentinels', 'Fnatic')).toHaveLength(0);
+    expect(mapVlrMatchHtml('<div>rien</div>', { name: 'Sentinels' }, { name: 'Fnatic' })).toHaveLength(0);
   });
 });

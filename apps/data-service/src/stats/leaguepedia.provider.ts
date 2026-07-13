@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { MapStatsEntry } from '@esfl/contracts';
 import type { Match, Prisma } from '../../generated/client';
-import { teamNamesMatch } from './matching';
+import { teamMatches, TeamRef } from './matching';
 import { politeFetch } from './polite-fetch';
 import type {
   GameStatsProvider,
@@ -57,15 +57,15 @@ export function championImageUrl(champion: string): string {
  */
 export function mapLeaguepediaRows(
   rows: LeaguepediaRow[],
-  teamAName: string,
-  teamBName: string,
+  teamA: TeamRef,
+  teamB: TeamRef,
 ): ProviderStatLine[] {
   const matchRows = rows.filter((row) => {
     const team1 = row.Team1 ?? '';
     const team2 = row.Team2 ?? '';
     return (
-      (teamNamesMatch(team1, teamAName) && teamNamesMatch(team2, teamBName)) ||
-      (teamNamesMatch(team1, teamBName) && teamNamesMatch(team2, teamAName))
+      (teamMatches(team1, teamA) && teamMatches(team2, teamB)) ||
+      (teamMatches(team1, teamB) && teamMatches(team2, teamA))
     );
   });
   if (matchRows.length === 0) return [];
@@ -126,9 +126,9 @@ export function mapLeaguepediaRows(
 
   const lines: ProviderStatLine[] = [];
   for (const [name, aggregate] of byPlayer) {
-    const side = teamNamesMatch(aggregate.team ?? '', teamAName)
+    const side = teamMatches(aggregate.team ?? '', teamA)
       ? 'A'
-      : teamNamesMatch(aggregate.team ?? '', teamBName)
+      : teamMatches(aggregate.team ?? '', teamB)
         ? 'B'
         : null;
     lines.push({
@@ -151,15 +151,15 @@ export function mapLeaguepediaRows(
 /** Manches LoL : « score » = total de kills de chaque équipe sur la game. */
 export function mapLeaguepediaGames(
   rows: LeaguepediaRow[],
-  teamAName: string,
-  teamBName: string,
+  teamA: TeamRef,
+  teamB: TeamRef,
 ): ProviderGameInfo[] {
   const matchRows = rows.filter((row) => {
     const team1 = row.Team1 ?? '';
     const team2 = row.Team2 ?? '';
     return (
-      (teamNamesMatch(team1, teamAName) && teamNamesMatch(team2, teamBName)) ||
-      (teamNamesMatch(team1, teamBName) && teamNamesMatch(team2, teamAName))
+      (teamMatches(team1, teamA) && teamMatches(team2, teamB)) ||
+      (teamMatches(team1, teamB) && teamMatches(team2, teamA))
     );
   });
   const byGame = new Map<string, LeaguepediaRow[]>();
@@ -171,15 +171,15 @@ export function mapLeaguepediaGames(
   let fallbackPosition = 0;
   for (const gameRows of byGame.values()) {
     fallbackPosition += 1;
-    const killsFor = (teamName: string) =>
+    const killsFor = (team: TeamRef) =>
       gameRows
-        .filter((row) => teamNamesMatch(row.Team ?? '', teamName))
+        .filter((row) => teamMatches(row.Team ?? '', team))
         .reduce((sum, row) => sum + Number(row.Kills ?? 0), 0);
     games.push({
       position: Number(gameRows[0].GameNumber ?? fallbackPosition) || fallbackPosition,
       map: null,
-      scoreA: killsFor(teamAName),
-      scoreB: killsFor(teamBName),
+      scoreA: killsFor(teamA),
+      scoreB: killsFor(teamB),
     });
   }
   return games.sort((a, b) => a.position - b.position);
@@ -250,7 +250,7 @@ export class LeaguepediaStatsProvider implements GameStatsProvider {
       rows.push(...page);
       if (page.length < 500) break;
     }
-    const lines = mapLeaguepediaRows(rows, context.teamA.name, context.teamB.name);
+    const lines = mapLeaguepediaRows(rows, context.teamA, context.teamB);
     if (lines.length === 0) {
       this.logger.warn(
         `Leaguepedia : rien trouvé pour ${context.teamA.name} vs ${context.teamB.name}`,
@@ -259,7 +259,7 @@ export class LeaguepediaStatsProvider implements GameStatsProvider {
     }
     return {
       lines,
-      games: mapLeaguepediaGames(rows, context.teamA.name, context.teamB.name),
+      games: mapLeaguepediaGames(rows, context.teamA, context.teamB),
     };
   }
 }

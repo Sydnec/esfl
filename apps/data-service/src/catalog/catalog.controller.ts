@@ -1,4 +1,13 @@
-import { BadRequestException, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { GAME_IDS, GAME_LABELS } from '@esfl/contracts';
 import { Queue } from 'bullmq';
@@ -132,6 +141,32 @@ export class CatalogController {
   async triggerIngestStats(@Param('matchId') matchId: string, @Query('force') force?: string) {
     await enqueueIngestStats(this.ingestionQueue, matchId, force === 'true');
     return { enqueued: 'ingest-stats', matchId, force: force === 'true' };
+  }
+
+  /** Recherche d'équipes pour le matching manuel (page admin). */
+  @Get('admin/teams')
+  @UseGuards(AdminGuard)
+  searchTeams(@Query('search') search?: string, @Query('gameId') gameId?: string) {
+    return this.catalog.searchTeams(search ?? '', gameId);
+  }
+
+  /**
+   * Ajoute un alias provider à une équipe (matching manuel) et relance
+   * l'ingestion de ses matchs récents pour que le rapprochement s'applique.
+   */
+  @Post('admin/teams/:teamId/aliases')
+  @UseGuards(AdminGuard)
+  async addTeamAlias(@Param('teamId') teamId: string, @Query('alias') alias?: string) {
+    const { aliases, matchIds } = await this.catalog.addTeamAlias(teamId, alias ?? '');
+    await Promise.all(matchIds.map((id) => enqueueIngestStats(this.ingestionQueue, id, true)));
+    return { aliases, reingested: matchIds.length };
+  }
+
+  /** Retire un alias d'une équipe. */
+  @Delete('admin/teams/:teamId/aliases')
+  @UseGuards(AdminGuard)
+  removeTeamAlias(@Param('teamId') teamId: string, @Query('alias') alias?: string) {
+    return this.catalog.removeTeamAlias(teamId, alias ?? '');
   }
 
   /** Santé de l'ingestion : activité par jeu, catalogue, queue, quota — page admin du front. */

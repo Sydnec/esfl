@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import * as cheerio from 'cheerio';
 import type { MapStatsEntry } from '@esfl/contracts';
 import type { Match, Prisma } from '../../generated/client';
-import { normalizeName, teamNamesMatch } from './matching';
+import { normalizeName, teamMatches, TeamRef } from './matching';
 import { politeFetch } from './polite-fetch';
 import type {
   GameStatsProvider,
@@ -44,8 +44,8 @@ function headerMapName(text: string): string | null {
  */
 export function mapVlrMatchHtml(
   html: string,
-  teamAName: string,
-  teamBName: string,
+  teamA: TeamRef,
+  teamB: TeamRef,
 ): ProviderStatLine[] {
   const $ = cheerio.load(html);
 
@@ -117,8 +117,8 @@ export function mapVlrMatchHtml(
   const headerNames = $('.vm-stats-game-header .team-name')
     .map((_i, el) => $(el).text().trim())
     .get();
-  const leftIsA = headerNames.length >= 2 ? teamNamesMatch(headerNames[0], teamAName) : false;
-  const leftIsB = headerNames.length >= 2 ? teamNamesMatch(headerNames[0], teamBName) : false;
+  const leftIsA = headerNames.length >= 2 ? teamMatches(headerNames[0], teamA) : false;
+  const leftIsB = headerNames.length >= 2 ? teamMatches(headerNames[0], teamB) : false;
   const sideOf = (tableIdx: number): 'A' | 'B' | null => {
     if (!leftIsA && !leftIsB) return null;
     if (tableIdx > 1) return null;
@@ -191,8 +191,8 @@ export function mapVlrMatchHtml(
  */
 export function mapVlrGames(
   html: string,
-  teamAName: string,
-  teamBName: string,
+  teamA: TeamRef,
+  teamB: TeamRef,
 ): ProviderGameInfo[] {
   const $ = cheerio.load(html);
   const games: ProviderGameInfo[] = [];
@@ -208,8 +208,8 @@ export function mapVlrGames(
       .map((_i, el) => $(el).text().trim())
       .get();
     if (scores.length < 2 || names.length < 2) return;
-    const leftIsA = teamNamesMatch(names[0], teamAName);
-    const leftIsB = teamNamesMatch(names[0], teamBName);
+    const leftIsA = teamMatches(names[0], teamA);
+    const leftIsB = teamMatches(names[0], teamB);
     if (!leftIsA && !leftIsB) return;
     games.push({
       position: index + 1,
@@ -232,7 +232,7 @@ export class VlrStatsProvider implements GameStatsProvider {
 
     const matchPath =
       match.statsPageUrl ??
-      (await this.findMatchPath(context.teamA.name, context.teamB.name, ['/matches/results']));
+      (await this.findMatchPath(context.teamA, context.teamB, ['/matches/results']));
     if (!matchPath) {
       this.logger.warn(
         `VLR : match ${context.teamA.name} vs ${context.teamB.name} introuvable dans les résultats récents`,
@@ -252,10 +252,7 @@ export class VlrStatsProvider implements GameStatsProvider {
 
     const matchPath =
       match.statsPageUrl ??
-      (await this.findMatchPath(context.teamA.name, context.teamB.name, [
-        '/matches',
-        '/matches/results',
-      ]));
+      (await this.findMatchPath(context.teamA, context.teamB, ['/matches', '/matches/results']));
     if (!matchPath) return null;
     return this.fetchFromPath(matchPath, context);
   }
@@ -271,21 +268,21 @@ export class VlrStatsProvider implements GameStatsProvider {
       return null;
     }
     const html = await response.text();
-    const lines = mapVlrMatchHtml(html, context.teamA.name, context.teamB.name);
+    const lines = mapVlrMatchHtml(html, context.teamA, context.teamB);
     if (lines.length === 0) {
       return null;
     }
     return {
       lines,
-      games: mapVlrGames(html, context.teamA.name, context.teamB.name),
+      games: mapVlrGames(html, context.teamA, context.teamB),
       pageUrl: matchPath,
     };
   }
 
-  /** Scanne des listes de matchs VLR et retrouve le lien par noms d'équipes. */
+  /** Scanne des listes de matchs VLR et retrouve le lien par noms d'équipes (alias inclus). */
   private async findMatchPath(
-    teamAName: string,
-    teamBName: string,
+    teamA: TeamRef,
+    teamB: TeamRef,
     listings: string[],
   ): Promise<string | null> {
     for (const listing of listings) {
@@ -303,8 +300,8 @@ export class VlrStatsProvider implements GameStatsProvider {
               .get();
             if (names.length < 2) return false;
             return (
-              (teamNamesMatch(names[0], teamAName) && teamNamesMatch(names[1], teamBName)) ||
-              (teamNamesMatch(names[0], teamBName) && teamNamesMatch(names[1], teamAName))
+              (teamMatches(names[0], teamA) && teamMatches(names[1], teamB)) ||
+              (teamMatches(names[0], teamB) && teamMatches(names[1], teamA))
             );
           });
         if (found) {
