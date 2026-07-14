@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import type { MapStatsEntry } from '@esfl/contracts';
 import type { Match, Prisma, Team } from '../../generated/client';
 import { PrismaService } from '../prisma.service';
 import {
@@ -50,7 +51,13 @@ export interface GridSeriesStateGame {
   teams?: Array<{
     name?: string;
     score?: number;
-    players?: Array<{ name?: string; firstKill?: boolean }>;
+    players?: Array<{
+      name?: string;
+      firstKill?: boolean;
+      kills?: number;
+      deaths?: number;
+      killAssistsGiven?: number;
+    }>;
   }>;
   started?: boolean;
   finished?: boolean;
@@ -110,6 +117,34 @@ function firstKillsByPlayer(state: GridSeriesState): Map<string, number> {
   return counts;
 }
 
+/** Détail par manche (K/D/A + entrées) par joueur, pour le filtre par game côté front. */
+function perMapByPlayer(state: GridSeriesState): Map<string, MapStatsEntry[]> {
+  const byPlayer = new Map<string, MapStatsEntry[]>();
+  for (const game of state.games ?? []) {
+    // Même filtre que mapGridGames : manche jouée ou en cours, pas les manches à venir.
+    if (!game.sequenceNumber || (game.finished === false && game.started !== true)) continue;
+    for (const team of game.teams ?? []) {
+      for (const player of team.players ?? []) {
+        if (!player.name) continue;
+        const key = normalizeName(player.name);
+        const entries = byPlayer.get(key) ?? [];
+        entries.push({
+          position: game.sequenceNumber,
+          map: game.map?.name ?? null,
+          agent: null,
+          agentImage: null,
+          kills: player.kills ?? null,
+          deaths: player.deaths ?? null,
+          assists: player.killAssistsGiven ?? null,
+          firstKills: player.firstKill ? 1 : 0,
+        });
+        byPlayer.set(key, entries);
+      }
+    }
+  }
+  return byPlayer;
+}
+
 /** Mappe l'état final d'une série Grid vers nos stats CS2 normalisées. */
 export function mapGridSeriesState(
   state: GridSeriesState,
@@ -117,6 +152,7 @@ export function mapGridSeriesState(
   teamB: TeamRef,
 ): ProviderStatLine[] {
   const firstKills = firstKillsByPlayer(state);
+  const perMap = perMapByPlayer(state);
   const lines: ProviderStatLine[] = [];
   for (const team of state.teams ?? []) {
     const side = teamMatches(team.name ?? '', teamA)
@@ -126,8 +162,10 @@ export function mapGridSeriesState(
         : null;
     for (const entry of team.players ?? []) {
       if (!entry.name) continue;
+      const key = normalizeName(entry.name);
       const objectiveCount = (type: string): number =>
         (entry.objectives ?? []).find((objective) => objective.type === type)?.completionCount ?? 0;
+      const playerPerMap = perMap.get(key);
       lines.push({
         externalName: entry.name,
         side,
@@ -141,8 +179,9 @@ export function mapGridSeriesState(
           rating: null,
           plants: objectiveCount('plantBomb'),
           defuses: objectiveCount('defuseBomb'),
-          firstKills: firstKills.get(normalizeName(entry.name)) ?? 0,
+          firstKills: firstKills.get(key) ?? 0,
         },
+        perMap: playerPerMap?.length ? (playerPerMap as unknown as Prisma.InputJsonValue) : null,
       });
     }
   }
@@ -217,7 +256,7 @@ export class GridStatsProvider implements GameStatsProvider {
           }
           games {
             sequenceNumber started finished map { name }
-            teams { name score players { name firstKill } }
+            teams { name score players { name firstKill kills deaths killAssistsGiven } }
           }
         }
       }`,
