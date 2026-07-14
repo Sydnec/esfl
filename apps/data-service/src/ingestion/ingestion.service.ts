@@ -101,7 +101,11 @@ export class IngestionService {
     if (followed.length === 0) return [];
     const cutoff = new Date(Date.now() - 3 * 24 * 3600 * 1000);
     return this.prisma.competition.findMany({
-      where: { id: { in: followed }, OR: [{ endAt: null }, { endAt: { gte: cutoff } }] },
+      where: {
+        id: { in: followed },
+        hidden: false,
+        OR: [{ endAt: null }, { endAt: { gte: cutoff } }],
+      },
     });
   }
 
@@ -114,7 +118,8 @@ export class IngestionService {
   private activeCompetitions() {
     const cutoff = new Date(Date.now() - 3 * 24 * 3600 * 1000);
     return this.prisma.competition.findMany({
-      where: { OR: [{ endAt: null }, { endAt: { gte: cutoff } }] },
+      // Irrécupérables : on cesse de les synchroniser (retirées des données).
+      where: { hidden: false, OR: [{ endAt: null }, { endAt: { gte: cutoff } }] },
       orderBy: { beginAt: 'asc' },
     });
   }
@@ -421,6 +426,8 @@ export class IngestionService {
         teamAId: { not: null },
         teamBId: { not: null },
         scheduledAt: { gte: cutoff },
+        // Inutile de re-tenter les compétitions déclarées irrécupérables.
+        competition: { hidden: false },
       },
       orderBy: { scheduledAt: 'desc' },
       take: 50,
@@ -433,5 +440,56 @@ export class IngestionService {
       this.logger.log(`retry-stats-backfill : ${matches.length} match(s) sans stats ré-armés`);
     }
     return matches.length;
+  }
+
+  /**
+   * Détecte les compétitions irrécupérables et les masque (`hidden`). Une
+   * compétition est irrécupérable quand au moins `MIN_NO_COVERAGE` de ses
+   * matchs terminés ont été **tentés puis diagnostiqués `no-coverage`** (la
+   * source ne référence pas la rencontre) et qu'aucun match n'a de stats. On
+   * s'appuie sur le diagnostic d'échec, pas sur l'âge : une compétition jamais
+   * ingérée (ex. LCK non suivie) reste récupérable et n'est PAS masquée — seul
+   * un échec confirmé à la source compte (cas XSE, absente du feed Grid).
+   * Idempotent et réversible : repasse `hidden` à false dès qu'une stat arrive.
+   */
+  async flagUnrecoverableCompetitions(): Promise<number> {
+    const MIN_NO_COVERAGE = 5;
+
+    const [noCoverageByComp, withStats, competitions] = await Promise.all([
+      // Matchs tentés et confirmés absents de la source (retries épuisés).
+      this.prisma.match.groupBy({
+        by: ['competitionId'],
+        where: { status: 'finished', statsFailureKind: 'no-coverage' },
+        _count: { _all: true },
+      }),
+      this.prisma.match.findMany({
+        where: { status: 'finished', stats: { some: {} } },
+        select: { competitionId: true },
+        distinct: ['competitionId'],
+      }),
+      this.prisma.competition.findMany({ select: { id: true, hidden: true } }),
+    ]);
+    const noCoverageMap = new Map(
+      noCoverageByComp.map((row) => [row.competitionId, row._count._all]),
+    );
+    const withStatsIds = new Set(withStats.map((row) => row.competitionId));
+
+    let changed = 0;
+    for (const competition of competitions) {
+      const unrecoverable =
+        (noCoverageMap.get(competition.id) ?? 0) >= MIN_NO_COVERAGE &&
+        !withStatsIds.has(competition.id);
+      if (unrecoverable !== competition.hidden) {
+        await this.prisma.competition.update({
+          where: { id: competition.id },
+          data: { hidden: unrecoverable },
+        });
+        changed += 1;
+        this.logger.log(
+          `Compétition ${competition.id} ${unrecoverable ? 'masquée (irrécupérable)' : 'ré-affichée (récupérable)'}`,
+        );
+      }
+    }
+    return changed;
   }
 }

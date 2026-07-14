@@ -81,6 +81,8 @@ export class CatalogService {
   listCompetitions(gameId?: string, search?: string) {
     return this.prisma.competition.findMany({
       where: {
+        // Irrécupérables masquées : jamais proposées au parcours ni au suivi.
+        hidden: false,
         ...(gameId ? { gameId } : {}),
         ...(search ? { name: { contains: search, mode: 'insensitive' as const } } : {}),
       },
@@ -94,7 +96,9 @@ export class CatalogService {
       where: { id },
       include: { teams: { include: { team: true } } },
     });
-    if (!competition) {
+    // Masquée (irrécupérable) = introuvable côté public : bloque aussi la
+    // validation de suivi côté fantasy (leagues.service appelle getCompetition).
+    if (!competition || competition.hidden) {
       throw new NotFoundException('Compétition introuvable');
     }
     return competition;
@@ -107,6 +111,8 @@ export class CatalogService {
         ...(from || to
           ? { scheduledAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } }
           : {}),
+        // Compétition irrécupérable : masquée partout (accueil, board, scoring).
+        competition: { hidden: false },
         // CS2 : les matchs que Grid ne référence pas n'auront jamais de
         // stats — on ne les expose nulle part (accueil, board, scoring).
         // OR explicite : un NOT exclurait aussi les null (pas encore vérifiés).

@@ -28,6 +28,83 @@ function setup(configValue?: unknown) {
   return { service, findMany, add, config };
 }
 
+/** Prisma factice pour flagUnrecoverableCompetitions.
+ * `noCoverageByComp` = matchs terminés diagnostiqués `no-coverage`. */
+function flagSetup(opts: {
+  noCoverageByComp: Array<{ competitionId: string; count: number }>;
+  withStats: string[];
+  competitions: Array<{ id: string; hidden: boolean }>;
+}) {
+  const updates: Array<{ id: string; hidden: boolean }> = [];
+  const prisma = {
+    match: {
+      groupBy: vi.fn(async () =>
+        opts.noCoverageByComp.map((row) => ({
+          competitionId: row.competitionId,
+          _count: { _all: row.count },
+        })),
+      ),
+      findMany: vi.fn(async () => opts.withStats.map((id) => ({ competitionId: id }))),
+    },
+    competition: {
+      findMany: vi.fn(async () => opts.competitions),
+      update: vi.fn(async ({ where, data }: { where: { id: string }; data: { hidden: boolean } }) => {
+        updates.push({ id: where.id, hidden: data.hidden });
+        return data;
+      }),
+    },
+  } as unknown as PrismaService;
+  const service = new IngestionService(
+    prisma,
+    {} as never,
+    {} as never,
+    {} as never,
+    { get: vi.fn() } as unknown as ConfigService,
+    { add: vi.fn(), getJob: vi.fn() } as unknown as Queue,
+  );
+  return { service, updates };
+}
+
+describe('flagUnrecoverableCompetitions', () => {
+  it('masque une compétition avec assez de matchs no-coverage et aucune stat', async () => {
+    const { service, updates } = flagSetup({
+      noCoverageByComp: [{ competitionId: 'xse', count: 36 }],
+      withStats: [],
+      competitions: [{ id: 'xse', hidden: false }],
+    });
+    await service.flagUnrecoverableCompetitions();
+    expect(updates).toEqual([{ id: 'xse', hidden: true }]);
+  });
+
+  it('ne masque pas une compétition jamais tentée (ex. LCK non suivie), avec stats, ou trop peu de no-coverage', async () => {
+    const { service, updates } = flagSetup({
+      noCoverageByComp: [
+        { competitionId: 'covered', count: 36 }, // a des stats
+        { competitionId: 'tiny', count: 3 }, // trop peu de no-coverage
+        // 'lck' : jamais tentée → aucun no-coverage → absente du groupBy
+      ],
+      withStats: ['covered'],
+      competitions: [
+        { id: 'covered', hidden: false },
+        { id: 'lck', hidden: false },
+        { id: 'tiny', hidden: false },
+      ],
+    });
+    await service.flagUnrecoverableCompetitions();
+    expect(updates).toEqual([]);
+  });
+
+  it('ré-affiche une compétition masquée si des stats sont finalement arrivées', async () => {
+    const { service, updates } = flagSetup({
+      noCoverageByComp: [{ competitionId: 'back', count: 36 }],
+      withStats: ['back'],
+      competitions: [{ id: 'back', hidden: true }],
+    });
+    await service.flagUnrecoverableCompetitions();
+    expect(updates).toEqual([{ id: 'back', hidden: false }]);
+  });
+});
+
 describe('retryStatsBackfill', () => {
   it('ré-arme l’ingestion de chaque match terminé sans stats dans l’horizon', async () => {
     const { service, findMany, add } = setup();

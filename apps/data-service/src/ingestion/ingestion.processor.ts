@@ -44,6 +44,9 @@ export class IngestionProcessor extends WorkerHost {
         await this.statsIngestion.syncLiveStats();
         break;
       case 'retry-stats-backfill':
+        // Masque d'abord les irrécupérables (le backfill les saute ensuite),
+        // puis ré-arme l'ingestion des matchs encore récupérables.
+        await this.ingestion.flagUnrecoverableCompetitions();
         await this.ingestion.retryStatsBackfill();
         break;
       case 'ingest-stats': {

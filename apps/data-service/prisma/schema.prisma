@@ -21,6 +21,13 @@ model Competition {
   beginAt      DateTime? @map("begin_at")
   endAt        DateTime? @map("end_at")
   imageUrl     String?   @map("image_url")
+  /**
+   * Compétition irrécupérable (aucune stat disponible chez les sources après la
+   * fenêtre de récupération) : masquée du catalogue, du planning et du suivi
+   * fantasy pour ne pas frustrer — personne ne la voit. Ré-évalué en continu :
+   * repasse à false si des stats finissent par arriver.
+   */
+  hidden       Boolean   @default(false)
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
   matches      Match[]
