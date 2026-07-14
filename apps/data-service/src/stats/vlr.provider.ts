@@ -51,6 +51,27 @@ function headerMapName(text: string): string | null {
  * (tag). Colonnes repérées par en-têtes (ACS/FK) ; le K/D/A vit dans une cellule
  * `.ovw-cell.mod-kda` (spans `.ovw-kda-stat[data-col]`).
  */
+/**
+ * Noms d'équipe de l'en-tête VLR mappés côté A/B (même résolution que le
+ * mapping des joueurs : l'équipe de gauche reconnue fixe les côtés). Sert à
+ * apprendre l'alias de l'équipe dont le nom VLR diffère du nôtre. Null si les
+ * côtés ne peuvent pas être déterminés.
+ */
+export function mapVlrTeamNames(
+  html: string,
+  teamA: TeamRef,
+  teamB: TeamRef,
+): { A: string | null; B: string | null } {
+  const $ = cheerio.load(html);
+  const headerNames = $('.vm-stats-game-header .team-name')
+    .map((_i, el) => $(el).text().trim())
+    .get();
+  if (headerNames.length < 2) return { A: null, B: null };
+  if (teamMatches(headerNames[0], teamA)) return { A: headerNames[0], B: headerNames[1] };
+  if (teamMatches(headerNames[0], teamB)) return { A: headerNames[1], B: headerNames[0] };
+  return { A: null, B: null };
+}
+
 export function mapVlrMatchHtml(
   html: string,
   teamA: TeamRef,
@@ -316,6 +337,7 @@ export class VlrStatsProvider implements GameStatsProvider {
     return {
       lines,
       games: mapVlrGames(html, context.teamA, context.teamB),
+      teamNames: mapVlrTeamNames(html, context.teamA, context.teamB),
       pageUrl: matchPath,
     };
   }

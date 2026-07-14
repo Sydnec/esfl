@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MapStatsEntry } from '@esfl/contracts';
-import { mapVlrMatchHtml } from './vlr.provider';
+import { mapVlrMatchHtml, mapVlrTeamNames } from './vlr.provider';
 
 // Reproduit la grille .ovw-table de vlr.gg (une table par équipe). Ordre des
 // valeurs : R, ACS, K, D, A, +/-, KAST, ADR, HS%, FK, FD, +/-.
@@ -66,6 +66,27 @@ const html = `
   ${mapHeader('Bind', 10, 13)}
   ${ovwTable(statRow('TenZ', 'SEN', 'Omen', [1.1, 240, 17, 16, 5, 1, 70, 150, 26, 2, 2, 0]))}
 </div>`;
+
+describe('mapVlrTeamNames', () => {
+  it('mappe les noms d’en-tête sur les côtés via l’équipe reconnue', () => {
+    expect(mapVlrTeamNames(html, { name: 'Sentinels' }, { name: 'Fnatic' })).toEqual({
+      A: 'Sentinels',
+      B: 'Fnatic',
+    });
+    // Côtés inversés : l'en-tête gauche (Sentinels) devient B.
+    expect(mapVlrTeamNames(html, { name: 'Fnatic' }, { name: 'Sentinels' })).toEqual({
+      A: 'Fnatic',
+      B: 'Sentinels',
+    });
+  });
+
+  it('renvoie null si aucune équipe d’en-tête n’est reconnue', () => {
+    expect(mapVlrTeamNames(html, { name: 'Cloud9' }, { name: 'NRG' })).toEqual({
+      A: null,
+      B: null,
+    });
+  });
+});
 
 describe('mapVlrMatchHtml', () => {
   it('extrait toutes les lignes avec pseudo et côté A/B résolu par tag d’équipe', () => {

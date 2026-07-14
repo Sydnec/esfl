@@ -38,6 +38,8 @@ export interface ProviderResult {
   games?: ProviderGameInfo[];
   /** Chemin/URL de la page source, mémorisé sur le match pour les fetchs suivants. */
   pageUrl?: string | null;
+  /** Noms d'équipe vus par la source, par côté : sert à apprendre les alias. */
+  teamNames?: { A: string | null; B: string | null };
 }
 
 /**

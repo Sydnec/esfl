@@ -7,7 +7,7 @@ import type { Match } from '../../generated/client';
 import { mergeGamesSummary } from '../common/games-summary';
 import { LiveEventsService } from '../live/live-events.service';
 import { PrismaService } from '../prisma.service';
-import { buildPlayerIndex, matchPlayer, normalizeName } from './matching';
+import { buildPlayerIndex, matchPlayer, normalizeName, teamMatches } from './matching';
 import { BallchasingStatsProvider } from './ballchasing.provider';
 import { GridStatsProvider } from './grid.provider';
 import { LeaguepediaStatsProvider } from './leaguepedia.provider';
@@ -245,7 +245,56 @@ export class StatsIngestionService {
         data: { statsPageUrl: result.pageUrl },
       });
     }
+    await this.learnProviderAliases(match, context, source, result.teamNames);
     return persisted;
+  }
+
+  /**
+   * Apprend l'alias d'une équipe quand la source la nomme autrement que nous
+   * (ex. page VLR posée à la main : « JDG Esports » côté VLR vs « JD Gaming »
+   * chez nous). Le côté est déjà résolu par le provider, donc l'association est
+   * fiable — les prochains matchs de cette équipe s'auto-résoudront. Garde-fou :
+   * on n'apprend pas un nom déjà porté par une AUTRE équipe connue (ce serait
+   * une vraie équipe tierce, pas un alias).
+   */
+  private async learnProviderAliases(
+    match: Match,
+    context: MatchContext,
+    source: string,
+    teamNames?: { A: string | null; B: string | null },
+  ): Promise<void> {
+    if (!teamNames) return;
+    for (const side of ['A', 'B'] as const) {
+      const team = side === 'A' ? context.teamA : context.teamB;
+      const name = teamNames[side]?.trim();
+      if (!team || !name || teamMatches(name, team)) continue;
+      if (await this.isOtherKnownTeam(name, match.gameId, team.id)) continue;
+      await this.prisma.team.update({
+        where: { id: team.id },
+        data: { aliases: { push: name } },
+      });
+      team.aliases = [...(team.aliases ?? []), name];
+      this.logger.log(`Alias appris via ${source} : « ${name} » → ${team.name}`);
+    }
+  }
+
+  /** Vrai si un nom est déjà porté (nom ou alias) par une autre équipe du jeu. */
+  private async isOtherKnownTeam(
+    name: string,
+    gameId: string,
+    excludeTeamId: string,
+  ): Promise<boolean> {
+    const normalized = normalizeName(name);
+    if (!normalized) return false;
+    const teams = await this.prisma.team.findMany({
+      where: { gameId, id: { not: excludeTeamId } },
+      select: { name: true, aliases: true },
+    });
+    return teams.some(
+      (team) =>
+        normalizeName(team.name) === normalized ||
+        (team.aliases ?? []).some((alias) => normalizeName(alias) === normalized),
+    );
   }
 
   /**
