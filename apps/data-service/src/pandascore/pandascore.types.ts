@@ -12,7 +12,10 @@ export interface PSSerie {
   slug: string | null;
   begin_at: string | null;
   end_at: string | null;
+  /** Toujours null sur les séries : le tier Pandascore est porté par les tournois. */
   tier: string | null;
+  /** Tournois de la série (inclus dans le payload) : leur `tier` alimente celui de la compétition. */
+  tournaments?: Array<{ id: number; tier: string | null }>;
   league: PSLeague | null;
 }
 

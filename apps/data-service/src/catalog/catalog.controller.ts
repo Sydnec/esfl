@@ -118,6 +118,7 @@ export class CatalogController {
       'sync-live',
       'check-grid-coverage',
       'sync-live-stats',
+      'retry-stats-backfill',
     ];
     if (!allowed.includes(job as IngestionJobName)) {
       throw new BadRequestException(`Job inconnu : ${job}`);

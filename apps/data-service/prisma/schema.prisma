@@ -16,6 +16,7 @@ model Competition {
   gameId       String    @map("game_id")
   name         String
   slug         String?
+  /** Tier Pandascore (s|a|b|c|d), dérivé des tournois de la série. */
   tier         String?
   beginAt      DateTime? @map("begin_at")
   endAt        DateTime? @map("end_at")

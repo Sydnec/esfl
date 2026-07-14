@@ -43,6 +43,9 @@ export class IngestionProcessor extends WorkerHost {
       case 'sync-live-stats':
         await this.statsIngestion.syncLiveStats();
         break;
+      case 'retry-stats-backfill':
+        await this.ingestion.retryStatsBackfill();
+        break;
       case 'ingest-stats': {
         // Throw si les stats ne sont pas encore publiées → retry BullMQ (backoff).
         const data = job.data as { matchId: string; force?: boolean };

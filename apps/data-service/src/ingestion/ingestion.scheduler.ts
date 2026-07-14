@@ -49,8 +49,14 @@ export class IngestionScheduler implements OnModuleInit {
     await this.queue.upsertJobScheduler('sync-live-stats', { every: 3 * 60 * 1000 }, {
       name: 'sync-live-stats',
     });
+    // Rattrapage des sources publiées tardivement (Grid enregistre parfois un
+    // tournoi après la fenêtre de 48h, uploads ballchasing en retard) : ré-arme
+    // l'ingestion des matchs terminés restés sans stats, sur un horizon large.
+    await this.queue.upsertJobScheduler('retry-stats-backfill', { every: 60 * 60 * 1000 }, {
+      name: 'retry-stats-backfill',
+    });
     this.logger.log(
-      'Jobs d’ingestion planifiés (séries 12h, matchs 15min, live 3min, rosters 24h)',
+      'Jobs d’ingestion planifiés (séries 12h, matchs 15min, live 3min, rosters 24h, backfill 1h)',
     );
 
     // Premier démarrage : peuple le catalogue sans attendre le cycle de 12h.

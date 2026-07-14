@@ -4,6 +4,15 @@ import type { Queue } from 'bullmq';
  * (fichier dédié pour éviter les imports circulaires). */
 export const INGESTION_QUEUE = 'data-ingestion';
 
+/**
+ * Horizon (en jours) du rattrapage `retry-stats-backfill` : au-delà, on renonce
+ * à ré-armer l'ingestion d'un match resté sans stats. Couvre les sources
+ * publiées tardivement (Grid enregistre parfois un tournoi après la fenêtre de
+ * 48h ; uploads RL/ballchasing communautaires souvent en retard) tout en
+ * bornant le nombre de matchs re-sondés à chaque cycle. Surcharge : env
+ * `STATS_BACKFILL_DAYS`. */
+export const STATS_BACKFILL_DAYS = 14;
+
 /** Un seul jobId par match, partagé par tous les producteurs (sync auto +
  * endpoint admin) pour que BullMQ déduplique les chaînes de retries.
  * BullMQ ≥ 5.58.7 interdit `:` dans les jobId personnalisés. */
@@ -60,4 +69,5 @@ export type IngestionJobName =
   | 'sync-competition'
   | 'ingest-stats'
   | 'check-grid-coverage'
-  | 'sync-live-stats';
+  | 'sync-live-stats'
+  | 'retry-stats-backfill';

@@ -1,4 +1,5 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectQueue } from '@nestjs/bullmq';
 import { GAME_IDS, GameId } from '@esfl/contracts';
 import type { Competition, Prisma } from '../../generated/client';
@@ -10,7 +11,29 @@ import { PandascoreClient } from '../pandascore/pandascore.client';
 import type { PSMatch, PSSerie, PSStream, PSTeamRef } from '../pandascore/pandascore.types';
 import { PrismaService } from '../prisma.service';
 import { LiveEventsService } from '../live/live-events.service';
-import { enqueueIngestStats, INGESTION_QUEUE } from './ingestion.constants';
+import { enqueueIngestStats, INGESTION_QUEUE, STATS_BACKFILL_DAYS } from './ingestion.constants';
+
+/** Rang des tiers Pandascore (s le plus haut). Sert à choisir le tier d'une série. */
+const TIER_RANK: Record<string, number> = { s: 5, a: 4, b: 3, c: 2, d: 1 };
+
+/**
+ * Tier d'une compétition : le tier Pandascore est porté par les tournois, pas
+ * la série (`serie.tier` est toujours null). On retient le tier le plus élevé
+ * parmi les tournois de la série. Null si aucun tier connu.
+ */
+function bestTier(tournaments?: Array<{ tier: string | null }> | null): string | null {
+  let best: string | null = null;
+  let bestRank = 0;
+  for (const tournament of tournaments ?? []) {
+    const tier = tournament.tier?.toLowerCase() ?? null;
+    const rank = tier ? (TIER_RANK[tier] ?? 0) : 0;
+    if (rank > bestRank) {
+      bestRank = rank;
+      best = tier;
+    }
+  }
+  return best;
+}
 
 /** Stream à afficher : français en priorité, sinon le flux officiel. */
 function pickStream(streams: PSStream[] | null): string | null {
@@ -29,6 +52,7 @@ export class IngestionService {
     private readonly pandascore: PandascoreClient,
     private readonly fantasyClient: FantasyClient,
     private readonly liveEvents: LiveEventsService,
+    private readonly config: ConfigService,
     @InjectQueue(INGESTION_QUEUE) private readonly ingestionQueue: Queue,
   ) {}
 
@@ -231,7 +255,7 @@ export class IngestionService {
       gameId: game,
       name: name || `Série ${serie.id}`,
       slug: serie.slug,
-      tier: serie.tier,
+      tier: serie.tier ?? bestTier(serie.tournaments),
       beginAt: serie.begin_at ? new Date(serie.begin_at) : null,
       endAt: serie.end_at ? new Date(serie.end_at) : null,
       imageUrl: serie.league?.image_url ?? null,
@@ -375,4 +399,39 @@ export class IngestionService {
     }
   }
 
+  /**
+   * Rattrapage des sources publiées tardivement : ré-arme l'ingestion des
+   * stats pour tout match terminé encore sans stats dans l'horizon
+   * (`STATS_BACKFILL_DAYS`, surchargeable par env). Le flux normal n'enqueue
+   * qu'une fois dans les 48h de la fin du match ; si la source (Grid, upload
+   * ballchasing…) ne publie qu'après, le match reste sans stats à vie. Ici on
+   * relance `enqueueIngestStats` : la dédup par jobId sert d'auto-throttle
+   * (une chaîne de retries vivante n'est pas doublée, une chaîne échouée
+   * repart) et le job `ingest-stats` refait findSeries + diagnostic + persist.
+   * Tous jeux : le provider est choisi par gameId côté ingestion. Borné en
+   * horizon et en volume (quota des sources rate-limitées).
+   */
+  async retryStatsBackfill(): Promise<number> {
+    const days = Number(this.config.get('STATS_BACKFILL_DAYS')) || STATS_BACKFILL_DAYS;
+    const cutoff = new Date(Date.now() - days * 24 * 3600 * 1000);
+    const matches = await this.prisma.match.findMany({
+      where: {
+        status: 'finished',
+        stats: { none: {} },
+        teamAId: { not: null },
+        teamBId: { not: null },
+        scheduledAt: { gte: cutoff },
+      },
+      orderBy: { scheduledAt: 'desc' },
+      take: 50,
+      select: { id: true },
+    });
+    for (const match of matches) {
+      await enqueueIngestStats(this.ingestionQueue, match.id);
+    }
+    if (matches.length) {
+      this.logger.log(`retry-stats-backfill : ${matches.length} match(s) sans stats ré-armés`);
+    }
+    return matches.length;
+  }
 }
