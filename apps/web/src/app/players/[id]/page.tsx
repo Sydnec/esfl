@@ -72,6 +72,7 @@ export default function PlayerPage() {
           fallbackSrc={player.team?.imageUrl}
           label={player.name}
           size={64}
+          fit="cover"
         />
         <div className={styles.identity}>
           <h1 className={styles.name}>

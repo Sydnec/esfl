@@ -1,5 +1,5 @@
 .image {
-  border-radius: var(--radius-full);
+  border-radius: var(--radius);
   object-fit: contain;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
@@ -10,7 +10,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius-full);
+  border-radius: var(--radius);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   color: var(--color-muted);

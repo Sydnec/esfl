@@ -180,6 +180,7 @@ export default function PickPage() {
                             fallbackSrc={player.team?.imageUrl}
                             label={player.name}
                             size={36}
+                            fit="cover"
                           />
                           <span className={styles.playerText}>
                             <span className={styles.playerName}>{player.name}</span>

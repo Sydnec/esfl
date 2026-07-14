@@ -11,10 +11,12 @@ interface AvatarProps {
   /** Nom affiché en alt et pour les initiales du placeholder. */
   label: string;
   size?: number;
+  /** `contain` (défaut) : logo entier non cropé. `cover` : photo qui remplit le carré. */
+  fit?: 'contain' | 'cover';
 }
 
 /** Avatar avec chaîne de replis : image → fallback → initiales. */
-export function Avatar({ src, fallbackSrc, label, size = 32 }: AvatarProps) {
+export function Avatar({ src, fallbackSrc, label, size = 32, fit = 'contain' }: AvatarProps) {
   const sources = [src, fallbackSrc].filter((value): value is string => Boolean(value));
   const [index, setIndex] = useState(0);
   const current = sources[index];
@@ -38,6 +40,7 @@ export function Avatar({ src, fallbackSrc, label, size = 32 }: AvatarProps) {
       alt={label}
       width={size}
       height={size}
+      style={{ objectFit: fit }}
       loading="lazy"
       onError={() => setIndex((value) => value + 1)}
     />

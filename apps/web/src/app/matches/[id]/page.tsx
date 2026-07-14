@@ -290,6 +290,7 @@ export default function MatchPage() {
                                 fallbackSrc={player?.team?.imageUrl}
                                 label={player?.name ?? '?'}
                                 size={24}
+                                fit="cover"
                               />
                               {player?.name ?? 'Inconnu'} {flagEmoji(player?.nationality)}
                               {player?.role && (

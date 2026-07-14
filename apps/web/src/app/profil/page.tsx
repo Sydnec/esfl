@@ -118,6 +118,7 @@ export default function ProfilePage() {
             src={user.avatarUrl ? `${API_URL}${user.avatarUrl}?v=${avatarVersion}` : null}
             label={user.username}
             size={64}
+            fit="cover"
           />
           <label className={styles.uploadButton}>
             Choisir une image

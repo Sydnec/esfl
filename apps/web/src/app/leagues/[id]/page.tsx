@@ -409,6 +409,7 @@ export default function LeaguePage() {
                           src={member?.avatarUrl ? `${API_URL}${member.avatarUrl}` : null}
                           label={member?.username ?? '?'}
                           size={20}
+                          fit="cover"
                         />
                         {member?.username ?? 'Ancien membre'}
                       </td>
@@ -436,6 +437,7 @@ export default function LeaguePage() {
                         fallbackSrc={perf.player?.team?.imageUrl}
                         label={perf.player?.name ?? '?'}
                         size={28}
+                        fit="cover"
                       />
                       <span className={styles.topName}>
                         {perf.player ? (
@@ -468,6 +470,7 @@ export default function LeaguePage() {
                     src={ref?.avatarUrl ? `${API_URL}${ref.avatarUrl}` : null}
                     label={ref?.username ?? '?'}
                     size={22}
+                    fit="cover"
                   />
                   {ref?.username ?? 'Ancien membre'}
                   {member.role === 'owner' && <span className={styles.ownerTag}> · créateur</span>}
