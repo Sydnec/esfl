@@ -165,6 +165,7 @@ export function mapLeaguepediaRows(
     lines.push({
       externalName: name,
       side,
+      teamName: aggregate.team ?? null,
       raw: aggregate.raw as unknown as Prisma.InputJsonValue,
       normalized: {
         kills: aggregate.kills,

@@ -195,15 +195,21 @@ export class StatsIngestionService {
     result: ProviderResult,
   ): Promise<number> {
     const index = buildPlayerIndex(context.players);
-    // Côté local (A/B) de chaque équipe source, déduit des joueurs — robuste
-    // même quand les deux noms d'équipe diffèrent des nôtres (cas VCT China).
-    const sideByTeam = this.sourceTeamSides(result.lines, index, context);
+    // Résolution des joueurs une seule fois : réutilisée pour le mapping et la persistance.
+    const resolved = result.lines.map((line) => ({
+      line,
+      local: matchPlayer(index, line.externalName),
+    }));
+    // Côté local (A/B) de chaque équipe source — via le côté résolu par le
+    // provider (nom), sinon via les joueurs. Robuste même quand les deux noms
+    // d'équipe diffèrent des nôtres (cas VCT China).
+    const sideByTeam = this.sourceTeamSides(resolved, context);
 
     let persisted = 0;
-    for (const line of result.lines) {
+    for (const { line, local: existing } of resolved) {
       const side =
         line.side ?? (line.teamName ? sideByTeam.get(line.teamName.trim()) ?? null : null);
-      let local = matchPlayer(index, line.externalName);
+      let local = existing;
       if (!local) {
         const team = side === 'A' ? context.teamA : side === 'B' ? context.teamB : null;
         if (!team) {
@@ -263,21 +269,21 @@ export class StatsIngestionService {
    * d'équipe ne matche le nôtre (on s'appuie sur les rosters, pas sur les noms).
    */
   private sourceTeamSides(
-    lines: ProviderResult['lines'],
-    index: Map<string, NamedPlayer>,
+    resolved: Array<{ line: ProviderResult['lines'][number]; local: NamedPlayer | null }>,
     context: MatchContext,
   ): Map<string, 'A' | 'B'> {
+    const sideOfTeam = (teamId: string | null | undefined): 'A' | 'B' | null =>
+      teamId && teamId === context.teamA?.id
+        ? 'A'
+        : teamId && teamId === context.teamB?.id
+          ? 'B'
+          : null;
     const votes = new Map<string, { A: number; B: number }>();
-    for (const line of lines) {
+    for (const { line, local } of resolved) {
       const name = line.teamName?.trim();
       if (!name) continue;
-      const local = matchPlayer(index, line.externalName) as Player | null;
-      const side =
-        local?.teamId && local.teamId === context.teamA?.id
-          ? 'A'
-          : local?.teamId && local.teamId === context.teamB?.id
-            ? 'B'
-            : null;
+      // Côté résolu par le provider (nom) prioritaire, sinon via le joueur (roster).
+      const side = line.side ?? sideOfTeam((local as Player | null)?.teamId);
       if (!side) continue;
       const tally = votes.get(name) ?? { A: 0, B: 0 };
       tally[side] += 1;

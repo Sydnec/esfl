@@ -112,7 +112,13 @@ export function mapBallchasingReplays(
 ): ProviderStatLine[] {
   const byPlayer = new Map<
     string,
-    { externalName: string; side: 'A' | 'B' | null; core: Record<string, number>; games: number }
+    {
+      externalName: string;
+      side: 'A' | 'B' | null;
+      teamName: string | null;
+      core: Record<string, number>;
+      games: number;
+    }
   >();
 
   for (const replay of replays) {
@@ -129,6 +135,7 @@ export function mapBallchasingReplays(
         const acc = byPlayer.get(key) ?? {
           externalName: entry.name,
           side,
+          teamName: teamSide?.name ?? null,
           core: { goals: 0, assists: 0, saves: 0, shots: 0, score: 0 },
           games: 0,
         };
@@ -151,6 +158,7 @@ export function mapBallchasingReplays(
     .map((acc) => ({
       externalName: acc.externalName,
       side: acc.side,
+      teamName: acc.teamName,
       raw: { games: acc.games, ...acc.core } as unknown as Prisma.InputJsonValue,
       normalized: {
         goals: acc.core.goals,

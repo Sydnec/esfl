@@ -252,13 +252,15 @@ export function mapVlrGames(html: string): ProviderGameInfo[] {
       .map((_i, el) => $(el).text().trim())
       .get();
     if (names.length < 2 || scores.length < 2) return;
+    // Manche non jouée / score absent (non numérique) : on ne l'émet pas.
+    if (!Number.isFinite(scores[0]) || !Number.isFinite(scores[1])) return;
     // Scores bruts par nom d'équipe : l'ingestion les rattache aux côtés via les joueurs.
     games.push({
       position: index + 1,
       map: mapName,
       teams: [
-        { name: names[0], score: Number.isFinite(scores[0]) ? scores[0] : null },
-        { name: names[1], score: Number.isFinite(scores[1]) ? scores[1] : null },
+        { name: names[0], score: scores[0] },
+        { name: names[1], score: scores[1] },
       ],
     });
   });

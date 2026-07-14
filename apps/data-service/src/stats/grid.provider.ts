@@ -169,6 +169,7 @@ export function mapGridSeriesState(
       lines.push({
         externalName: entry.name,
         side,
+        teamName: team.name ?? null,
         raw: entry as unknown as Prisma.InputJsonValue,
         normalized: {
           kills: entry.kills ?? 0,

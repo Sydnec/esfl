@@ -77,8 +77,25 @@ const match = {
 const teamA = { id: 'team-a', name: 'Vitality' } as Team;
 const teamB = { id: 'team-b', name: 'NAVI' } as Team;
 
-function context(players: Array<{ id: string; name: string; teamId: string }>): MatchContext {
-  return { teamA, teamB, players: players as MatchContext['players'] };
+function context(
+  players: Array<{ id: string; name: string; teamId: string }>,
+  teams?: { teamA: Team; teamB: Team },
+): MatchContext {
+  // Équipes fraîches possibles : learnSourceAliases mute team.aliases, il ne
+  // faut pas partager les objets entre tests d'apprentissage d'alias.
+  return {
+    teamA: teams?.teamA ?? teamA,
+    teamB: teams?.teamB ?? teamB,
+    players: players as MatchContext['players'],
+  };
+}
+
+/** Paire d'équipes fraîches (ids team-a/team-b) pour les tests d'alias. */
+function freshTeams() {
+  return {
+    teamA: { id: 'team-a', name: 'Vitality' } as Team,
+    teamB: { id: 'team-b', name: 'NAVI' } as Team,
+  };
 }
 
 function line(externalName: string, side: 'A' | 'B' | null): ProviderResult['lines'][number] {
@@ -135,10 +152,13 @@ describe('persistResult', () => {
   it('résout côtés + scores de game via les joueurs quand les noms d’équipe diffèrent', async () => {
     const { prisma, matchUpdates, teamUpdates } = fakePrisma();
     const ingestion = service(prisma);
-    const ctx = context([
-      { id: 'p1', name: 'ZywOo', teamId: 'team-a' }, // Vitality
-      { id: 'p2', name: 'Aleksib', teamId: 'team-b' }, // NAVI
-    ]);
+    const ctx = context(
+      [
+        { id: 'p1', name: 'ZywOo', teamId: 'team-a' }, // Vitality
+        { id: 'p2', name: 'Aleksib', teamId: 'team-b' }, // NAVI
+      ],
+      freshTeams(),
+    );
     // La source nomme les équipes autrement (side null, teamName brut non substring).
     const src = (externalName: string, teamName: string) => ({
       externalName,
@@ -170,5 +190,30 @@ describe('persistResult', () => {
       { id: 'team-a', alias: 'Xi Lai' },
       { id: 'team-b', alias: 'Titan' },
     ]);
+  });
+
+  it('apprend l’alias via le côté résolu par le provider même quand les joueurs sont nouveaux', async () => {
+    const { prisma, matchUpdates, teamUpdates } = fakePrisma();
+    const ingestion = service(prisma);
+    // Aucun joueur en roster : le mapping s'appuie sur le côté résolu par le provider.
+    await ingestion['persistResult'](match, context([], freshTeams()), 'vlr', {
+      lines: [
+        { externalName: 'NewA', side: 'A', teamName: 'Xi Lai', raw: {}, normalized: { kills: 1 } },
+        { externalName: 'NewB', side: 'B', teamName: 'Titan', raw: {}, normalized: { kills: 1 } },
+      ],
+      games: [
+        {
+          position: 1,
+          map: 'Ascent',
+          teams: [
+            { name: 'Xi Lai', score: 13 },
+            { name: 'Titan', score: 7 },
+          ],
+        },
+      ],
+    });
+    const summary = matchUpdates.find((data) => 'gamesSummary' in data);
+    expect(summary?.gamesSummary).toEqual([{ position: 1, map: 'Ascent', scoreA: 13, scoreB: 7 }]);
+    expect(teamUpdates.map((u) => u.id).sort()).toEqual(['team-a', 'team-b']);
   });
 });
