@@ -102,6 +102,9 @@ export interface MatchSummary {
   winnerTeamId?: string | null;
   /** Gagné par forfait (adversaire absent) : pas de stats, vainqueur défini. */
   forfeit?: boolean;
+  /** Tournoi (phase) du match : poule/playoffs, pour l'affichage arbre/poules. */
+  tournamentId?: number | null;
+  tournamentName?: string | null;
   competition: { id: string; name: string; gameId: GameId };
   bestOf?: number | null;
   streamUrl?: string | null;

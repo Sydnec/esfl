@@ -107,6 +107,9 @@ model Match {
   winnerTeamId  String?     @map("winner_team_id")
   /** Gagné par forfait (adversaire absent) : pas de stats, vainqueur défini. */
   forfeit       Boolean     @default(false)
+  /** Tournoi (phase) du match : poule/playoffs — pour l'affichage arbre/poules. */
+  tournamentId   Int?    @map("tournament_id")
+  tournamentName String? @map("tournament_name")
   /** Format du match (3 pour un BO3...). */
   bestOf        Int?        @map("best_of")
   /** Stream choisi : fr en priorité, sinon officiel. */

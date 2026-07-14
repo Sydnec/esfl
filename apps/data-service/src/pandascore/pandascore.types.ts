@@ -70,6 +70,8 @@ export interface PSMatch {
   winner_id: number | null;
   /** Vrai si le match a été gagné par forfait (l'adversaire ne s'est pas présenté). */
   forfeit: boolean;
+  /** Tournoi (phase) du match : poule « Group A », « Playoffs »… pour l'affichage arbre/poules. */
+  tournament: { id: number; name: string; type: string | null } | null;
   number_of_games: number | null;
   opponents: Array<{ type: string; opponent: PSTeamRef }>;
   results: Array<{ team_id: number; score: number }>;

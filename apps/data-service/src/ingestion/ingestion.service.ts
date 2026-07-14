@@ -369,6 +369,8 @@ export class IngestionService {
       scoreB: scoreFor(teamBId),
       winnerTeamId: winnerTeamId ?? null,
       forfeit: match.forfeit,
+      tournamentId: match.tournament?.id ?? null,
+      tournamentName: match.tournament?.name ?? null,
       bestOf: match.number_of_games,
       streamUrl: pickStream(match.streams_list),
       gamesSummary,

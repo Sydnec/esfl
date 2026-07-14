@@ -1,0 +1,88 @@
+.wrapper {
+  overflow-x: auto;
+  padding-top: 1.5rem;
+}
+
+.bracket {
+  position: relative;
+}
+
+.lines {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.line {
+  fill: none;
+  stroke: var(--color-border);
+  stroke-width: 1.5;
+}
+
+.roundLabel {
+  position: absolute;
+  top: -1.5rem;
+  text-align: center;
+  color: var(--color-muted);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.card {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg);
+  overflow: hidden;
+}
+
+.card:hover {
+  background: var(--color-surface);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 4px var(--space-2);
+  font-size: 0.8125rem;
+  color: var(--color-muted);
+}
+
+.row.won {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.tag {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.score {
+  color: var(--color-accent);
+  flex-shrink: 0;
+}
+
+.extras {
+  list-style: none;
+  margin-top: var(--space-2);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.extraLink {
+  color: var(--color-muted);
+  font-size: 0.8125rem;
+}
+
+.extraLink:hover {
+  color: var(--color-text);
+}

@@ -87,3 +87,7 @@
   color: var(--color-accent);
   text-decoration: underline;
 }
+
+.phaseMatches {
+  margin-top: var(--space-2);
+}
