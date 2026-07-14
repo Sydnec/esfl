@@ -34,18 +34,21 @@ export default function CompetitionPage() {
   const [competition, setCompetition] = useState<CompetitionDetail | null>(null);
   const [matches, setMatches] = useState<MatchSummary[]>([]);
   const [players, setPlayers] = useState<PlayerRef[]>([]);
+  const [statPlayerIds, setStatPlayerIds] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const [detail, matchList, playerList] = await Promise.all([
+      const [detail, matchList, playerList, statIds] = await Promise.all([
         request<CompetitionDetail>(`/data/competitions/${id}`),
         request<MatchSummary[]>(`/data/matches?competitionIds=${id}`),
         request<PlayerRef[]>(`/data/players?competitionIds=${id}`),
+        request<string[]>(`/data/competitions/${id}/stat-players`),
       ]);
       setCompetition(detail);
       setMatches(matchList);
       setPlayers(playerList);
+      setStatPlayerIds(new Set(statIds));
     } catch {
       setError('Compétition introuvable');
     }
@@ -92,14 +95,24 @@ export default function CompetitionPage() {
     [ungrouped],
   );
 
+  // Le tournoi a-t-il commencé ? (au moins un match en cours ou terminé)
+  const started = useMemo(
+    () => matches.some((match) => match.status === 'running' || match.status === 'finished'),
+    [matches],
+  );
+
+  // Joueurs affichés : aucun tant que le tournoi n'a pas commencé, puis seulement
+  // ceux qui ont réellement joué (qui ont des stats).
   const playersByTeam = useMemo(() => {
     const groups = new Map<string, PlayerRef[]>();
+    if (!started) return groups;
     for (const player of players) {
+      if (!statPlayerIds.has(player.id)) continue;
       const key = player.team?.id ?? 'sans-equipe';
       groups.set(key, [...(groups.get(key) ?? []), player]);
     }
     return groups;
-  }, [players]);
+  }, [players, started, statPlayerIds]);
 
   if (error) return <main className={styles.main}>{error}</main>;
   if (!competition) return <main className={styles.main}>Chargement…</main>;
@@ -159,7 +172,7 @@ export default function CompetitionPage() {
 
       {competition.teams.length > 0 && (
         <section className={styles.section}>
-          <h2 className={styles.sectionTitle}>Équipes & joueurs</h2>
+          <h2 className={styles.sectionTitle}>{started ? 'Équipes & joueurs' : 'Équipes'}</h2>
           <ul className={styles.teams}>
             {competition.teams.map(({ team }) => (
               <li key={team.id} className={styles.teamCard}>
