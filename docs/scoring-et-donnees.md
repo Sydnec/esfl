@@ -20,6 +20,11 @@ recalcul cohérent.
 
 ## Barèmes par jeu
 
+La version globale (`SCORING_VERSION`) est **v4**. Le libellé `(vN)` en tête de chaque jeu
+indique la dernière version où **ce** barème a changé (CS2 figé depuis v3, Valorant révisé en
+v4). Un changement de barème sur n'importe quel jeu bump `SCORING_VERSION` et déclenche un
+recalcul complet.
+
 ### CS2 (v3)
 
 | Composante | Barème | Source |

@@ -12,6 +12,7 @@ frontend Next.js sur Vercel.
   - **Discord** : application OAuth (redirect `https://api.mondomaine.fr/auth/oauth/discord/callback`)
   - **Google** : OAuth client (redirect `https://api.mondomaine.fr/auth/oauth/google/callback`)
   - **Grid.gg Open Access** (optionnel, stats CS2) → `GRID_API_KEY`
+  - **ballchasing.com** (optionnel, stats Rocket League, token gratuit) → `BALLCHASING_API_KEY`
 
 ## 2. Backend sur le VPS
 
@@ -33,7 +34,14 @@ COOKIE_SAMESITE=none                        # front et API sur des domaines diff
 PANDASCORE_TOKEN=...
 DISCORD_CLIENT_ID=... / DISCORD_CLIENT_SECRET=...
 GOOGLE_CLIENT_ID=... / GOOGLE_CLIENT_SECRET=...
+GRID_API_KEY=...                            # optionnel, stats CS2
+BALLCHASING_API_KEY=...                      # optionnel, stats Rocket League
+ADMIN_TOKEN=<openssl rand -hex 32>          # token d'ops pour les routes /data/admin
 ```
+
+> Grid.gg impose un rythme strict : `GRID_MIN_SPACING_MS=3500` espace les requêtes
+> (≈ 17 req/min) pour ne pas se faire limiter. Laisser la valeur par défaut si Grid n'est
+> pas configuré.
 
 > Si le front et l'API partagent le même domaine racine (ex: `esfl.fr` et
 > `api.esfl.fr`), préférer `COOKIE_SAMESITE=lax`.
@@ -48,7 +56,20 @@ curl https://api.mondomaine.fr/health
 
 Les migrations Prisma s'appliquent automatiquement au démarrage de chaque
 service (`prisma migrate deploy`). L'ingestion Pandascore démarre seule si
-`PANDASCORE_TOKEN` est présent (séries 6h / matchs 10 min / rosters 12h).
+`PANDASCORE_TOKEN` est présent. Jobs planifiés (BullMQ) :
+
+| Job | Fréquence | Rôle |
+|---|---|---|
+| `sync-series` | 12 h | Compétitions actives (toutes, pour le planning) |
+| `sync-matches` | 15 min | Planning et résultats des matchs |
+| `sync-rosters` | 24 h | Rosters des compétitions suivies |
+| `sync-live` | 3 min | Fenêtre serrée sur les matchs imminents/en cours |
+| `sync-live-stats` | 3 min | Stats live pendant les séries (Valorant, CS2) |
+| `check-grid-coverage` | 30 min | Marque les séries CS2 référencées par Grid |
+| `retry-stats-backfill` | 60 min | Rejoue l'ingestion des matchs finis restés sans stats |
+
+Les stats détaillées sont ingérées à la fin de chaque match (fenêtre 48 h) avec retries en
+backoff exponentiel (départ 15 min, 8 tentatives) et throttle par hôte.
 
 ## 3. Frontend sur Vercel
 
@@ -65,14 +86,18 @@ service (`prisma migrate deploy`). L'ingestion Pandascore démarre seule si
 git pull && docker compose up -d --build
 ```
 
-## État des sources de stats (2026-07-08)
+## État des sources de stats (2026-07-14)
 
-Providers implémentés dans `apps/data-service/src/stats/` (déclenchés sur fin de match
-< 48h, retries backoff 15 min ×8, throttle par hôte) :
+Providers implémentés dans `apps/data-service/src/stats/` (un provider par jeu derrière
+`provider.ts`) :
 
 | Jeu | Source | État |
 |---|---|---|
-| Valorant | Scraper VLR.gg | ✅ validé en réel |
-| LoL | Leaguepedia Cargo | ✅ implémenté (attention : rate limit Fandom agressif) |
-| CS2 | Grid.gg GraphQL (hôte Open Platform `api-op.grid.gg`) | ✅ validé en réel |
-| RL | Octane zsr | ❌ l'API zsr.octane.gg est hors service — source alternative à trouver |
+| Valorant | Scraper VLR.gg (cheerio) | ✅ validé en réel, stats live |
+| CS2 | Grid.gg GraphQL (hôte Open Platform `api-op.grid.gg`) | ✅ validé en réel, stats live (K/A/D + firstKills + objectifs ; l'ADR n'est pas exposé en open-access) |
+| LoL | Leaguepedia Cargo | ✅ implémenté (rate limit Fandom agressif, mutualisé par cache de fenêtre) |
+| RL | ballchasing.com (`BALLCHASING_API_KEY`) | ✅ implémenté (couverture dépendante des replays uploadés, RLCS bien couvert) |
+
+Le rapprochement provider ↔ Pandascore (`stats/matching.ts`) s'appuie sur des alias appris
+automatiquement par corrélation adverse et ajoutables à la main via la page admin. Voir
+[docs/scoring-et-donnees.md](docs/scoring-et-donnees.md) pour le détail des données par source.

@@ -10,36 +10,54 @@ Ligues privées entre amis, chaque ligue choisit les compétitions qu'elle suit.
 
 Monorepo pnpm — micro-services NestJS (VPS, Docker) + frontend Next.js (Vercel).
 
-| Workspace                | Rôle                                                        | Port |
-| ------------------------ | ----------------------------------------------------------- | ---- |
-| `apps/web`               | Frontend Next.js (CSS Modules, design minimaliste)          | 3000 |
-| `apps/gateway`           | API publique, validation JWT, routage vers les services     | 4000 |
-| `apps/auth-service`      | Utilisateurs, OAuth Discord/Google, email+password, JWT     | 4001 |
-| `apps/data-service`      | Ingestion Pandascore + stats par jeu, données de référence  | 4002 |
-| `apps/fantasy-service`   | Ligues, compétitions suivies, rosters, locks                | 4003 |
-| `apps/scoring-service`   | Calcul des points fantasy, leaderboards                     | 4004 |
-| `packages/contracts`     | Types, DTOs et événements partagés (zod)                    | —    |
-| `packages/config`        | tsconfig partagés                                           | —    |
+| Workspace              | Rôle                                                        | Port |
+| ---------------------- | ---------------------------------------------------------- | ---- |
+| `apps/web`             | Frontend Next.js (App Router, CSS Modules, design minimaliste) | 3000 |
+| `apps/gateway`         | API publique, validation JWT, routage vers les services    | 4000 |
+| `apps/auth-service`    | Utilisateurs, OAuth Discord/Google, email+password, JWT    | 4001 |
+| `apps/data-service`    | Ingestion Pandascore + stats par jeu, données de référence | 4002 |
+| `apps/fantasy-service` | Ligues, compétitions suivies, rosters, locks               | 4003 |
+| `apps/scoring-service` | Calcul des points fantasy, leaderboards                    | 4004 |
+| `packages/contracts`   | Types, DTOs et événements partagés (zod)                   | —    |
+| `packages/config`      | tsconfig partagés                                          | —    |
 
-Infra : PostgreSQL (un schéma par service) + Redis (cache + BullMQ).
+Infra : PostgreSQL (un schéma par service) + Redis (cache + BullMQ). Le gateway est un proxy
+pur : il vérifie le JWT Bearer et le traduit en en-têtes `x-user-*` pour les services internes,
+qui ne sont jamais exposés directement.
 
 ## Démarrage
 
 ```bash
 cp .env.example .env        # puis remplir les secrets
 pnpm install
-pnpm dev:infra              # postgres + redis (Docker)
-pnpm dev                    # tous les services + le front
+pnpm dev:infra              # postgres (port 5433) + redis (Docker)
+pnpm dev                    # build des contracts puis tous les services + le front en watch
 ```
 
 - Front : http://localhost:3000
 - Gateway : http://localhost:4000/health
 
+Prisma est par service (`pnpm --filter @esfl/data-service prisma:migrate`, etc.), chaque
+service ayant son propre schéma Postgres et son client généré local.
+
 ## Tests
 
 ```bash
-pnpm test    # vitest : logique de lock (fantasy) + calculateurs de points (scoring)
+pnpm test    # vitest dans tous les workspaces (lock fantasy, calculateurs, ingestion, providers…)
 ```
+
+## Fonctionnalités notables
+
+- **Ingestion temps réel** : synchro Pandascore planifiée, stats live pendant les séries
+  (Valorant, CS2), mises à jour poussées au front en SSE (`/data/live/stream`).
+- **Stats par jeu** : un provider par jeu récupère les stats détaillées à la fin de chaque
+  match (retries backoff, matching équipes/joueurs, alias appris automatiquement).
+- **Catalogue tier S/A/B** : seules les compétitions de tier notable (Pandascore s/a/b, ou tier
+  inconnu) sont exposées ; les compétitions sans couverture de stats sont masquées.
+- **Affichage arbre/poules** : les tournois à playoffs sont rendus en bracket (upper/lower pour
+  la double élimination), les phases de poule en tableaux de classement calculés.
+- **Administration** : page `/admin` réservée aux comptes admin — santé de l'ingestion, syncs
+  forcées, relance des stats par match ou en masse, et matching manuel des équipes (alias).
 
 ## Déploiement
 
@@ -47,8 +65,11 @@ Voir [DEPLOY.md](DEPLOY.md) — backend Docker Compose sur VPS (Caddy TLS), fron
 
 ## Sources de données
 
-- **Pandascore** — planning, résultats, équipes, joueurs (free tier 1000 req/h)
-- **Grid.gg Open Access** — stats CS2
-- **VLR.gg** (non officiel) — stats Valorant
+- **Pandascore** — planning, résultats, équipes, joueurs, tiers (free tier)
+- **Grid.gg Open Access** — stats CS2 (hôte `api-op.grid.gg`)
+- **VLR.gg** (scraping, non officiel) — stats Valorant
 - **Leaguepedia Cargo API** — stats LoL
-- **Octane zsr API** — stats Rocket League
+- **ballchasing.com** — stats Rocket League (token gratuit)
+
+Détail des barèmes et de ce que chaque source expose réellement :
+[docs/scoring-et-donnees.md](docs/scoring-et-donnees.md).
