@@ -2,9 +2,15 @@
 export function formatKickoff(iso: string | null): string {
   if (!iso) return '';
   const date = new Date(iso);
+  const now = new Date();
   const time = date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-  if (date.toDateString() === new Date().toDateString()) {
+  if (date.toDateString() === now.toDateString()) {
     return time;
+  }
+  // Au-delà de 7 jours, la date complète est plus parlante que le jour de semaine.
+  if (date.getTime() - now.getTime() > 7 * 24 * 3600 * 1000) {
+    const day = date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: '2-digit' });
+    return `${day} ${time}`;
   }
   return `${date.toLocaleDateString('fr-FR', { weekday: 'short' })} ${time}`;
 }
