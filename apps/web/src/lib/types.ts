@@ -99,6 +99,9 @@ export interface MatchSummary {
   scoreB: number | null;
   teamA: TeamRef | null;
   teamB: TeamRef | null;
+  winnerTeamId?: string | null;
+  /** Gagné par forfait (adversaire absent) : pas de stats, vainqueur défini. */
+  forfeit?: boolean;
   competition: { id: string; name: string; gameId: GameId };
   bestOf?: number | null;
   streamUrl?: string | null;

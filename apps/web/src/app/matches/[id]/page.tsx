@@ -93,6 +93,13 @@ export default function MatchPage() {
 
   const running = match.status === 'running';
   const finished = match.status === 'finished';
+  const forfeit = match.forfeit ?? match.status === 'canceled';
+  const winnerName =
+    match.winnerTeamId === match.teamA?.id
+      ? match.teamA?.name
+      : match.winnerTeamId === match.teamB?.id
+        ? match.teamB?.name
+        : null;
   const tagA = match.teamA?.acronym || match.teamA?.name || 'TBD';
   const tagB = match.teamB?.acronym || match.teamB?.name || 'TBD';
   const games = match.gamesSummary ?? [];
@@ -139,14 +146,22 @@ export default function MatchPage() {
           <span className={styles.center}>
             {match.bestOf && <span className={styles.bestOf}>BO{match.bestOf}</span>}
             <span className={styles.bigScore}>
-              {finished || running ? `${match.scoreA ?? 0} vs ${match.scoreB ?? 0}` : 'vs'}
+              {finished || running
+                ? `${match.scoreA ?? 0} vs ${match.scoreB ?? 0}`
+                : forfeit
+                  ? 'W.O.'
+                  : 'vs'}
             </span>
             <span className={styles.when}>
               {finished
                 ? `Terminé · ${formatDateTime(match.scheduledAt)}`
                 : running
                   ? 'En cours'
-                  : formatKickoff(match.scheduledAt)}
+                  : forfeit
+                    ? winnerName
+                      ? `Forfait · ${winnerName} vainqueur`
+                      : 'Forfait'
+                    : formatKickoff(match.scheduledAt)}
             </span>
           </span>
           <span className={`${styles.slotName} ${styles.slotNameRight}`}>

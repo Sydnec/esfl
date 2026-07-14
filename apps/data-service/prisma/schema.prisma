@@ -105,6 +105,8 @@ model Match {
   scoreA        Int?        @map("score_a")
   scoreB        Int?        @map("score_b")
   winnerTeamId  String?     @map("winner_team_id")
+  /** Gagné par forfait (adversaire absent) : pas de stats, vainqueur défini. */
+  forfeit       Boolean     @default(false)
   /** Format du match (3 pour un BO3...). */
   bestOf        Int?        @map("best_of")
   /** Stream choisi : fr en priorité, sinon officiel. */

@@ -358,6 +358,7 @@ export class IngestionService {
       scoreA: scoreFor(teamAId),
       scoreB: scoreFor(teamBId),
       winnerTeamId: winnerTeamId ?? null,
+      forfeit: match.forfeit,
       bestOf: match.number_of_games,
       streamUrl: pickStream(match.streams_list),
       gamesSummary,
@@ -388,7 +389,8 @@ export class IngestionService {
     // Non suivi → finishedEventSent laissé à false : si la compétition est
     // adoptée plus tard (< 48h), l'ingestion se déclenchera enfin.
     // Dates toutes nulles (trou de données Pandascore) : on tente quand même.
-    if (enqueueStats && saved.status === 'finished' && !saved.finishedEventSent) {
+    // Forfait : aucune stat à récupérer (personne n'a joué) — on saute.
+    if (enqueueStats && saved.status === 'finished' && !saved.forfeit && !saved.finishedEventSent) {
       const finishedAt = saved.endAt ?? saved.beginAt ?? saved.scheduledAt;
       const isRecent =
         !finishedAt || Date.now() - finishedAt.getTime() < 48 * 3600 * 1000;
