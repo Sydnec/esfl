@@ -58,7 +58,13 @@ function service(prisma: PrismaService) {
   );
 }
 
-const match = { id: 'match-1', gameId: 'cs2', statsPageUrl: null, gamesSummary: null } as Match;
+const match = {
+  id: 'match-1',
+  name: 'Vitality vs NAVI',
+  gameId: 'cs2',
+  statsPageUrl: null,
+  gamesSummary: null,
+} as Match;
 const teamA = { id: 'team-a', name: 'Vitality' } as Team;
 const teamB = { id: 'team-b', name: 'NAVI' } as Team;
 

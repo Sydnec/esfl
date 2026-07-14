@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 
 export interface DataMatch {
   id: string;
+  name: string;
   gameId: string;
   competitionId: string;
   status: string;

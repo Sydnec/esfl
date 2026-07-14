@@ -24,7 +24,7 @@ export class ScoringService {
     const playersScored = await this.scorePlayers(match);
     const rostersUpdated = await this.updateRosterScores(match);
     this.logger.log(
-      `Match ${matchId} : ${playersScored} joueurs notés, ${rostersUpdated} rosters mis à jour`,
+      `${match.name} : ${playersScored} joueurs notés, ${rostersUpdated} rosters mis à jour`,
     );
     return { playersScored, rostersUpdated };
   }
@@ -71,7 +71,7 @@ export class ScoringService {
     for (const stat of stats) {
       const result = computeScore(stat.gameId as GameId, stat.normalized, maps);
       if (!result) {
-        this.logger.warn(`Stats invalides pour ${stat.playerId} (match ${match.id})`);
+        this.logger.warn(`Stats invalides pour ${stat.playerId} (${match.name})`);
         continue;
       }
       await this.prisma.fantasyPoints.upsert({

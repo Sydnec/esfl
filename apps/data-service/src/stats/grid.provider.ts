@@ -236,7 +236,7 @@ export class GridStatsProvider implements GameStatsProvider {
     if (!context.teamA || !context.teamB) return null;
     const lines = mapGridSeriesState(seriesState, context.teamA, context.teamB);
     if (lines.length === 0) {
-      if (!silent) this.logger.warn(`Grid : aucune ligne de stats pour le match ${match.id}`);
+      if (!silent) this.logger.warn(`Grid : aucune ligne de stats pour ${match.name}`);
       return null;
     }
     return {

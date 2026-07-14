@@ -90,7 +90,7 @@ export class StatsIngestionService {
 
     const provider = this.providers.find((candidate) => candidate.gameId === match.gameId);
     if (!provider) {
-      this.logger.warn(`Aucun provider de stats pour ${match.gameId} (match ${matchId})`);
+      this.logger.warn(`Aucun provider de stats pour ${match.gameId} (${match.name})`);
       return;
     }
 
@@ -99,7 +99,7 @@ export class StatsIngestionService {
     if (!result || result.lines.length === 0) {
       await this.recordFailureDiagnosis(match, context, provider, force);
       throw new Error(
-        `Stats indisponibles pour le match ${matchId} via ${provider.source}, nouvelle tentative planifiée`,
+        `Stats indisponibles pour le match ${match.name} via ${provider.source}, nouvelle tentative planifiée`,
       );
     }
 
@@ -111,7 +111,7 @@ export class StatsIngestionService {
         data: { statsFailureKind: null, statsSuggestion: Prisma.DbNull },
       });
     }
-    this.logger.log(`${persisted} lignes de stats ${provider.source} pour le match ${matchId}`);
+    this.logger.log(`${persisted} lignes de stats ${provider.source} pour ${match.name}`);
     await this.publish(match, provider.source);
   }
 
@@ -201,7 +201,7 @@ export class StatsIngestionService {
         const team = line.side === 'A' ? context.teamA : line.side === 'B' ? context.teamB : null;
         if (!team) {
           this.logger.warn(
-            `Joueur ${line.externalName} sans équipe résolue (match ${match.id}) : stats ignorées`,
+            `Joueur ${line.externalName} sans équipe résolue (${match.name}) : stats ignorées`,
           );
           continue;
         }
@@ -352,6 +352,6 @@ export class StatsIngestionService {
       removeOnFail: 5000,
     });
     this.liveEvents.emitMatchUpdated({ matchId: match.id, gameId: match.gameId });
-    this.logger.log(`stats.ingested publié pour ${match.id} (source: ${source})`);
+    this.logger.log(`stats.ingested publié pour ${match.name} (source: ${source})`);
   }
 }

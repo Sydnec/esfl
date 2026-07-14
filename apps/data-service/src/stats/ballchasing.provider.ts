@@ -261,7 +261,7 @@ export class BallchasingStatsProvider implements GameStatsProvider {
 
     const lines = mapBallchasingReplays(details, context.teamA, context.teamB);
     if (lines.length === 0) {
-      this.logger.warn(`Ballchasing : aucune ligne de stats pour le match ${match.id}`);
+      this.logger.warn(`Ballchasing : aucune ligne de stats pour ${match.name}`);
       return null;
     }
     return {
