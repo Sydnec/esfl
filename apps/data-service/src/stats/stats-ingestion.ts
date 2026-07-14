@@ -3,15 +3,16 @@ import { Injectable, Logger } from '@nestjs/common';
 import { GameId, QUEUES, StatsIngestedEvent } from '@esfl/contracts';
 import { Queue } from 'bullmq';
 import { Prisma } from '../../generated/client';
-import type { Match } from '../../generated/client';
+import type { Match, Player } from '../../generated/client';
 import { mergeGamesSummary } from '../common/games-summary';
 import { LiveEventsService } from '../live/live-events.service';
 import { PrismaService } from '../prisma.service';
 import { buildPlayerIndex, matchPlayer, normalizeName, teamMatches } from './matching';
+import type { NamedPlayer } from './matching';
 import { BallchasingStatsProvider } from './ballchasing.provider';
 import { GridStatsProvider } from './grid.provider';
 import { LeaguepediaStatsProvider } from './leaguepedia.provider';
-import type { GameStatsProvider, MatchContext, ProviderResult } from './provider';
+import type { GameStatsProvider, MatchContext, ProviderGameInfo, ProviderResult } from './provider';
 import { VlrStatsProvider } from './vlr.provider';
 
 /** Slug d'un lien lol.fandom.com/wiki/... ; null si ce n'est pas un tel lien. */
@@ -194,11 +195,17 @@ export class StatsIngestionService {
     result: ProviderResult,
   ): Promise<number> {
     const index = buildPlayerIndex(context.players);
+    // Côté local (A/B) de chaque équipe source, déduit des joueurs — robuste
+    // même quand les deux noms d'équipe diffèrent des nôtres (cas VCT China).
+    const sideByTeam = this.sourceTeamSides(result.lines, index, context);
+
     let persisted = 0;
     for (const line of result.lines) {
+      const side =
+        line.side ?? (line.teamName ? sideByTeam.get(line.teamName.trim()) ?? null : null);
       let local = matchPlayer(index, line.externalName);
       if (!local) {
-        const team = line.side === 'A' ? context.teamA : line.side === 'B' ? context.teamB : null;
+        const team = side === 'A' ? context.teamA : side === 'B' ? context.teamB : null;
         if (!team) {
           this.logger.warn(
             `Joueur ${line.externalName} sans équipe résolue (${match.name}) : stats ignorées`,
@@ -237,7 +244,7 @@ export class StatsIngestionService {
       persisted += 1;
     }
     if (result.games?.length) {
-      await this.mergeProviderGames(match, result.games);
+      await this.mergeProviderGames(match, result.games, sideByTeam);
     }
     if (result.pageUrl && result.pageUrl !== match.statsPageUrl) {
       await this.prisma.match.update({
@@ -245,29 +252,60 @@ export class StatsIngestionService {
         data: { statsPageUrl: result.pageUrl },
       });
     }
-    await this.learnProviderAliases(match, context, source, result.teamNames);
+    await this.learnSourceAliases(match, context, source, sideByTeam);
     return persisted;
   }
 
   /**
-   * Apprend l'alias d'une équipe quand la source la nomme autrement que nous
-   * (ex. page VLR posée à la main : « JDG Esports » côté VLR vs « JD Gaming »
-   * chez nous). Le côté est déjà résolu par le provider, donc l'association est
-   * fiable — les prochains matchs de cette équipe s'auto-résoudront. Garde-fou :
-   * on n'apprend pas un nom déjà porté par une AUTRE équipe connue (ce serait
-   * une vraie équipe tierce, pas un alias).
+   * Côté local (A/B) de chaque nom d'équipe source, déduit des joueurs : chaque
+   * ligne cite une équipe source (`teamName`) et un joueur ; le joueur résolu
+   * appartient à teamA ou teamB → vote majoritaire. Marche même quand AUCUN nom
+   * d'équipe ne matche le nôtre (on s'appuie sur les rosters, pas sur les noms).
    */
-  private async learnProviderAliases(
+  private sourceTeamSides(
+    lines: ProviderResult['lines'],
+    index: Map<string, NamedPlayer>,
+    context: MatchContext,
+  ): Map<string, 'A' | 'B'> {
+    const votes = new Map<string, { A: number; B: number }>();
+    for (const line of lines) {
+      const name = line.teamName?.trim();
+      if (!name) continue;
+      const local = matchPlayer(index, line.externalName) as Player | null;
+      const side =
+        local?.teamId && local.teamId === context.teamA?.id
+          ? 'A'
+          : local?.teamId && local.teamId === context.teamB?.id
+            ? 'B'
+            : null;
+      if (!side) continue;
+      const tally = votes.get(name) ?? { A: 0, B: 0 };
+      tally[side] += 1;
+      votes.set(name, tally);
+    }
+    const sides = new Map<string, 'A' | 'B'>();
+    for (const [name, tally] of votes) {
+      if (tally.A !== tally.B) sides.set(name, tally.A > tally.B ? 'A' : 'B');
+    }
+    return sides;
+  }
+
+  /**
+   * Apprend les alias d'équipe depuis le mapping déduit des joueurs : si la
+   * source nomme une équipe autrement que nous, on l'ajoute en alias — les
+   * prochains matchs de cette équipe s'auto-résolvent par nom. Générique (tous
+   * providers), fonctionne même si les DEUX noms diffèrent. Garde-fou : jamais
+   * un nom déjà porté par une AUTRE équipe connue.
+   */
+  private async learnSourceAliases(
     match: Match,
     context: MatchContext,
     source: string,
-    teamNames?: { A: string | null; B: string | null },
+    sideByTeam: Map<string, 'A' | 'B'>,
   ): Promise<void> {
-    if (!teamNames) return;
-    for (const side of ['A', 'B'] as const) {
+    for (const [name, side] of sideByTeam) {
       const team = side === 'A' ? context.teamA : context.teamB;
-      const name = teamNames[side]?.trim();
-      if (!team || !name || teamMatches(name, team)) continue;
+      if (!team || teamMatches(name, team)) continue;
       if (await this.isOtherKnownTeam(name, match.gameId, team.id)) continue;
       await this.prisma.team.update({
         where: { id: team.id },
@@ -348,9 +386,20 @@ export class StatsIngestionService {
   /** Fusionne le détail des manches du provider (map, scores) avec celui de Pandascore (winner, durée). */
   private async mergeProviderGames(
     match: Match,
-    providerGames: Array<{ position: number; map?: string | null; scoreA?: number | null; scoreB?: number | null }>,
+    providerGames: ProviderGameInfo[],
+    sideByTeam: Map<string, 'A' | 'B'>,
   ): Promise<void> {
-    const merged = mergeGamesSummary(match.gamesSummary, providerGames);
+    // Scores par côté : soit fournis directement (Grid), soit rattachés depuis
+    // les scores bruts par nom d'équipe via le mapping joueurs (VLR).
+    const resolved = providerGames.map((game) => {
+      if (game.teams?.length) {
+        const scoreOf = (side: 'A' | 'B') =>
+          game.teams!.find((team) => sideByTeam.get(team.name.trim()) === side)?.score ?? null;
+        return { position: game.position, map: game.map, scoreA: scoreOf('A'), scoreB: scoreOf('B') };
+      }
+      return { position: game.position, map: game.map, scoreA: game.scoreA, scoreB: game.scoreB };
+    });
+    const merged = mergeGamesSummary(match.gamesSummary, resolved);
     await this.prisma.match.update({
       where: { id: match.id },
       data: { gamesSummary: merged as unknown as Prisma.InputJsonValue },

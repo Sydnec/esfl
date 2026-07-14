@@ -51,27 +51,6 @@ function headerMapName(text: string): string | null {
  * (tag). Colonnes repérées par en-têtes (ACS/FK) ; le K/D/A vit dans une cellule
  * `.ovw-cell.mod-kda` (spans `.ovw-kda-stat[data-col]`).
  */
-/**
- * Noms d'équipe de l'en-tête VLR mappés côté A/B (même résolution que le
- * mapping des joueurs : l'équipe de gauche reconnue fixe les côtés). Sert à
- * apprendre l'alias de l'équipe dont le nom VLR diffère du nôtre. Null si les
- * côtés ne peuvent pas être déterminés.
- */
-export function mapVlrTeamNames(
-  html: string,
-  teamA: TeamRef,
-  teamB: TeamRef,
-): { A: string | null; B: string | null } {
-  const $ = cheerio.load(html);
-  const headerNames = $('.vm-stats-game-header .team-name')
-    .map((_i, el) => $(el).text().trim())
-    .get();
-  if (headerNames.length < 2) return { A: null, B: null };
-  if (teamMatches(headerNames[0], teamA)) return { A: headerNames[0], B: headerNames[1] };
-  if (teamMatches(headerNames[0], teamB)) return { A: headerNames[1], B: headerNames[0] };
-  return { A: null, B: null };
-}
-
 export function mapVlrMatchHtml(
   html: string,
   teamA: TeamRef,
@@ -216,6 +195,14 @@ export function mapVlrMatchHtml(
     lines.push({
       externalName: stats.name,
       side: sideOf(stats.teamTag),
+      // Nom d'équipe VLR du joueur (gauche/droite du header) : l'ingestion
+      // rattache l'équipe via les joueurs quand le nom ne matche pas le nôtre.
+      teamName:
+        headerNames.length >= 2
+          ? stats.teamTag === leftTag
+            ? headerNames[0]
+            : headerNames[1]
+          : null,
       raw: {
         player: stats.name,
         acs: stats.acs,
@@ -251,11 +238,7 @@ export function mapVlrMatchHtml(
  * Manches VLR : chaque bloc « header » de map contient le nom de la map et
  * les scores des deux équipes (gauche = équipe du header principal gauche).
  */
-export function mapVlrGames(
-  html: string,
-  teamA: TeamRef,
-  teamB: TeamRef,
-): ProviderGameInfo[] {
+export function mapVlrGames(html: string): ProviderGameInfo[] {
   const $ = cheerio.load(html);
   const games: ProviderGameInfo[] = [];
   $('.vm-stats-game-header').each((index, header) => {
@@ -263,21 +246,20 @@ export function mapVlrGames(
     const scores = $(header)
       .find('.score')
       .map((_i, el) => Number($(el).text().trim()))
-      .get()
-      .filter((value) => Number.isFinite(value));
+      .get();
     const names = $(header)
       .find('.team-name')
       .map((_i, el) => $(el).text().trim())
       .get();
-    if (scores.length < 2 || names.length < 2) return;
-    const leftIsA = teamMatches(names[0], teamA);
-    const leftIsB = teamMatches(names[0], teamB);
-    if (!leftIsA && !leftIsB) return;
+    if (names.length < 2 || scores.length < 2) return;
+    // Scores bruts par nom d'équipe : l'ingestion les rattache aux côtés via les joueurs.
     games.push({
       position: index + 1,
       map: mapName,
-      scoreA: leftIsA ? scores[0] : scores[1],
-      scoreB: leftIsA ? scores[1] : scores[0],
+      teams: [
+        { name: names[0], score: Number.isFinite(scores[0]) ? scores[0] : null },
+        { name: names[1], score: Number.isFinite(scores[1]) ? scores[1] : null },
+      ],
     });
   });
   return games;
@@ -336,8 +318,7 @@ export class VlrStatsProvider implements GameStatsProvider {
     }
     return {
       lines,
-      games: mapVlrGames(html, context.teamA, context.teamB),
-      teamNames: mapVlrTeamNames(html, context.teamA, context.teamB),
+      games: mapVlrGames(html),
       pageUrl: matchPath,
     };
   }

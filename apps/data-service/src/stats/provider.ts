@@ -18,6 +18,9 @@ export interface ProviderStatLine {
   externalName: string;
   /** Côté du match résolu par noms d'équipes, null si indéterminé. */
   side: 'A' | 'B' | null;
+  /** Nom d'équipe brut de la source pour ce joueur : sert à résoudre le côté et
+   * apprendre l'alias via les joueurs quand le nom ne matche pas le nôtre. */
+  teamName?: string | null;
   raw: Prisma.InputJsonValue;
   normalized: Prisma.InputJsonValue;
   /** Détail par manche (MapStatsEntry[]) quand la source le fournit. */
@@ -28,8 +31,12 @@ export interface ProviderStatLine {
 export interface ProviderGameInfo {
   position: number;
   map?: string | null;
+  /** Scores résolus par côté (providers dont les noms d'équipe matchent). */
   scoreA?: number | null;
   scoreB?: number | null;
+  /** Scores bruts par nom d'équipe source : l'ingestion les rattache aux côtés
+   * via les joueurs (robuste quand les noms d'équipe diffèrent des nôtres). */
+  teams?: Array<{ name: string; score: number | null }>;
 }
 
 export interface ProviderResult {
@@ -38,8 +45,6 @@ export interface ProviderResult {
   games?: ProviderGameInfo[];
   /** Chemin/URL de la page source, mémorisé sur le match pour les fetchs suivants. */
   pageUrl?: string | null;
-  /** Noms d'équipe vus par la source, par côté : sert à apprendre les alias. */
-  teamNames?: { A: string | null; B: string | null };
 }
 
 /**

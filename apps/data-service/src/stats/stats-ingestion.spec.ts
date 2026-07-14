@@ -20,6 +20,7 @@ function fakePrisma() {
   const created: Array<Record<string, unknown>> = [];
   const upserts: Upsert[] = [];
   const matchUpdates: Array<Record<string, unknown>> = [];
+  const teamUpdates: Array<{ id: string; data: Record<string, unknown> }> = [];
   let nextId = 1;
   const prisma = {
     player: {
@@ -40,8 +41,16 @@ function fakePrisma() {
         return args.data;
       }),
     },
+    team: {
+      // Aucune autre équipe connue : le garde-fou anti-vol ne bloque rien.
+      findMany: vi.fn(async () => []),
+      update: vi.fn(async (args: { where: { id: string }; data: Record<string, unknown> }) => {
+        teamUpdates.push({ id: args.where.id, data: args.data });
+        return args.data;
+      }),
+    },
   };
-  return { prisma: prisma as unknown as PrismaService, created, upserts, matchUpdates };
+  return { prisma: prisma as unknown as PrismaService, created, upserts, matchUpdates, teamUpdates };
 }
 
 function service(prisma: PrismaService) {
@@ -121,5 +130,45 @@ describe('persistResult', () => {
       { position: 1, map: 'mirage', scoreA: 13, scoreB: 9 },
     ]);
     expect(matchUpdates.find((data) => 'statsPageUrl' in data)?.statsPageUrl).toBe('2955746');
+  });
+
+  it('résout côtés + scores de game via les joueurs quand les noms d’équipe diffèrent', async () => {
+    const { prisma, matchUpdates, teamUpdates } = fakePrisma();
+    const ingestion = service(prisma);
+    const ctx = context([
+      { id: 'p1', name: 'ZywOo', teamId: 'team-a' }, // Vitality
+      { id: 'p2', name: 'Aleksib', teamId: 'team-b' }, // NAVI
+    ]);
+    // La source nomme les équipes autrement (side null, teamName brut non substring).
+    const src = (externalName: string, teamName: string) => ({
+      externalName,
+      side: null,
+      teamName,
+      raw: {},
+      normalized: { kills: 1 },
+    });
+    await ingestion['persistResult'](match, ctx, 'vlr', {
+      lines: [src('ZywOo', 'Xi Lai'), src('Aleksib', 'Titan')],
+      games: [
+        {
+          position: 1,
+          map: 'Ascent',
+          teams: [
+            { name: 'Xi Lai', score: 13 },
+            { name: 'Titan', score: 7 },
+          ],
+        },
+      ],
+    });
+    // Scores rattachés au bon côté via les joueurs (Xi Lai=team-a=A).
+    const summary = matchUpdates.find((data) => 'gamesSummary' in data);
+    expect(summary?.gamesSummary).toEqual([{ position: 1, map: 'Ascent', scoreA: 13, scoreB: 7 }]);
+    // Alias appris pour les deux équipes.
+    expect(
+      teamUpdates.map((u) => ({ id: u.id, alias: (u.data.aliases as { push: string }).push })),
+    ).toEqual([
+      { id: 'team-a', alias: 'Xi Lai' },
+      { id: 'team-b', alias: 'Titan' },
+    ]);
   });
 });
