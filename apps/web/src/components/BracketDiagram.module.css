@@ -1,3 +1,17 @@
+.doubleElim {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.subLabel {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: var(--space-1);
+}
+
 .wrapper {
   overflow-x: auto;
   padding-top: 1.5rem;

@@ -35,15 +35,43 @@ function tag(team: TeamRef | null): string {
   return team?.acronym || team?.name || 'TBD';
 }
 
+/**
+ * Arbre par phase : gère la double élimination (GSL) en séparant upper / lower
+ * bracket en deux sous-arbres. Chaque sous-arbre est un arbre à élimination
+ * simple (colonnes par tour + connecteurs i → ceil(i/2)).
+ */
+export function BracketDiagram({ matches }: { matches: MatchSummary[] }) {
+  const upper: MatchSummary[] = [];
+  const lower: MatchSummary[] = [];
+  const rest: MatchSummary[] = [];
+  for (const match of matches) {
+    const lower_name = match.name.toLowerCase();
+    if (/\bupper\b/.test(lower_name)) upper.push(match);
+    else if (/\blower\b/.test(lower_name)) lower.push(match);
+    else rest.push(match);
+  }
+
+  if (upper.length > 0 || lower.length > 0) {
+    return (
+      <div className={styles.doubleElim}>
+        {upper.length > 0 && <SubBracket matches={upper} label="Upper bracket" />}
+        {lower.length > 0 && <SubBracket matches={lower} label="Lower bracket" />}
+        {rest.length > 0 && <SubBracket matches={rest} />}
+      </div>
+    );
+  }
+  return <SubBracket matches={matches} />;
+}
+
 interface Placed extends MatchSummary {
   rank: number;
   index: number;
-  cx: number; // centre horizontal
-  cy: number; // centre vertical
+  cx: number;
+  cy: number;
 }
 
-/** Arbre de playoffs : colonnes par tour, connecteurs SVG (linkage standard i → ceil(i/2)). */
-export function BracketDiagram({ matches }: { matches: MatchSummary[] }) {
+/** Sous-arbre à élimination simple : colonnes par tour, connecteurs SVG. */
+function SubBracket({ matches, label }: { matches: MatchSummary[]; label?: string }) {
   const byRank = new Map<number, Array<MatchSummary & { index: number }>>();
   const extras: MatchSummary[] = [];
   for (const match of matches) {
@@ -59,7 +87,14 @@ export function BracketDiagram({ matches }: { matches: MatchSummary[] }) {
   for (const list of byRank.values()) list.sort((a, b) => a.index - b.index);
 
   const ranks = [...byRank.keys()].sort((a, b) => b - a); // gauche→droite : tour le plus tôt d'abord
-  if (ranks.length === 0) return <BracketFallback matches={matches} />;
+  if (ranks.length === 0) {
+    return (
+      <div>
+        {label && <span className={styles.subLabel}>{label}</span>}
+        <BracketList matches={matches} />
+      </div>
+    );
+  }
 
   const maxRank = ranks[0];
   const firstColumn = byRank.get(maxRank)!;
@@ -72,83 +107,70 @@ export function BracketDiagram({ matches }: { matches: MatchSummary[] }) {
   for (let c = 1; c < ranks.length; c += 1) {
     const rank = ranks[c];
     const childRank = ranks[c - 1];
-    const column = byRank.get(rank)!;
-    column.forEach((m, j) => {
+    byRank.get(rank)!.forEach((m, j) => {
       const c1 = cy.get(key(childRank, m.index * 2 - 1));
       const c2 = cy.get(key(childRank, m.index * 2));
       const centers = [c1, c2].filter((v): v is number => v != null);
-      cy.set(key(rank, m.index), centers.length ? centers.reduce((a, b) => a + b, 0) / centers.length : (j + 0.5) * SLOT_H);
+      cy.set(
+        key(rank, m.index),
+        centers.length ? centers.reduce((a, b) => a + b, 0) / centers.length : (j + 0.5) * SLOT_H,
+      );
     });
   }
 
+  const cardW = COL_W - 30;
   const placed: Placed[] = [];
   ranks.forEach((rank, col) => {
     for (const m of byRank.get(rank)!) {
-      placed.push({ ...m, rank, cx: col * COL_W + (COL_W - 30) / 2, cy: cy.get(key(rank, m.index)) ?? 0 });
+      placed.push({ ...m, rank, cx: col * COL_W + cardW / 2, cy: cy.get(key(rank, m.index)) ?? 0 });
     }
   });
-
   const width = ranks.length * COL_W;
-  const cardW = COL_W - 30;
 
   return (
-    <div className={styles.wrapper}>
-      <div className={styles.bracket} style={{ width, height }}>
-        {/* Connecteurs : de chaque match vers son parent (tour suivant, index ceil(i/2)). */}
-        <svg className={styles.lines} width={width} height={height} aria-hidden>
-          {ranks.slice(0, -1).map((rank, col) =>
-            byRank.get(rank)!.map((m) => {
-              const parentRank = ranks[col + 1];
-              const parentIndex = Math.ceil(m.index / 2);
-              const from = cy.get(key(rank, m.index));
-              const to = cy.get(key(parentRank, parentIndex));
-              if (from == null || to == null) return null;
-              const x1 = col * COL_W + cardW;
-              const x2 = (col + 1) * COL_W + (COL_W - cardW) / 2;
-              const xm = (x1 + x2) / 2;
-              return (
-                <path
-                  key={m.id}
-                  d={`M ${x1} ${from} H ${xm} V ${to} H ${x2}`}
-                  className={styles.line}
-                />
-              );
-            }),
-          )}
-        </svg>
-        {/* En-têtes de tour */}
-        {ranks.map((rank, col) => (
-          <span key={`h-${rank}`} className={styles.roundLabel} style={{ left: col * COL_W, width: cardW }}>
-            {labelForRank(rank)}
-          </span>
-        ))}
-        {/* Cartes */}
-        {placed.map((m) => {
-          const winnerSide = m.winnerTeamId === m.teamA?.id ? 'A' : m.winnerTeamId === m.teamB?.id ? 'B' : null;
-          return (
-            <Link
-              key={m.id}
-              href={`/matches/${m.id}`}
-              className={styles.card}
-              style={{ left: m.cx - cardW / 2, top: m.cy - CARD_H / 2, width: cardW }}
-            >
-              <BracketRow team={m.teamA} score={m.scoreA} won={winnerSide === 'A'} />
-              <BracketRow team={m.teamB} score={m.scoreB} won={winnerSide === 'B'} />
-            </Link>
-          );
-        })}
-      </div>
-      {extras.length > 0 && (
-        <ul className={styles.extras}>
-          {extras.map((m) => (
-            <li key={m.id}>
-              <Link href={`/matches/${m.id}`} className={styles.extraLink}>
-                {m.name} — {m.scoreA ?? '-'} : {m.scoreB ?? '-'}
-              </Link>
-            </li>
+    <div>
+      {label && <span className={styles.subLabel}>{label}</span>}
+      <div className={styles.wrapper}>
+        <div className={styles.bracket} style={{ width, height }}>
+          <svg className={styles.lines} width={width} height={height} aria-hidden>
+            {ranks.slice(0, -1).map((rank, col) =>
+              byRank.get(rank)!.map((m) => {
+                const parentIndex = Math.ceil(m.index / 2);
+                const from = cy.get(key(rank, m.index));
+                const to = cy.get(key(ranks[col + 1], parentIndex));
+                if (from == null || to == null) return null;
+                const x1 = col * COL_W + cardW;
+                const x2 = (col + 1) * COL_W;
+                const xm = (x1 + x2) / 2;
+                return (
+                  <path key={m.id} d={`M ${x1} ${from} H ${xm} V ${to} H ${x2}`} className={styles.line} />
+                );
+              }),
+            )}
+          </svg>
+          {ranks.map((rank, col) => (
+            <span key={`h-${rank}`} className={styles.roundLabel} style={{ left: col * COL_W, width: cardW }}>
+              {labelForRank(rank)}
+            </span>
           ))}
-        </ul>
-      )}
+          {placed.map((m) => {
+            const winnerSide =
+              m.winnerTeamId === m.teamA?.id ? 'A' : m.winnerTeamId === m.teamB?.id ? 'B' : null;
+            return (
+              <Link
+                key={m.id}
+                href={`/matches/${m.id}`}
+                className={styles.card}
+                style={{ left: m.cx - cardW / 2, top: m.cy - CARD_H / 2, width: cardW }}
+              >
+                <BracketRow team={m.teamA} score={m.scoreA} won={winnerSide === 'A'} />
+                <BracketRow team={m.teamB} score={m.scoreB} won={winnerSide === 'B'} />
+              </Link>
+            );
+          })}
+        </div>
+      </div>
+      {extras.length > 0 && <BracketList matches={extras} />}
     </div>
   );
 }
@@ -167,8 +189,8 @@ function BracketRow({ team, score, won }: { team: TeamRef | null; score: number 
   );
 }
 
-/** Repli : pas de tours reconnus → simple liste des matchs de la phase. */
-function BracketFallback({ matches }: { matches: MatchSummary[] }) {
+/** Repli : matchs sans tour reconnu (deciders divers) → simple liste. */
+function BracketList({ matches }: { matches: MatchSummary[] }) {
   return (
     <ul className={styles.extras}>
       {matches.map((m) => (
