@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import type { MatchSummary, TeamRef } from '@/lib/types';
+import { Avatar } from './Avatar';
 import styles from './BracketDiagram.module.css';
 
 const CARD_H = 54;
@@ -155,8 +156,11 @@ export function BracketDiagram({ matches }: { matches: MatchSummary[] }) {
 function BracketRow({ team, score, won }: { team: TeamRef | null; score: number | null; won: boolean }) {
   return (
     <span className={`${styles.row} ${won ? styles.won : ''}`}>
-      <span className={styles.tag} title={team?.name}>
-        {tag(team)}
+      <span className={styles.teamInfo}>
+        {team && <Avatar src={team.imageUrl} label={team.name} size={16} />}
+        <span className={styles.tag} title={team?.name}>
+          {tag(team)}
+        </span>
       </span>
       <span className={styles.score}>{score ?? '-'}</span>
     </span>

@@ -1,8 +1,13 @@
+/* Photo (joueur / utilisateur) : encadrée, coins carrés arrondis. */
 .image {
   border-radius: var(--radius);
-  object-fit: contain;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+/* Logo d'équipe : brut — pas de bord arrondi, pas de trait, pas de fond. */
+.logo {
   flex-shrink: 0;
 }
 

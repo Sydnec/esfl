@@ -34,8 +34,9 @@ export function Avatar({ src, fallbackSrc, label, size = 32, fit = 'contain' }: 
   }
   return (
     // <img> volontaire : images distantes (CDN Pandascore), pas d'optimisation Next nécessaire.
+    // Logo d'équipe (contain) : brut, sans cadre. Photo (cover) : encadrée.
     <img
-      className={styles.image}
+      className={fit === 'cover' ? styles.image : styles.logo}
       src={current}
       alt={label}
       width={size}

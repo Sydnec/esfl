@@ -59,6 +59,13 @@
   font-weight: 600;
 }
 
+.teamInfo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
 .tag {
   overflow: hidden;
   text-overflow: ellipsis;
