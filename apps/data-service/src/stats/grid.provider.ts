@@ -321,11 +321,16 @@ export class GridStatsProvider implements GameStatsProvider {
   private async isKnownTeam(name: string): Promise<boolean> {
     const normalized = normalizeName(name);
     if (!normalized) return false;
+    return (await this.knownTeamNames()).has(normalized);
+  }
+
+  /** Noms normalisés de toutes les équipes CS2 connues du catalogue. */
+  private async knownTeamNames(): Promise<Set<string>> {
     const teams = await this.prisma.team.findMany({
       where: { gameId: this.gameId },
       select: { name: true },
     });
-    return teams.some((team) => normalizeName(team.name) === normalized);
+    return new Set(teams.map((team) => normalizeName(team.name)).filter(Boolean));
   }
 
   /** Noms de séries CS2 proches du match dont une seule équipe est reconnue (matching manuel). */
@@ -352,10 +357,13 @@ export class GridStatsProvider implements GameStatsProvider {
       if (!connection?.pageInfo?.hasNextPage || !connection.pageInfo.endCursor) break;
       after = connection.pageInfo.endCursor;
     }
-    return opponentAliasCandidates(pairs, context.teamA, context.teamB).map((candidate) => ({
-      side: candidate.team,
-      name: candidate.alias,
-    }));
+    // On ne suggère pas un nom déjà porté par une équipe connue : c'est une vraie
+    // équipe tierce (ex. « Brute », adversaire de Honvéd dans un autre tournoi le
+    // même jour), pas un alias de la nôtre — sinon on lui volerait son identité.
+    const known = await this.knownTeamNames();
+    return opponentAliasCandidates(pairs, context.teamA, context.teamB)
+      .filter((candidate) => !known.has(normalizeName(candidate.alias)))
+      .map((candidate) => ({ side: candidate.team, name: candidate.alias }));
   }
 
   /** Persiste un alias appris et met à jour l'objet en mémoire (contexte du fetch en cours). */
