@@ -35,6 +35,11 @@ function bestTier(tournaments?: Array<{ tier: string | null }> | null): string |
   return best;
 }
 
+/** Filtre catalogue : tiers S/A/B uniquement (tier null accepté, c/d exclus). */
+const TIER_ALLOWED: Prisma.CompetitionWhereInput = {
+  OR: [{ tier: null }, { tier: { notIn: ['c', 'd'] } }],
+};
+
 /** Stream à afficher : français en priorité, sinon le flux officiel. */
 function pickStream(streams: PSStream[] | null): string | null {
   if (!streams?.length) return null;
@@ -62,6 +67,10 @@ export class IngestionService {
     for (const game of GAME_IDS) {
       const series = await this.pandascore.listActiveSeries(game);
       for (const serie of series) {
+        // Catalogue restreint aux tiers S/A/B : on ignore le tier-2/3 (c/d). Le
+        // tier null (non encore classé) reste accepté. Tier porté par les tournois.
+        const tier = serie.tier ?? bestTier(serie.tournaments);
+        if (tier === 'c' || tier === 'd') continue;
         await this.upsertCompetition(game, serie);
         count += 1;
       }
@@ -104,7 +113,7 @@ export class IngestionService {
       where: {
         id: { in: followed },
         hidden: false,
-        OR: [{ endAt: null }, { endAt: { gte: cutoff } }],
+        AND: [TIER_ALLOWED, { OR: [{ endAt: null }, { endAt: { gte: cutoff } }] }],
       },
     });
   }
@@ -118,8 +127,11 @@ export class IngestionService {
   private activeCompetitions() {
     const cutoff = new Date(Date.now() - 3 * 24 * 3600 * 1000);
     return this.prisma.competition.findMany({
-      // Irrécupérables : on cesse de les synchroniser (retirées des données).
-      where: { hidden: false, OR: [{ endAt: null }, { endAt: { gte: cutoff } }] },
+      // Irrécupérables + tier c/d : exclus de la synchro (retirés des données).
+      where: {
+        hidden: false,
+        AND: [TIER_ALLOWED, { OR: [{ endAt: null }, { endAt: { gte: cutoff } }] }],
+      },
       orderBy: { beginAt: 'asc' },
     });
   }
