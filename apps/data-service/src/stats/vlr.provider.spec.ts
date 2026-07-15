@@ -3,6 +3,7 @@ import type { MapStatsEntry } from '@esfl/contracts';
 import {
   mapVlrMatchHtml,
   parseVlrMatchTeamIds,
+  parseVlrPerformance,
   parseVlrRoster,
   parseVlrTeamSearch,
 } from './vlr.provider';
@@ -228,5 +229,45 @@ describe('mapVlrMatchHtml', () => {
 
   it('retourne vide sans bloc de stats « all »', () => {
     expect(mapVlrMatchHtml('<div>rien</div>', { name: 'Sentinels' }, { name: 'Fnatic' })).toHaveLength(0);
+  });
+});
+
+describe('parseVlrPerformance', () => {
+  // Colonnes : [équipe][agent] 2K 3K 4K 5K 1v1 1v2 1v3 1v4 1v5 ECON PL DE.
+  // Cellules vides (mod-egg) = 0.
+  const row = (name: string, values: string[]) =>
+    '<tr>' +
+    `<td><div class="team"><img class="team-logo"><div>${name}<div class="team-tag">TLV</div></div></div></td>` +
+    '<td><div class="stats-sq"><img></div></td>' +
+    values
+      .map((value) =>
+        value ? `<td><div class="stats-sq">${value}</div></td>` : '<td><div class="stats-sq mod-egg"></div></td>',
+      )
+      .join('') +
+    '</tr>';
+  const html =
+    '<table class="wf-table-inset mod-adv"><tbody>' +
+    '<tr><th></th><th></th><th>2K</th><th>3K</th><th>4K</th><th>5K</th><th>1v1</th><th>1v2</th><th>1v3</th><th>1v4</th><th>1v5</th><th>ECON</th><th>PL</th><th>DE</th></tr>' +
+    // daiki : 5×2K, 1×3K, 1×(1v1), ECON 62, 6 plants, 0 defuses.
+    row('daiki', ['5', '1', '', '', '1', '', '', '', '', '62', '6', '0']) +
+    '</tbody></table>' +
+    // Deuxième table (par map) : ignorée.
+    '<table class="wf-table-inset mod-adv"><tbody>' +
+    row('daiki', ['9', '9', '9', '9', '9', '9', '9', '9', '9', '99', '9', '9']) +
+    '</tbody></table>';
+
+  it('agrège multikills/clutchs/éco/objectifs de la 1re table (all maps)', () => {
+    const perf = parseVlrPerformance(html);
+    expect(perf.get('daiki')).toEqual({
+      multiKills: 6, // 5 + 1
+      clutches: 1, // un 1v1
+      econRating: 62,
+      plants: 6,
+      defuses: 0,
+    });
+  });
+
+  it('renvoie une map vide sans table de performance', () => {
+    expect(parseVlrPerformance('<div>rien</div>').size).toBe(0);
   });
 });

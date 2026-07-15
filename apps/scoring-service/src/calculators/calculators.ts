@@ -11,10 +11,14 @@ import { GameId } from '@esfl/contracts';
  * - CS2 (Grid open-access) : pas de dégâts/utilitaire → pas d'utility_damage ni
  *   flash_duration. Létalité = kills, Soutien = assists, Impact = firstKills +
  *   objectifs (plants/defuses).
- * - Aucun provider gratuit ne distingue le « baiting » du « clutch » (pas de
- *   contexte de round) : Constance = survie/KAST, limite assumée.
+ * - CS2 (Grid open-access) reste limité au K/A/D + first kills + objectifs.
+ *   En Valorant, l'onglet Performance VLR fournit multikills/clutchs/éco :
+ *   l'Impact intègre désormais les clutchs (le clutcher se distingue du baiter).
+ *
+ * v2 : Valorant enrichi (kills/deaths/multikills/clutchs/objectifs/éco), LoL
+ * goldShare (part d'or), RL shooting%/bcpm/démolitions subies.
  */
-export const SCORING_VERSION = 'v1';
+export const SCORING_VERSION = 'v2';
 
 /** Taille d'échantillon minimale d'une distribution pour l'utiliser (sinon Z=0). */
 export const MIN_DISTRIBUTION_SAMPLE = 30;
@@ -93,13 +97,29 @@ const METRIC_SPECS: Record<GameId, MetricSpec[]> = {
     { key: 'firstKills', kind: 'counter', get: (n) => num(n, 'firstKills') },
     { key: 'firstDeaths', kind: 'counter', get: (n) => num(n, 'firstDeaths') },
     { key: 'adr', kind: 'rate', get: (n) => num(n, 'adr') },
+    { key: 'kills', kind: 'counter', get: (n) => num(n, 'kills') },
+    { key: 'deaths', kind: 'counter', get: (n) => num(n, 'deaths') },
     { key: 'assists', kind: 'counter', get: (n) => num(n, 'assists') },
     { key: 'kast', kind: 'rate', get: (n) => num(n, 'kast') },
+    // Onglet Performance VLR (matchs finis) : multikills, clutchs, objectifs, éco.
+    { key: 'multiKills', kind: 'counter', get: (n) => num(n, 'multiKills') },
+    { key: 'clutches', kind: 'counter', get: (n) => num(n, 'clutches') },
+    {
+      key: 'objectives',
+      kind: 'counter',
+      get: (n) => {
+        const plants = num(n, 'plants');
+        const defuses = num(n, 'defuses');
+        return plants == null && defuses == null ? null : (plants ?? 0) + (defuses ?? 0);
+      },
+    },
+    { key: 'econRating', kind: 'rate', get: (n) => num(n, 'econRating') },
   ],
   lol: [
     { key: 'killParticipation', kind: 'rate', get: (n) => num(n, 'killParticipation') },
     { key: 'damageShare', kind: 'rate', get: (n) => num(n, 'damageShare') },
     { key: 'visionScore', kind: 'counter', get: (n) => num(n, 'visionScore') },
+    { key: 'goldShare', kind: 'rate', get: (n) => num(n, 'goldShare') },
     { key: 'assists', kind: 'counter', get: (n) => num(n, 'assists') },
     { key: 'deaths', kind: 'counter', get: (n) => num(n, 'deaths') },
   ],
@@ -107,9 +127,12 @@ const METRIC_SPECS: Record<GameId, MetricSpec[]> = {
     { key: 'shots', kind: 'counter', get: (n) => num(n, 'shots') },
     { key: 'demosInflicted', kind: 'counter', get: (n) => num(n, 'demosInflicted') },
     { key: 'goals', kind: 'counter', get: (n) => num(n, 'goals') },
+    { key: 'shootingPct', kind: 'rate', get: (n) => num(n, 'shootingPct') },
     { key: 'saves', kind: 'counter', get: (n) => num(n, 'saves') },
     { key: 'assists', kind: 'counter', get: (n) => num(n, 'assists') },
     { key: 'boostBpm', kind: 'rate', get: (n) => num(n, 'boostBpm') },
+    { key: 'bcpm', kind: 'rate', get: (n) => num(n, 'bcpm') },
+    { key: 'demosTaken', kind: 'counter', get: (n) => num(n, 'demosTaken') },
   ],
 };
 
@@ -129,22 +152,26 @@ const PILLARS: Record<GameId, (z: Record<string, number>) => Pillars> = {
     consistency: -(z.deaths ?? 0),
   }),
   valorant: (z) => ({
-    impact: (z.firstKills ?? 0) - (z.firstDeaths ?? 0),
-    lethality: z.adr ?? 0,
-    support: z.assists ?? 0,
-    consistency: z.kast ?? 0,
+    // Duels d'entrée + clutchs (le clutcher se distingue enfin du baiter).
+    impact: ((z.firstKills ?? 0) - (z.firstDeaths ?? 0) + (z.clutches ?? 0)) / 2,
+    lethality: ((z.adr ?? 0) + (z.kills ?? 0) + (z.multiKills ?? 0)) / 3,
+    support: ((z.assists ?? 0) + (z.objectives ?? 0)) / 2,
+    consistency: ((z.kast ?? 0) - (z.deaths ?? 0) + (z.econRating ?? 0)) / 3,
   }),
   lol: (z) => ({
     impact: z.killParticipation ?? 0,
-    lethality: z.damageShare ?? 0,
+    // Carry = dégâts + part de ressources (or) de l'équipe.
+    lethality: ((z.damageShare ?? 0) + (z.goldShare ?? 0)) / 2,
     support: ((z.visionScore ?? 0) + (z.assists ?? 0)) / 2,
     consistency: -(z.deaths ?? 0),
   }),
   rl: (z) => ({
     impact: ((z.shots ?? 0) + (z.demosInflicted ?? 0)) / 2,
-    lethality: z.goals ?? 0,
+    // Efficacité offensive : buts + précision de tir.
+    lethality: ((z.goals ?? 0) + (z.shootingPct ?? 0)) / 2,
     support: ((z.saves ?? 0) + (z.assists ?? 0)) / 2,
-    consistency: z.boostBpm ?? 0,
+    // Gestion du boost (bpm + bcpm) et résistance aux démolitions subies.
+    consistency: ((z.boostBpm ?? 0) + (z.bcpm ?? 0) - (z.demosTaken ?? 0)) / 3,
   }),
 };
 

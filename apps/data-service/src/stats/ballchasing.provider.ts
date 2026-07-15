@@ -35,8 +35,8 @@ export interface BallchasingPlayer {
       shots?: number;
       score?: number;
     };
-    boost?: { bpm?: number };
-    demo?: { inflicted?: number };
+    boost?: { bpm?: number; bcpm?: number };
+    demo?: { inflicted?: number; taken?: number };
   };
 }
 
@@ -120,7 +120,9 @@ export function mapBallchasingReplays(
       teamName: string | null;
       core: Record<string, number>;
       demos: number;
+      demosTaken: number;
       bpmSum: number;
+      bcpmSum: number;
       games: number;
     }
   >();
@@ -142,7 +144,9 @@ export function mapBallchasingReplays(
           teamName: teamSide?.name ?? null,
           core: { goals: 0, assists: 0, saves: 0, shots: 0, score: 0 },
           demos: 0,
+          demosTaken: 0,
           bpmSum: 0,
+          bcpmSum: 0,
           games: 0,
         };
         acc.side = acc.side ?? side;
@@ -152,7 +156,9 @@ export function mapBallchasingReplays(
         acc.core.shots += core.shots ?? 0;
         acc.core.score += core.score ?? 0;
         acc.demos += entry.stats?.demo?.inflicted ?? 0;
+        acc.demosTaken += entry.stats?.demo?.taken ?? 0;
         acc.bpmSum += entry.stats?.boost?.bpm ?? 0;
+        acc.bcpmSum += entry.stats?.boost?.bcpm ?? 0;
         acc.games += 1;
         byPlayer.set(key, acc);
       }
@@ -176,6 +182,10 @@ export function mapBallchasingReplays(
         score: acc.core.score,
         demosInflicted: acc.demos,
         boostBpm: acc.games > 0 ? Math.round(acc.bpmSum / acc.games) : null,
+        // Précision agrégée (buts/tirs) plutôt que moyenne des % par manche.
+        shootingPct: acc.core.shots > 0 ? Math.round((acc.core.goals / acc.core.shots) * 1000) / 1000 : null,
+        bcpm: acc.games > 0 ? Math.round(acc.bcpmSum / acc.games) : null,
+        demosTaken: acc.demosTaken,
       },
     }));
 }

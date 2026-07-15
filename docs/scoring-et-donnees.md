@@ -1,6 +1,6 @@
 # Scoring fantasy & données par jeu
 
-Référence du calcul des points fantasy (version en cours : **v1**, système
+Référence du calcul des points fantasy (version en cours : **v2**, système
 Z-score cross-game) et des données récupérables par jeu/source. Toute
 modification qui change les notes doit s'accompagner d'un bump de
 `SCORING_VERSION` (`apps/scoring-service/src/calculators/calculators.ts`) pour
@@ -44,11 +44,12 @@ Le scoring compare des joueurs **entre jeux** en gommant les asymétries d'éche
 | Jeu | Impact (I) | Létalité (L) | Soutien (S) | Constance (C) |
 |---|---|---|---|---|
 | **CS2** | (Z(firstKills)+Z(objectifs))/2 | Z(kills) | Z(assists) | −Z(deaths) |
-| **Valorant** | Z(firstKills)−Z(firstDeaths) | Z(adr) | Z(assists) | Z(kast) |
-| **LoL** | Z(killParticipation) | Z(damageShare) | (Z(visionScore)+Z(assists))/2 | −Z(deaths) |
-| **RL** | (Z(shots)+Z(demosInflicted))/2 | Z(goals) | (Z(saves)+Z(assists))/2 | Z(boostBpm) |
+| **Valorant** | (Z(firstKills)−Z(firstDeaths)+Z(clutchs))/2 | (Z(adr)+Z(kills)+Z(multikills))/3 | (Z(assists)+Z(objectifs))/2 | (Z(kast)−Z(deaths)+Z(éco))/3 |
+| **LoL** | Z(killParticipation) | (Z(damageShare)+Z(goldShare))/2 | (Z(visionScore)+Z(assists))/2 | −Z(deaths) |
+| **RL** | (Z(shots)+Z(demosInflicted))/2 | (Z(goals)+Z(shooting%))/2 | (Z(saves)+Z(assists))/2 | (Z(boostBpm)+Z(bcpm)−Z(démos subies))/3 |
 
-`objectifs` CS2 = plants + defuses.
+`objectifs` = plants + defuses (CS2 : Grid ; Valorant : onglet Performance VLR).
+`clutchs` Valorant = 1v1..1v5 gagnés ; `multikills` = 2K..5K ; `éco` = note ECON VLR.
 
 ### Pondération LoL par rôle
 
@@ -66,9 +67,11 @@ Le scoring compare des joueurs **entre jeux** en gommant les asymétries d'éche
   flash, ni contexte de round**. La Létalité se limite aux kills et le Soutien
   aux assists (pas d'`utility_damage` ni de `flash_duration`). CS2 = K/A/D
   normalisés + first kills + objectifs.
-- **Baiter vs clutcher** : aucune source gratuite ne distingue un joueur qui
-  « baite » d'un clutcher (pas de trades/clutchs/round-context). `−Z(deaths)` et
-  KAST récompensent la survie quelle qu'en soit l'utilité.
+- **Baiter vs clutcher** : partiellement adressé en **Valorant** — l'onglet
+  Performance VLR fournit les clutchs (1v1..1v5), intégrés à l'Impact : un
+  clutcher se distingue désormais d'un simple survivant. CS2/LoL/RL restent sans
+  contexte de round (`−Z(deaths)` et KAST récompensent la survie quelle qu'en
+  soit l'utilité).
 
 ## Données récupérables par source
 
@@ -81,20 +84,27 @@ Schéma normalisé par jeu : `packages/contracts/src/stats.ts`.
   clutchs — rien au-delà du K/A/D + first kills + objectifs.
 
 ### Valorant — VLR.gg (scraping cheerio)
-- **Disponible** : kills, deaths, assists, ADR, KAST, HS%, rating 2.0,
+- **Disponible (overview)** : kills, deaths, assists, ADR, KAST, HS%, rating 2.0,
   firstKills, firstDeaths, agent + KDA/ACS par map. Stats live pendant la série.
-- Le parser HTML (`mapVlrMatchHtml`) est le point le plus fragile à surveiller.
+- **Onglet Performance** (`?game=all&tab=performance`, matchs finis) : multikills
+  (2K..5K → `multiKills`), clutchs (1v1..1v5 → `clutches`), note d'économie
+  `econRating` (ECON), plants (PL) et defuses (DE). Requête supplémentaire
+  best-effort, fusionnée par pseudo (`mergePerformance`).
+- Les parsers HTML (`mapVlrMatchHtml`, `parseVlrPerformance`) sont le point le
+  plus fragile à surveiller.
 
 ### LoL — Leaguepedia Cargo (wiki Fandom)
 - **Disponible** : kills, deaths, assists, CS (→ cs/min), champion, résultat,
-  **DamageToChampions**, **VisionScore**. `killParticipation` et `damageShare`
-  sont **calculés** via les totaux d'équipe par game.
+  **DamageToChampions**, **VisionScore**, **Gold**. `killParticipation`,
+  `damageShare` et `goldShare` (part de l'or de l'équipe) sont **calculés** via
+  les totaux d'équipe par game.
 - Rate limit Fandom agressif (authentifié via bot password ; cache de fenêtre).
 
 ### RL — ballchasing.com (`BALLCHASING_API_KEY`)
 - **Disponible** : goals, assists, saves, shots, score, **boost.bpm**,
-  **demo.inflicted**. Couverture dépendante des replays uploadés (RLCS bien
-  couvert).
+  **boost.bcpm** (boost consommé/min), **demo.inflicted**, **demo.taken**.
+  `shootingPct` (buts/tirs) est **calculé** à l'agrégation. Couverture dépendante
+  des replays uploadés (RLCS bien couvert).
 
 ## Matching des équipes/joueurs
 

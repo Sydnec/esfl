@@ -39,6 +39,16 @@ export const valorantStatsSchema = z.object({
   hsPercent: z.number().nullable().optional(),
   /** First deaths (morts d'entrée) — pendant négatif des first kills. */
   firstDeaths: z.number().nullable().optional(),
+  /** Manches multi-kills (2K+3K+4K+5K) — onglet Performance VLR. */
+  multiKills: z.number().nullable().optional(),
+  /** Clutchs gagnés (1v1+…+1v5) — distingue le clutcher. Onglet Performance VLR. */
+  clutches: z.number().nullable().optional(),
+  /** Bombes posées (PL) — onglet Performance VLR. */
+  plants: z.number().nullable().optional(),
+  /** Bombes défusées (DE) — onglet Performance VLR. */
+  defuses: z.number().nullable().optional(),
+  /** Note d'économie VLR (ECON) — efficacité au combat par crédits. */
+  econRating: z.number().nullable().optional(),
 });
 export type ValorantStats = z.infer<typeof valorantStatsSchema>;
 
@@ -54,6 +64,8 @@ export const lolStatsSchema = z.object({
   damageShare: z.number().nullable().optional(),
   /** Score de vision total (somme sur les games). */
   visionScore: z.number().nullable().optional(),
+  /** Part de l'or de l'équipe (gold joueur / gold équipe), moyenne sur les games. */
+  goldShare: z.number().nullable().optional(),
 });
 export type LolStats = z.infer<typeof lolStatsSchema>;
 
@@ -68,6 +80,12 @@ export const rlStatsSchema = z.object({
   demosInflicted: z.number().nullable().optional(),
   /** Boost par minute (moyenne sur les manches). */
   boostBpm: z.number().nullable().optional(),
+  /** Précision de tir = buts / tirs (agrégé sur la série). */
+  shootingPct: z.number().nullable().optional(),
+  /** Boost consommé par minute (bcpm, moyenne sur les manches) — agressivité. */
+  bcpm: z.number().nullable().optional(),
+  /** Démolitions subies (somme sur les manches). */
+  demosTaken: z.number().nullable().optional(),
 });
 export type RlStats = z.infer<typeof rlStatsSchema>;
 

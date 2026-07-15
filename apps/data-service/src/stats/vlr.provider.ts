@@ -95,6 +95,50 @@ interface VlrRowStats {
   firstDeaths: number | null;
 }
 
+/** Stats de l'onglet Performance VLR d'un joueur (multikills, clutchs, éco…). */
+export interface VlrPerfStats {
+  multiKills: number;
+  clutches: number;
+  econRating: number;
+  plants: number;
+  defuses: number;
+}
+
+/**
+ * Parse l'onglet Performance d'un match VLR (`?game=all&tab=performance`) : une
+ * table `wf-table-inset mod-adv` par vue (all maps + par map) ; on ne garde que
+ * la première (agrégat all-maps). Colonnes : [équipe][agent] 2K 3K 4K 5K 1v1..1v5
+ * ECON PL DE. Clé = pseudo normalisé (aligné sur mapVlrMatchHtml). Cellules
+ * vides (`mod-egg`) = 0.
+ */
+export function parseVlrPerformance(html: string): Map<string, VlrPerfStats> {
+  const $ = cheerio.load(html);
+  const out = new Map<string, VlrPerfStats>();
+  const table = $('table.wf-table-inset.mod-adv').first();
+  if (table.length === 0) return out;
+  table.find('tr').each((_i, tr) => {
+    const cells = $(tr).find('td');
+    if (cells.length < 14) return; // en-tête (th) ou ligne incomplète
+    const nameNode = $(cells[0]).find('.team > div').first().clone();
+    nameNode.find('.team-tag').remove();
+    const name = nameNode.text().trim();
+    if (!name) return;
+    const val = (index: number): number => {
+      const text = $(cells[index]).find('.stats-sq').first().text().trim();
+      const value = Number(text.replace(/[^\d.-]/g, ''));
+      return Number.isFinite(value) ? value : 0;
+    };
+    out.set(normalizeName(name), {
+      multiKills: val(2) + val(3) + val(4) + val(5), // 2K+3K+4K+5K
+      clutches: val(6) + val(7) + val(8) + val(9) + val(10), // 1v1..1v5
+      econRating: val(11),
+      plants: val(12),
+      defuses: val(13),
+    });
+  });
+  return out;
+}
+
 /** Nom de map d'un en-tête de manche VLR (« Ascent PICK » → « Ascent »). */
 function headerMapName(text: string): string | null {
   const name = text.trim().split('\n')[0].replace(/PICK/i, '').trim();
@@ -349,7 +393,9 @@ export class VlrStatsProvider implements GameStatsProvider {
       );
       return null;
     }
-    return this.fetchFromPath(matchPath, context);
+    // Match fini : on enrichit avec l'onglet Performance (multikills, clutchs,
+    // eco, plants/defuses) — stats figees, une requete de plus justifiee.
+    return this.fetchFromPath(matchPath, context, true);
   }
 
   /**
@@ -404,12 +450,13 @@ export class VlrStatsProvider implements GameStatsProvider {
       match.statsPageUrl ??
       (await this.findMatchPath(context.teamA, context.teamB, ['/matches', '/matches/results']));
     if (!matchPath) return null;
-    return this.fetchFromPath(matchPath, context);
+    return this.fetchFromPath(matchPath, context, false);
   }
 
   private async fetchFromPath(
     matchPath: string,
     context: MatchContext,
+    includePerformance: boolean,
   ): Promise<ProviderResult | null> {
     if (!context.teamA || !context.teamB) return null;
     const response = await politeFetch(`${BASE_URL}${matchPath}`);
@@ -422,12 +469,41 @@ export class VlrStatsProvider implements GameStatsProvider {
     if (lines.length === 0) {
       return null;
     }
+    if (includePerformance) {
+      await this.mergePerformance(matchPath, lines);
+    }
     return {
       lines,
       games: mapVlrGames(html),
       pageUrl: matchPath,
       teamIds: parseVlrMatchTeamIds(html, context.teamA, context.teamB),
     };
+  }
+
+  /**
+   * Enrichit les lignes agrégées avec l'onglet Performance (multikills, clutchs,
+   * ECON, plants/defuses) : une requête VLR de plus, best-effort (un échec
+   * laisse les stats de base intactes). Rapprochement par pseudo normalisé.
+   */
+  private async mergePerformance(matchPath: string, lines: ProviderStatLine[]): Promise<void> {
+    const response = await politeFetch(`${BASE_URL}${matchPath}/?game=all&tab=performance`);
+    if (!response.ok) {
+      this.logger.warn(`VLR performance ${matchPath} -> ${response.status}`);
+      return;
+    }
+    const perf = parseVlrPerformance(await response.text());
+    if (perf.size === 0) return;
+    for (const line of lines) {
+      const stats = perf.get(normalizeName(line.externalName));
+      if (!stats) continue;
+      Object.assign(line.normalized as Record<string, unknown>, {
+        multiKills: stats.multiKills,
+        clutches: stats.clutches,
+        econRating: stats.econRating,
+        plants: stats.plants,
+        defuses: stats.defuses,
+      });
+    }
   }
 
   /** Scanne des listes de matchs VLR et retrouve le lien par noms d'équipes (alias inclus). */

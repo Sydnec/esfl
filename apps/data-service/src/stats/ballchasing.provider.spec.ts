@@ -109,6 +109,9 @@ describe('mapBallchasingReplays', () => {
       score: 1530,
       demosInflicted: 0,
       boostBpm: 0,
+      shootingPct: 0.455,
+      bcpm: 0,
+      demosTaken: 0,
     });
 
     const exo = lines.find((line) => line.externalName === 'ExoTiiK');
@@ -121,6 +124,9 @@ describe('mapBallchasingReplays', () => {
       score: 1140,
       demosInflicted: 0,
       boostBpm: 0,
+      shootingPct: 0.429,
+      bcpm: 0,
+      demosTaken: 0,
     });
   });
 
@@ -155,6 +161,9 @@ describe('mapBallchasingReplays', () => {
       score: 0,
       demosInflicted: 0,
       boostBpm: 0,
+      shootingPct: null,
+      bcpm: 0,
+      demosTaken: 0,
     });
   });
 });
