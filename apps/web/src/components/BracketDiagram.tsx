@@ -158,6 +158,9 @@ function SubBracket({ matches, label }: { matches: MatchSummary[]; label?: strin
             const winnerSide =
               m.winnerTeamId === m.teamA?.id ? 'A' : m.winnerTeamId === m.teamB?.id ? 'B' : null;
             const live = m.status === 'running';
+            // Avant le coup d'envoi : pas de score (0-0 trompeur). Une fois lancé
+            // (running/finished), on affiche les scores, 0 compris.
+            const started = live || m.status === 'finished';
             return (
               <Link
                 key={m.id}
@@ -198,8 +201,8 @@ function SubBracket({ matches, label }: { matches: MatchSummary[]; label?: strin
                       ))}
                   </span>
                 )}
-                <BracketRow team={m.teamA} score={m.scoreA} won={winnerSide === 'A'} />
-                <BracketRow team={m.teamB} score={m.scoreB} won={winnerSide === 'B'} />
+                <BracketRow team={m.teamA} score={m.scoreA} won={winnerSide === 'A'} started={started} />
+                <BracketRow team={m.teamB} score={m.scoreB} won={winnerSide === 'B'} started={started} />
               </Link>
             );
           })}
@@ -210,7 +213,17 @@ function SubBracket({ matches, label }: { matches: MatchSummary[]; label?: strin
   );
 }
 
-function BracketRow({ team, score, won }: { team: TeamRef | null; score: number | null; won: boolean }) {
+function BracketRow({
+  team,
+  score,
+  won,
+  started,
+}: {
+  team: TeamRef | null;
+  score: number | null;
+  won: boolean;
+  started: boolean;
+}) {
   return (
     <span className={`${styles.row} ${won ? styles.won : ''}`}>
       <span className={styles.teamInfo}>
@@ -219,7 +232,8 @@ function BracketRow({ team, score, won }: { team: TeamRef | null; score: number 
           {tag(team)}
         </span>
       </span>
-      <span className={styles.score}>{score ?? '-'}</span>
+      {/* Match pas commencé : rien (pas de 0 trompeur). Lancé : score, 0 compris. */}
+      <span className={styles.score}>{started ? (score ?? 0) : ''}</span>
     </span>
   );
 }
@@ -228,13 +242,17 @@ function BracketRow({ team, score, won }: { team: TeamRef | null; score: number 
 function BracketList({ matches }: { matches: MatchSummary[] }) {
   return (
     <ul className={styles.extras}>
-      {matches.map((m) => (
-        <li key={m.id}>
-          <Link href={`/matches/${m.id}`} className={styles.extraLink}>
-            {m.name} · {m.scoreA ?? 0} : {m.scoreB ?? 0}
-          </Link>
-        </li>
-      ))}
+      {matches.map((m) => {
+        const started = m.status === 'running' || m.status === 'finished';
+        return (
+          <li key={m.id}>
+            <Link href={`/matches/${m.id}`} className={styles.extraLink}>
+              {m.name}
+              {started ? ` · ${m.scoreA ?? 0} : ${m.scoreB ?? 0}` : ''}
+            </Link>
+          </li>
+        );
+      })}
     </ul>
   );
 }
