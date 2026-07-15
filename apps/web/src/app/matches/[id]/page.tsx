@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { GAME_LABELS } from '@esfl/contracts';
+import { GAME_LABELS, type GameId } from '@esfl/contracts';
 import { Avatar } from '@/components/Avatar';
 import { request } from '@/lib/api';
 import { flagEmoji } from '@/lib/flags';
@@ -21,6 +21,33 @@ const POLL_INTERVAL_MS = 30_000;
 function formatLength(lengthSec: number | null | undefined): string {
   if (!lengthSec) return '';
   return `${Math.round(lengthSec / 60)} min`;
+}
+
+interface AgentIconProps {
+  entry: {
+    agent: string | null;
+    agentImage?: string | null;
+  };
+  gameId: GameId;
+}
+
+function AgentIcon({ entry, gameId }: AgentIconProps) {
+  const [failed, setFailed] = useState(false);
+  const src = agentIconSrc(gameId, entry);
+
+  if (failed || !src) {
+    return <span>{entry.agent}</span>;
+  }
+
+  return (
+    <img
+      className={styles.agentIcon}
+      src={src}
+      alt={entry.agent ?? 'agent'}
+      title={entry.agent ?? undefined}
+      onError={() => setFailed(true)}
+    />
+  );
 }
 
 export default function MatchPage() {
@@ -314,24 +341,13 @@ export default function MatchPage() {
                             <td className={styles.agentCell}>
                               {agents.length === 0
                                 ? '·'
-                                : agents.map((entry) => {
-                                    const src = agentIconSrc(match.gameId, entry);
-                                    return src ? (
-                                      <img
-                                        key={entry.agent ?? src}
-                                        className={styles.agentIcon}
-                                        src={src}
-                                        alt={entry.agent ?? 'agent'}
-                                        title={entry.agent ?? undefined}
-                                        onError={(event) => {
-                                          // Icône locale absente (nouvel agent).
-                                          event.currentTarget.style.display = 'none';
-                                        }}
-                                      />
-                                    ) : (
-                                      <span key={entry.agent}>{entry.agent}</span>
-                                    );
-                                  })}
+                                : agents.map((entry, index) => (
+                                    <AgentIcon
+                                      key={entry.agent ?? entry.agentImage ?? index}
+                                      entry={entry}
+                                      gameId={match.gameId}
+                                    />
+                                  ))}
                             </td>
                           )}
                           {columns.map((column) => (
