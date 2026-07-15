@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { GAME_LABELS } from '@esfl/contracts';
@@ -11,6 +11,7 @@ import { StandingsTable } from '@/components/StandingsTable';
 import { request } from '@/lib/api';
 import { flagEmoji } from '@/lib/flags';
 import { sortTeamPlayers } from '@/lib/roles';
+import { useMatchUpdates } from '@/lib/useMatchUpdates';
 import type { CompetitionDetail, MatchSummary, PlayerRef } from '@/lib/types';
 import styles from './page.module.css';
 
@@ -63,6 +64,14 @@ export default function CompetitionPage() {
     }, POLL_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [load]);
+
+  // Mise à jour instantanée des scores (arbres, poules) via SSE, lissée à 3 s.
+  const lastLiveRefresh = useRef(0);
+  useMatchUpdates(() => {
+    if (Date.now() - lastLiveRefresh.current < 3_000) return;
+    lastLiveRefresh.current = Date.now();
+    void load();
+  });
 
   // Matchs regroupés par phase de tournoi (poule/playoffs), triées chronologiquement.
   const phases = useMemo(() => {

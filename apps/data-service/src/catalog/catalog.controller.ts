@@ -119,6 +119,12 @@ export class CatalogController {
     return this.catalog.playersMeta();
   }
 
+  /** Toutes les stats d'un jeu pour le calcul des distributions (appel interne scoring). */
+  @Get('internal/stats/all')
+  statsForScoring(@Query('gameId') gameId?: string) {
+    return this.catalog.statsForScoring(gameId ?? '');
+  }
+
   /** Déclenchement manuel d'un job d'ingestion (réservé à un usage admin/dev). */
   @Post('admin/sync/:job')
   @UseGuards(AdminGuard)

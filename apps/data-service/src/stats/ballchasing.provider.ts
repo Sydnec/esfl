@@ -35,6 +35,8 @@ export interface BallchasingPlayer {
       shots?: number;
       score?: number;
     };
+    boost?: { bpm?: number };
+    demo?: { inflicted?: number };
   };
 }
 
@@ -117,6 +119,8 @@ export function mapBallchasingReplays(
       side: 'A' | 'B' | null;
       teamName: string | null;
       core: Record<string, number>;
+      demos: number;
+      bpmSum: number;
       games: number;
     }
   >();
@@ -137,6 +141,8 @@ export function mapBallchasingReplays(
           side,
           teamName: teamSide?.name ?? null,
           core: { goals: 0, assists: 0, saves: 0, shots: 0, score: 0 },
+          demos: 0,
+          bpmSum: 0,
           games: 0,
         };
         acc.side = acc.side ?? side;
@@ -145,6 +151,8 @@ export function mapBallchasingReplays(
         acc.core.saves += core.saves ?? 0;
         acc.core.shots += core.shots ?? 0;
         acc.core.score += core.score ?? 0;
+        acc.demos += entry.stats?.demo?.inflicted ?? 0;
+        acc.bpmSum += entry.stats?.boost?.bpm ?? 0;
         acc.games += 1;
         byPlayer.set(key, acc);
       }
@@ -159,13 +167,15 @@ export function mapBallchasingReplays(
       externalName: acc.externalName,
       side: acc.side,
       teamName: acc.teamName,
-      raw: { games: acc.games, ...acc.core } as unknown as Prisma.InputJsonValue,
+      raw: { games: acc.games, demos: acc.demos, ...acc.core } as unknown as Prisma.InputJsonValue,
       normalized: {
         goals: acc.core.goals,
         assists: acc.core.assists,
         saves: acc.core.saves,
         shots: acc.core.shots,
         score: acc.core.score,
+        demosInflicted: acc.demos,
+        boostBpm: acc.games > 0 ? Math.round(acc.bpmSum / acc.games) : null,
       },
     }));
 }

@@ -100,6 +100,24 @@ const rows: LeaguepediaRow[] = [
   },
 ];
 
+describe('mapLeaguepediaRows — KP%, damageShare, visionScore', () => {
+  it('calcule les ratios via les totaux d’équipe par game', () => {
+    const game: LeaguepediaRow[] = [
+      { Link: 'Caps', Kills: '5', Deaths: '2', Assists: '7', Team: 'G2 Esports', Team1: 'G2 Esports', Team2: 'Fnatic', GameId: 'g1', DamageToChampions: '20000', VisionScore: '30' },
+      { Link: 'Jankos', Kills: '3', Deaths: '1', Assists: '10', Team: 'G2 Esports', Team1: 'G2 Esports', Team2: 'Fnatic', GameId: 'g1', DamageToChampions: '10000', VisionScore: '50' },
+    ];
+    const caps = mapLeaguepediaRows(game, { name: 'G2 Esports' }, { name: 'Fnatic' }).find(
+      (line) => line.externalName === 'Caps',
+    );
+    // KP = (5+7)/(5+3) = 1.5 ; part de dégâts = 20000/30000 = 0.667 ; vision = 30.
+    expect(caps?.normalized).toMatchObject({
+      killParticipation: 1.5,
+      damageShare: 0.667,
+      visionScore: 30,
+    });
+  });
+});
+
 describe('mapLeaguepediaRows', () => {
   it('filtre par équipes, agrège le Bo3, résout le côté et la désambiguïsation', () => {
     const lines = mapLeaguepediaRows(rows, { name: 'G2 Esports' }, { name: 'Fnatic' });

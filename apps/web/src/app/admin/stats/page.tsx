@@ -107,8 +107,9 @@ export default function AdminStatsPage() {
         )}
       </div>
       <p className={styles.intro}>
-        Moyennes de points par jeu et par rôle, et joueurs les mieux notés, pour vérifier la
-        cohérence des barèmes (ex. un rôle qui marque anormalement peu).
+        Système Z-score v1 : les notes sont standardisées par jeu (et par rôle en LoL), donc chaque
+        moyenne jeu/rôle doit tomber ≈ 50. Un écart notable signale une distribution ou un pilier à
+        revoir. La liste des mieux notés aide à repérer les incohérences.
       </p>
       {error && <p className={styles.error}>{error}</p>}
       {!stats && !error && <p>Chargement…</p>}

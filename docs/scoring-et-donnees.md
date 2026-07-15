@@ -1,142 +1,112 @@
 # Scoring fantasy & données par jeu
 
-Référence du calcul des points fantasy (version en cours : **v4**) et des
-données réellement récupérables par jeu/source. Toute modification des
-barèmes doit s'accompagner d'un bump de `SCORING_VERSION`
-(`apps/scoring-service/src/calculators/calculators.ts`) pour permettre un
-recalcul cohérent.
+Référence du calcul des points fantasy (version en cours : **v1**, système
+Z-score cross-game) et des données récupérables par jeu/source. Toute
+modification qui change les notes doit s'accompagner d'un bump de
+`SCORING_VERSION` (`apps/scoring-service/src/calculators/calculators.ts`) pour
+permettre un recalcul cohérent.
 
-## Principe commun
+## Principe : standardisation Z-score
 
-- Les **compteurs** (kills, buts, first kills, objectifs…) sont ramenés à une
-  **moyenne par map** avant barème : `valeur / maps`. Une bonne performance
-  vaut ~20-35 points quel que soit le format (Bo1/Bo3/Bo5).
-- Les **taux déjà moyennés sur le match** (adr, acs, cs/min) et les **bonus de
-  match** (win) **ne sont pas divisés** par le nombre de maps.
-- `maps` = nombre de manches décidées (`gamesSummary` avec un vainqueur), sinon
-  la somme des scores de série, sinon 1 (`mapsPlayed`).
-- Chaque contribution est arrondie à 0,01 ; le total est la somme des
-  contributions.
+Le scoring compare des joueurs **entre jeux** en gommant les asymétries d'échelle.
 
-## Barèmes par jeu
+1. **Standardisation (Z-score)** — chaque statistique brute `x` est ramenée à
+   `Z(x) = (x − μ) / σ`, où μ (moyenne) et σ (écart-type) sont calculés sur la
+   **population** du même jeu (tout l'historique des matchs finis).
+   - **LoL** : μ/σ sont isolés **par rôle** (TOP/JUN/MID/ADC/SUP) — le game design
+     rend les rôles structurellement asymétriques (un support « marque » moins
+     qu'un ADC ; on le compare donc aux autres supports). Cela règle par
+     construction le problème « les supports scorent moins ».
+   - Les distributions sont stockées dans `stat_distributions` (schéma scoring),
+     recalculées sur tout l'historique (paresseusement, TTL `SCORING_DISTRIBUTION_TTL_HOURS`,
+     défaut 6 h ; et à chaque recalcul complet). Garde-fou : moins de
+     `MIN_DISTRIBUTION_SAMPLE` (30) échantillons ou σ≈0 → Z=0 (note neutre).
+   - Les **compteurs** (kills, buts…) sont ramenés à la **moyenne par map** avant
+     standardisation (comparabilité Bo1/Bo3/Bo5) ; les **taux** déjà moyennés
+     (adr, kast, csPerMin, bpm, ratios LoL) sont pris tels quels.
 
-La version globale (`SCORING_VERSION`) est **v4**. Le libellé `(vN)` en tête de chaque jeu
-indique la dernière version où **ce** barème a changé (CS2 figé depuis v3, Valorant révisé en
-v4). Un changement de barème sur n'importe quel jeu bump `SCORING_VERSION` et déclenche un
-recalcul complet.
+2. **4 piliers universels** par joueur : Impact (`I`), Létalité (`L`), Soutien
+   (`S`), Constance (`C`) — chacun une combinaison de Z-scores (voir par jeu).
 
-### CS2 (v3)
+3. **Pondération** (`Z_total`, somme des poids = 1) — matrice **éditable**
+   (`DEFAULT_WEIGHTS` + `LOL_ROLE_WEIGHTS` dans `calculators.ts`) :
+   - Jeux unifiés (CS2, Valorant, RL) : `0.35·I + 0.30·L + 0.20·S + 0.15·C`.
+   - LoL : pondération **par rôle** (le rôle dicte l'objectif).
 
-| Composante | Barème | Source |
-| ---------- | ------ | ------ |
-| kills | `(kills / maps) × 2` | Grid |
-| assists | `(assists / maps) × 1` | Grid |
-| deaths | `−(deaths / maps)` | Grid |
-| firstKills | `(firstKills / maps) × 1,5` | Grid (firstKill par game agrégé) |
-| plants | `(plants / maps) × 0,5` | Grid (objectives `plantBomb`) |
-| defuses | `(defuses / maps) × 0,5` | Grid (objectives `defuseBomb`) |
-| adr | `(adr ?? 0) × 0,05` | **indisponible** (toujours 0, cf. ci-dessous) |
+4. **Note joueur 0-100** : `Score = clamp(50 + 15·Z_total, 0, 100)`.
 
-L'ADR est conservé dans la formule mais vaut toujours 0 : Grid open-access ne
-fournit aucune donnée de dégâts. v3 compense en valorisant les manches ouvertes
-(firstKills) et les objectifs (plants/defuses), seules données réellement
-disponibles au-delà du K/A/D.
+5. **Score journalier d'un roster** : **moyenne** des notes des `N` joueurs
+   pické (un pick qui n'a pas joué compte 0) → indépendant de `N`, comparable
+   entre rosters. Le classement de ligue cumule les scores journaliers.
 
-### Valorant (v4)
+## Piliers par jeu
 
-| Composante | Barème | Source |
-| ---------- | ------ | ------ |
-| kills | `(kills / maps) × 1,5` | VLR.gg |
-| assists | `(assists / maps) × 0,8` | VLR.gg |
-| deaths | `−(deaths / maps)` | VLR.gg |
-| acs | `(acs ?? 0) × 0,04` | VLR.gg |
-| adr | `(adr ?? 0) × 0,02` | VLR.gg |
-| kast | `(kast ?? 0) × 0,05` | VLR.gg |
-| firstKills | `(firstKills / maps) × 1,5` | VLR.gg |
-| firstDeaths | `−(firstDeaths / maps) × 0,8` | VLR.gg |
+| Jeu | Impact (I) | Létalité (L) | Soutien (S) | Constance (C) |
+|---|---|---|---|---|
+| **CS2** | (Z(firstKills)+Z(objectifs))/2 | Z(kills) | Z(assists) | −Z(deaths) |
+| **Valorant** | Z(firstKills)−Z(firstDeaths) | Z(adr) | Z(assists) | Z(kast) |
+| **LoL** | Z(killParticipation) | Z(damageShare) | (Z(visionScore)+Z(assists))/2 | −Z(deaths) |
+| **RL** | (Z(shots)+Z(demosInflicted))/2 | Z(goals) | (Z(saves)+Z(assists))/2 | Z(boostBpm) |
 
-v4 exploite les données exposées par la nouvelle grille VLR : ADR (dégâts), KAST
-(implication dans les rounds) et first deaths (coût des entrées ratées). L'ACS et
-l'ADR étant corrélés, l'ACS reste le principal et l'ADR ajoute une part de
-dégâts à poids réduit. Le **rating VLR 2.0** (composite) et le **HS%**
-(mécanique) sont stockés dans `normalized`/`raw` **mais pas notés** — le rating
-double-compterait toutes les autres composantes, le HS% récompenserait une
-précision sans lien direct avec l'impact.
+`objectifs` CS2 = plants + defuses.
 
-### LoL
+### Pondération LoL par rôle
 
-| Composante | Barème | Source |
-| ---------- | ------ | ------ |
-| kills | `(kills / maps) × 3` | Leaguepedia |
-| assists | `(assists / maps) × 1,5` | Leaguepedia |
-| deaths | `−(deaths / maps) × 2` | Leaguepedia |
-| csPerMin | `(csPerMin ?? 0) × 1` | Leaguepedia |
-| win | `win ? 5 : 0` | Leaguepedia |
+| Rôle | I | L | S | C |
+|---|---|---|---|---|
+| TOP | 0.25 | 0.25 | 0.25 | 0.25 |
+| JUN | 0.40 | 0.20 | 0.25 | 0.15 |
+| MID | 0.30 | 0.40 | 0.10 | 0.20 |
+| ADC | 0.20 | 0.50 | 0.05 | 0.25 |
+| SUP | 0.30 | 0.05 | 0.50 | 0.15 |
 
-### Rocket League
+## Limites assumées (tier gratuit)
 
-| Composante | Barème | Source |
-| ---------- | ------ | ------ |
-| goals | `(goals / maps) × 8` | ballchasing.com |
-| assists | `(assists / maps) × 5` | ballchasing.com |
-| saves | `(saves / maps) × 4` | ballchasing.com |
-| shots | `(shots / maps) × 1` | ballchasing.com |
-| score | `(score ?? 0) / maps × 0,01` | ballchasing.com |
+- **CS2 appauvri** : Grid open-access ne fournit **ni dégâts, ni utilitaire, ni
+  flash, ni contexte de round**. La Létalité se limite aux kills et le Soutien
+  aux assists (pas d'`utility_damage` ni de `flash_duration`). CS2 = K/A/D
+  normalisés + first kills + objectifs.
+- **Baiter vs clutcher** : aucune source gratuite ne distingue un joueur qui
+  « baite » d'un clutcher (pas de trades/clutchs/round-context). `−Z(deaths)` et
+  KAST récompensent la survie quelle qu'en soit l'utilité.
 
 ## Données récupérables par source
 
-Le schéma normalisé par jeu est dans `packages/contracts/src/stats.ts`. Ce qui
-suit détaille ce que chaque source expose **réellement** (au-delà du schéma).
+Schéma normalisé par jeu : `packages/contracts/src/stats.ts`.
 
-### CS2 — Grid.gg (open-access, hôte `api-op.grid.gg`)
-
-- **Disponible** : kills, deaths, assists (`killAssistsGiven`), firstKill (par
-  game → agrégé en `firstKills`), objectifs (`plantBomb`, `defuseBomb`,
-  `explodeBomb`), score/map par manche, `netWorth` par game.
-- **Indisponible / non exploité** :
-  - **ADR, rating, KAST, HS%** — aucune donnée de dégâts dans le series state
-    open-access, à aucun niveau (série, game, segment).
-  - **multikills** — le champ existe mais reste **toujours vide** en
-    open-access.
-  - **loadoutValue** — renvoie 0.
-  - **netWorth** — présent mais c'est un instantané de fin de partie (signal
-    faible), non normalisé ni noté.
-- Pour l'ADR/rating, seule une source type HLTV (scraping fragile, Cloudflare,
-  interdit par les CGU) ou une API payante (tier complet Grid, Abios/bo3.gg)
-  les fournirait. Non retenu à ce stade.
+### CS2 — Grid.gg (open-access, `api-op.grid.gg`)
+- **Disponible** : kills, deaths, assists, firstKill (par game → agrégé),
+  objectifs (`plantBomb`, `defuseBomb`).
+- **Indisponible** : ADR/dégâts, flash/utilitaire, rating, KAST, multikills,
+  clutchs — rien au-delà du K/A/D + first kills + objectifs.
 
 ### Valorant — VLR.gg (scraping cheerio)
-
-- **Disponible** : kills, deaths, assists, ACS, ADR, KAST, HS%, rating 2.0,
-  first kills, first deaths, agent + KDA/ACS par map (`perMap`). Couverture
-  large (tier 1-3). Stats live pendant la série.
-- Structure : grille `.ovw-table` (une par équipe), K/D/A dans une cellule
-  `.ovw-cell.mod-kda`. **VLR change régulièrement son HTML** — le parser
-  (`mapVlrMatchHtml`) est le point le plus fragile, à surveiller (une panne se
-  traduit par « plus aucune ingestion Valorant » alors que des matchs finissent).
-- Limite : le rapprochement dépend du nom d'équipe (matching manuel possible
-  côté admin).
+- **Disponible** : kills, deaths, assists, ADR, KAST, HS%, rating 2.0,
+  firstKills, firstDeaths, agent + KDA/ACS par map. Stats live pendant la série.
+- Le parser HTML (`mapVlrMatchHtml`) est le point le plus fragile à surveiller.
 
 ### LoL — Leaguepedia Cargo (wiki Fandom)
+- **Disponible** : kills, deaths, assists, CS (→ cs/min), champion, résultat,
+  **DamageToChampions**, **VisionScore**. `killParticipation` et `damageShare`
+  sont **calculés** via les totaux d'équipe par game.
+- Rate limit Fandom agressif (authentifié via bot password ; cache de fenêtre).
 
-- **Disponible** : kills, deaths, assists, CS (→ cs/min), résultat (`win`),
-  champion par game (`perMap`). Pas de map (LoL).
-- Limite : rate limit Fandom agressif. La requête ramène toute la fenêtre puis
-  filtre côté client — mutualisée par un cache de fenêtre (buckets de 3h) pour
-  ne pas re-requêter par match. Pas de stats live (wiki rempli après coup).
-
-### RL — ballchasing.com (`BALLCHASING_API_KEY`, token gratuit)
-
-- **Disponible** : goals, assists, saves, shots, score in-game, buts par
-  manche. Bien plus de champs (boost, déplacement, positionnement) non
-  exploités.
-- Limite : couverture dépendante des replays uploadés par la communauté (RLCS
-  bien couvert). Filtre `pro=true`, dédup des uploads multiples d'une manche.
+### RL — ballchasing.com (`BALLCHASING_API_KEY`)
+- **Disponible** : goals, assists, saves, shots, score, **boost.bpm**,
+  **demo.inflicted**. Couverture dépendante des replays uploadés (RLCS bien
+  couvert).
 
 ## Matching des équipes/joueurs
 
-- Le rapprochement provider ↔ Pandascore est dans `stats/matching.ts`
-  (`teamMatches` avec alias exacts, `matchPlayer` avec repli leet/inclusion).
-- Les **alias** d'équipe sont appris automatiquement par corrélation adverse
-  (Grid, ballchasing) et ajoutables manuellement via la page admin (tous les
-  providers en tiennent compte).
+- Rapprochement provider ↔ Pandascore dans `stats/matching.ts` (`teamMatches`
+  flou + alias exacts, `matchPlayer` leet/inclusion).
+- **Ids provider persistants** (`teams.provider_ids`, `players.provider_ids`)
+  appris depuis un match résolu : VLR (id numérique), Leaguepedia (nom canonique)
+  → résolution fiable des rosters et des lignes de stats, sans dépendre du nom.
+- Alias d'équipe appris auto (corrélation adverse) + manuels (page admin).
+
+## Observabilité
+
+Page admin `/admin/stats` : moyennes de notes par jeu et par rôle LoL (doivent
+tomber **≈ 50** — contrôle de cohérence de la standardisation), et joueurs les
+mieux notés (filtrable par jeu).

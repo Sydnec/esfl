@@ -82,6 +82,20 @@ export class ScoringController {
     return this.scoring.recomputeAll();
   }
 
+  /** Recalcul des seules distributions (μ/σ) — admin. */
+  @Post('admin/recompute-distributions')
+  @UseGuards(AdminGuard)
+  recomputeDistributions() {
+    return this.scoring.recomputeDistributions();
+  }
+
+  /** Bascule : purge tous les scores puis recalcul complet — admin. */
+  @Post('admin/reset-scores')
+  @UseGuards(AdminGuard)
+  resetScores() {
+    return this.scoring.resetAndRecompute();
+  }
+
   /** Nettoyage à la suppression d'un compte (appel interne). */
   @Delete('internal/users/:userId')
   async removeUser(@Param('userId') userId: string) {

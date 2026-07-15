@@ -81,6 +81,10 @@ export interface LeaguepediaRow {
   Gamelength?: string;
   GameId?: string;
   GameNumber?: string;
+  /** Dégâts aux champions (part d'équipe → damageShare). */
+  DamageToChampions?: string;
+  /** Score de vision (agrégé sur les games). */
+  VisionScore?: string;
 }
 
 /** Retire la désambiguïsation Leaguepedia : "Faker (Lee Sang-hyeok)" → "Faker". */
@@ -143,6 +147,16 @@ export function mapLeaguepediaRows(
   });
   if (matchRows.length === 0) return [];
 
+  // Totaux d'équipe par game (kills, dégâts) : base des ratios KP% et damageShare.
+  const teamTotals = new Map<string, { kills: number; damage: number }>();
+  for (const row of matchRows) {
+    const key = `${row.GameId ?? ''}::${row.Team ?? ''}`;
+    const totals = teamTotals.get(key) ?? { kills: 0, damage: 0 };
+    totals.kills += Number(row.Kills ?? 0);
+    totals.damage += Number(row.DamageToChampions ?? 0);
+    teamTotals.set(key, totals);
+  }
+
   interface Aggregate {
     kills: number;
     deaths: number;
@@ -151,6 +165,9 @@ export function mapLeaguepediaRows(
     minutes: number;
     wins: number;
     games: number;
+    vision: number;
+    kpSum: number;
+    shareSum: number;
     team: string | null;
     raw: LeaguepediaRow[];
     perMap: MapStatsEntry[];
@@ -167,18 +184,29 @@ export function mapLeaguepediaRows(
       minutes: 0,
       wins: 0,
       games: 0,
+      vision: 0,
+      kpSum: 0,
+      shareSum: 0,
       team: null,
       raw: [],
       perMap: [],
     };
     aggregate.team = aggregate.team ?? row.Team ?? null;
-    aggregate.kills += Number(row.Kills ?? 0);
+    const kills = Number(row.Kills ?? 0);
+    const assists = Number(row.Assists ?? 0);
+    const damage = Number(row.DamageToChampions ?? 0);
+    aggregate.kills += kills;
     aggregate.deaths += Number(row.Deaths ?? 0);
-    aggregate.assists += Number(row.Assists ?? 0);
+    aggregate.assists += assists;
     aggregate.cs += Number(row.CS ?? 0);
     aggregate.minutes += Number(row.Gamelength ?? 0);
     aggregate.wins += row.PlayerWin === 'Yes' ? 1 : 0;
+    aggregate.vision += Number(row.VisionScore ?? 0);
     aggregate.games += 1;
+    // Ratios par game (moyennés ensuite) : KP% = (K+A)/kills équipe ; part de dégâts.
+    const team = teamTotals.get(`${row.GameId ?? ''}::${row.Team ?? ''}`);
+    aggregate.kpSum += team && team.kills > 0 ? (kills + assists) / team.kills : 0;
+    aggregate.shareSum += team && team.damage > 0 ? damage / team.damage : 0;
     aggregate.raw.push(row);
     // Détail de la game : champion + stats (pas de map en LoL).
     const gameMinutes = Number(row.Gamelength ?? 0);
@@ -215,6 +243,11 @@ export function mapLeaguepediaRows(
         assists: aggregate.assists,
         csPerMin: aggregate.minutes > 0 ? Math.round((aggregate.cs / aggregate.minutes) * 100) / 100 : null,
         win: aggregate.wins * 2 > aggregate.games,
+        killParticipation:
+          aggregate.games > 0 ? Math.round((aggregate.kpSum / aggregate.games) * 1000) / 1000 : null,
+        damageShare:
+          aggregate.games > 0 ? Math.round((aggregate.shareSum / aggregate.games) * 1000) / 1000 : null,
+        visionScore: aggregate.vision,
       },
       perMap: aggregate.perMap.sort((a, b) => a.position - b.position) as unknown as Prisma.InputJsonValue,
     });
@@ -453,7 +486,7 @@ export class LeaguepediaStatsProvider implements GameStatsProvider {
     // → Gamelength_Number) ; un espace provoque une MWException côté Fandom.
     url.searchParams.set(
       'fields',
-      'SP.Link,SP.Champion,SP.Kills,SP.Deaths,SP.Assists,SP.CS,SP.PlayerWin,SP.Team,SG.Team1,SG.Team2,SG.Gamelength_Number=Gamelength,SG.GameId=GameId,SG.N_GameInMatch=GameNumber',
+      'SP.Link,SP.Champion,SP.Kills,SP.Deaths,SP.Assists,SP.CS,SP.PlayerWin,SP.Team,SP.DamageToChampions,SP.VisionScore,SG.Team1,SG.Team2,SG.Gamelength_Number=Gamelength,SG.GameId=GameId,SG.N_GameInMatch=GameNumber',
     );
     url.searchParams.set('where', `SG.DateTime_UTC >= '${from}' AND SG.DateTime_UTC <= '${to}'`);
 

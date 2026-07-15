@@ -48,6 +48,12 @@ export const lolStatsSchema = z.object({
   assists: z.number(),
   csPerMin: z.number().nullable(),
   win: z.boolean(),
+  /** Participation aux kills (K+A)/kills équipe, moyenne sur les games. */
+  killParticipation: z.number().nullable().optional(),
+  /** Part des dégâts aux champions dans l'équipe, moyenne sur les games. */
+  damageShare: z.number().nullable().optional(),
+  /** Score de vision total (somme sur les games). */
+  visionScore: z.number().nullable().optional(),
 });
 export type LolStats = z.infer<typeof lolStatsSchema>;
 
@@ -58,6 +64,10 @@ export const rlStatsSchema = z.object({
   shots: z.number(),
   /** Score in-game Rocket League. */
   score: z.number().nullable(),
+  /** Démolitions infligées (somme sur les manches). */
+  demosInflicted: z.number().nullable().optional(),
+  /** Boost par minute (moyenne sur les manches). */
+  boostBpm: z.number().nullable().optional(),
 });
 export type RlStats = z.infer<typeof rlStatsSchema>;
 

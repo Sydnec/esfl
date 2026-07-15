@@ -29,6 +29,17 @@ function normalizeVlrPath(raw: string): string | null {
  * Leaguepedia met dans ses scoreboards. Une saisie qui n'est pas une telle URL
  * est renvoyée telle quelle (l'admin a tapé le nom directement).
  */
+/** Nombre de manches jouées (manches décidées, sinon somme des scores, sinon 1). */
+function statMaps(match: { scoreA: number | null; scoreB: number | null; gamesSummary: unknown }): number {
+  const games = Array.isArray(match.gamesSummary)
+    ? (match.gamesSummary as Array<{ winner?: unknown }>)
+    : [];
+  const decided = games.filter((game) => game.winner != null).length;
+  if (decided > 0) return decided;
+  const fromScore = (match.scoreA ?? 0) + (match.scoreB ?? 0);
+  return fromScore > 0 ? fromScore : 1;
+}
+
 function fandomTeamName(raw: string): string {
   const trimmed = raw.trim();
   if (!/lol\.fandom\.com\/wiki\//i.test(trimmed)) return trimmed;
@@ -231,9 +242,39 @@ export class CatalogService {
     });
   }
 
-  listStats(matchIds: string[]) {
+  async listStats(matchIds: string[]) {
     if (matchIds.length === 0) return [];
-    return this.prisma.playerMatchStats.findMany({ where: { matchId: { in: matchIds } } });
+    const rows = await this.prisma.playerMatchStats.findMany({
+      where: { matchId: { in: matchIds } },
+      include: { player: { select: { role: true } } },
+    });
+    // Rôle aplati (nécessaire au scoring LoL) ; le reste des champs est conservé.
+    return rows.map(({ player, ...rest }) => ({ ...rest, role: player?.role ?? null }));
+  }
+
+  /**
+   * Toutes les lignes de stats d'un jeu (matchs finis) pour le calcul des
+   * distributions de scoring : joueur, rôle, normalized, nombre de manches.
+   */
+  async statsForScoring(gameId: string) {
+    if (!gameId) return [];
+    const rows = await this.prisma.playerMatchStats.findMany({
+      where: { gameId, match: { status: 'finished' } },
+      select: {
+        playerId: true,
+        matchId: true,
+        normalized: true,
+        player: { select: { role: true } },
+        match: { select: { scoreA: true, scoreB: true, gamesSummary: true } },
+      },
+    });
+    return rows.map((row) => ({
+      playerId: row.playerId,
+      matchId: row.matchId,
+      role: row.player?.role ?? null,
+      normalized: row.normalized,
+      maps: statMaps(row.match),
+    }));
   }
 
   /** Détail d'un match avec équipes résolues (page match). */

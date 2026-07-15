@@ -22,6 +22,16 @@ export interface DataPlayerMatchStats {
   gameId: string;
   source: string;
   normalized: unknown;
+  role: string | null;
+}
+
+/** Ligne de stats pour le calcul des distributions de scoring. */
+export interface DataScoringStat {
+  playerId: string;
+  matchId: string;
+  role: string | null;
+  normalized: unknown;
+  maps: number;
 }
 
 export interface DataPlayerMeta {
@@ -81,5 +91,10 @@ export class DataClient {
   /** Métadonnées de tous les joueurs (pour l'analytics de points). */
   getPlayerMeta(): Promise<DataPlayerMeta[]> {
     return this.get<DataPlayerMeta[]>('/data/internal/players/meta');
+  }
+
+  /** Toutes les stats d'un jeu (matchs finis) pour le calcul des distributions. */
+  getScoringStats(gameId: string): Promise<DataScoringStat[]> {
+    return this.get<DataScoringStat[]>('/data/internal/stats/all', { gameId });
   }
 }

@@ -101,11 +101,27 @@ describe('mapBallchasingReplays', () => {
 
     const mm = lines.find((line) => line.externalName === 'M0nkey M00n');
     expect(mm?.side).toBe('A');
-    expect(mm?.normalized).toEqual({ goals: 5, assists: 1, saves: 5, shots: 11, score: 1530 });
+    expect(mm?.normalized).toEqual({
+      goals: 5,
+      assists: 1,
+      saves: 5,
+      shots: 11,
+      score: 1530,
+      demosInflicted: 0,
+      boostBpm: 0,
+    });
 
     const exo = lines.find((line) => line.externalName === 'ExoTiiK');
     expect(exo?.side).toBe('B');
-    expect(exo?.normalized).toEqual({ goals: 3, assists: 1, saves: 2, shots: 7, score: 1140 });
+    expect(exo?.normalized).toEqual({
+      goals: 3,
+      assists: 1,
+      saves: 2,
+      shots: 7,
+      score: 1140,
+      demosInflicted: 0,
+      boostBpm: 0,
+    });
   });
 
   it('écarte les spectateurs du lobby (arbitre RLCS : 0 partout sur la série)', () => {
@@ -131,7 +147,15 @@ describe('mapBallchasingReplays', () => {
     };
     const lines = mapBallchasingReplays([partial], { name: 'Team BDS' }, { name: 'Karmine Corp' });
     expect(lines).toHaveLength(1);
-    expect(lines[0].normalized).toEqual({ goals: 0, assists: 0, saves: 2, shots: 0, score: 0 });
+    expect(lines[0].normalized).toEqual({
+      goals: 0,
+      assists: 0,
+      saves: 2,
+      shots: 0,
+      score: 0,
+      demosInflicted: 0,
+      boostBpm: 0,
+    });
   });
 });
 
