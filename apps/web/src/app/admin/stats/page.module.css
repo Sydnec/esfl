@@ -46,59 +46,55 @@
   margin: calc(-1 * var(--space-2)) 0 var(--space-2);
 }
 
-/* ---------- Barres ---------- */
-.bars {
+/* ---------- Histogramme ---------- */
+.histoWrap {
+  max-width: 640px;
+}
+
+.histo {
+  position: relative;
   display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
+  align-items: flex-end;
+  gap: 1px;
+  height: 200px;
+  border-bottom: 1px solid var(--color-border);
 }
 
-.barRow {
-  display: grid;
-  grid-template-columns: 8rem 1fr auto;
-  align-items: center;
-  gap: var(--space-3);
-}
-
-.barLabel {
-  font-size: 0.9rem;
-  font-weight: 500;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.barTrack {
-  height: 14px;
-  background: var(--color-surface);
-  border-radius: var(--radius);
-  overflow: hidden;
-}
-
-.barFill {
-  display: block;
-  height: 100%;
+.bar {
+  flex: 1;
+  min-height: 1px;
   background: var(--color-accent);
-  border-radius: var(--radius);
+  border-radius: 2px 2px 0 0;
 }
 
-.barValue {
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
-  white-space: nowrap;
+.bar:hover {
+  background: var(--color-text);
 }
 
-.barSub {
+/* Repère vertical à 50 (référence de la standardisation). */
+.mid {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 0;
+  border-left: 1px dashed var(--color-border);
+}
+
+.axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: var(--space-1);
+  font-size: 0.72rem;
   color: var(--color-muted);
-  font-weight: 400;
-  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
 }
 
-@media (max-width: 560px) {
-  .barRow {
-    grid-template-columns: 6rem 1fr auto;
-    gap: var(--space-2);
-  }
+.distMeta {
+  margin-top: var(--space-2);
+  color: var(--color-muted);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ---------- Filtres ---------- */

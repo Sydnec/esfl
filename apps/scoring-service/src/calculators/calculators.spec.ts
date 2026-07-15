@@ -3,10 +3,12 @@ import {
   canonicalLolRole,
   computePlayerScore,
   Distribution,
+  DistributionLookup,
   distributionRole,
   extractMetrics,
   mapsPlayed,
   MIN_DISTRIBUTION_SAMPLE,
+  ZTOTAL_METRIC,
 } from './calculators';
 
 describe('mapsPlayed', () => {
@@ -52,9 +54,12 @@ describe('computePlayerScore', () => {
     stddev,
     sampleSize: MIN_DISTRIBUTION_SAMPLE,
   });
+  // Métriques standardisées via `dist`, Z_total non re-standardisé (lookup vide).
+  const lookupWith = (mean: number, stddev: number): DistributionLookup => (_g, _r, metric) =>
+    metric === ZTOTAL_METRIC ? undefined : dist(mean, stddev);
 
   it('un joueur exactement à la moyenne obtient 50', () => {
-    const lookup = () => dist(10, 5);
+    const lookup = lookupWith(10, 5);
     const result = computePlayerScore(
       'cs2',
       { kills: 10, deaths: 10, assists: 10, firstKills: 10, plants: 5, defuses: 5 },
@@ -71,7 +76,7 @@ describe('computePlayerScore', () => {
       { kills: 30, deaths: 5, assists: 10, adr: 200, kast: 90, firstKills: 12, firstDeaths: 1 },
       1,
       null,
-      () => dist(100, 20),
+      lookupWith(100, 20),
     );
     expect(strong && strong.points).toBeGreaterThan(50);
 

@@ -19,6 +19,16 @@ export const SCORING_VERSION = 'v1';
 /** Taille d'échantillon minimale d'une distribution pour l'utiliser (sinon Z=0). */
 export const MIN_DISTRIBUTION_SAMPLE = 30;
 
+/**
+ * Échelle des notes (ÉDITABLE) = écart-type cible autour de 50, après
+ * re-standardisation de Z_total. ~20 → les ~1 % extrêmes touchent 0/100, le gros
+ * du peloton s'étale sur 30-70. Monter pour plus de contraste.
+ */
+export const SCORE_SCALE = 20;
+
+/** Métrique spéciale : distribution de Z_total (re-standardisation des notes). */
+export const ZTOTAL_METRIC = '_zTotal';
+
 export interface ScoreResult {
   points: number;
   breakdown: Record<string, number>;
@@ -213,17 +223,25 @@ export type DistributionLookup = (
 
 const clamp = (value: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, value));
 
+export interface ZTotalResult {
+  zTotal: number;
+  pillars: Pillars;
+  values: Record<string, number>;
+  roleKey: string;
+}
+
 /**
- * Note 0-100 d'un joueur pour un match : standardise chaque métrique (Z),
- * compose les piliers, pondère selon le jeu/rôle, convertit et borne.
+ * Z_total (avant re-standardisation) : standardise chaque métrique, compose les
+ * piliers et pondère. Base commune au calcul de la distribution de Z_total et
+ * de la note finale.
  */
-export function computePlayerScore(
+export function computeZTotal(
   gameId: GameId,
   normalized: unknown,
   maps: number,
   role: string | null | undefined,
   lookup: DistributionLookup,
-): ScoreResult | null {
+): ZTotalResult | null {
   if (!METRIC_SPECS[gameId]) return null;
   const roleKey = distributionRole(gameId, role);
   const values = extractMetrics(gameId, normalized, maps);
@@ -245,17 +263,42 @@ export function computePlayerScore(
     weights.lethality * pillars.lethality +
     weights.support * pillars.support +
     weights.consistency * pillars.consistency;
-  const points = clamp(50 + 15 * zTotal, 0, 100);
+  return { zTotal, pillars, values, roleKey };
+}
+
+/**
+ * Note 0-100 d'un joueur : Z_total **re-standardisé** (sa variance est écrasée
+ * par les moyennes de piliers → on la ramène à 1 via la distribution de Z_total)
+ * puis étalé (`SCORE_SCALE`) autour de 50 et borné. C'est ce qui donne de vrais
+ * écarts (1 comme 99), pas un tassement autour de 50.
+ */
+export function computePlayerScore(
+  gameId: GameId,
+  normalized: unknown,
+  maps: number,
+  role: string | null | undefined,
+  lookup: DistributionLookup,
+): ScoreResult | null {
+  const result = computeZTotal(gameId, normalized, maps, role, lookup);
+  if (!result) return null;
+
+  const ztDist = lookup(gameId, result.roleKey, ZTOTAL_METRIC);
+  const zStd =
+    ztDist && ztDist.stddev > 1e-9 && ztDist.sampleSize >= MIN_DISTRIBUTION_SAMPLE
+      ? (result.zTotal - ztDist.mean) / ztDist.stddev
+      : result.zTotal;
+  const points = clamp(50 + SCORE_SCALE * zStd, 0, 100);
 
   return {
     points: round(points),
     breakdown: {
-      ...Object.fromEntries(Object.entries(values).map(([key, value]) => [key, round(value)])),
-      impact: round(pillars.impact),
-      lethality: round(pillars.lethality),
-      support: round(pillars.support),
-      consistency: round(pillars.consistency),
-      zTotal: Math.round(zTotal * 1000) / 1000,
+      ...Object.fromEntries(Object.entries(result.values).map(([key, value]) => [key, round(value)])),
+      impact: round(result.pillars.impact),
+      lethality: round(result.pillars.lethality),
+      support: round(result.pillars.support),
+      consistency: round(result.pillars.consistency),
+      zTotal: Math.round(result.zTotal * 1000) / 1000,
+      zStandardized: Math.round(zStd * 1000) / 1000,
     },
   };
 }
