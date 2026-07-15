@@ -81,7 +81,16 @@ export default function CompetitionPage() {
       group.firstAt = Math.min(group.firstAt, match.scheduledAt ? Date.parse(match.scheduledAt) : Infinity);
       groups.set(match.tournamentId, group);
     }
-    return [...groups.values()].sort((a, b) => a.firstAt - b.firstAt);
+    const DAY_MS = 24 * 3600 * 1000;
+    return [...groups.values()].sort((a, b) => {
+      // Ordre par jour de début (les poules parallèles tombent le même jour),
+      // puis par nom : « Groupe A/B/C/D » dans l'ordre naturel plutôt que dans
+      // l'ordre des premiers matchs (qui donnait B, C, A, D).
+      const dayA = Number.isFinite(a.firstAt) ? Math.floor(a.firstAt / DAY_MS) : Infinity;
+      const dayB = Number.isFinite(b.firstAt) ? Math.floor(b.firstAt / DAY_MS) : Infinity;
+      if (dayA !== dayB) return dayA - dayB;
+      return a.name.localeCompare(b.name, 'fr', { numeric: true, sensitivity: 'base' });
+    });
   }, [matches]);
 
   // Matchs sans phase connue (données anciennes / jeux sans tournois) : repli en grille.
@@ -145,6 +154,7 @@ export default function CompetitionPage() {
             <StandingsTable matches={phase.matches} />
             <div className={styles.phaseMatches}>
               <MatchGrid
+                showDate
                 matches={[...phase.matches].sort((a, b) =>
                   (a.scheduledAt ?? '').localeCompare(b.scheduledAt ?? ''),
                 )}
@@ -164,7 +174,7 @@ export default function CompetitionPage() {
       {finished.length > 0 && (
         <section className={styles.section}>
           <h2 className={styles.sectionTitle}>Résultats récents</h2>
-          <MatchGrid matches={finished} />
+          <MatchGrid showDate matches={finished} />
         </section>
       )}
 
