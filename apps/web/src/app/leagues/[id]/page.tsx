@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { GAME_SHORT_LABELS } from '@esfl/contracts';
@@ -59,7 +59,7 @@ export default function LeaguePage() {
   const [catalog, setCatalog] = useState<Competition[]>([]);
   const [members, setMembers] = useState<Map<string, PublicUserRef>>(new Map());
   const [topPerfs, setTopPerfs] = useState<TopPerf[]>([]);
-  const [topPerfsDate, setTopPerfsDate] = useState<string | null>(null);
+  const [membersOpen, setMembersOpen] = useState(false);
   const [selectedDayId, setSelectedDayId] = useState<string | null>(null);
   const [dayMatches, setDayMatches] = useState<MatchSummary[] | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -70,6 +70,9 @@ export default function LeaguePage() {
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+
+  const timelineRef = useRef<HTMLDivElement>(null);
+  const [tlNav, setTlNav] = useState({ left: false, right: false });
 
   useEffect(() => {
     if (!loading && !user) router.replace('/login');
@@ -95,23 +98,6 @@ export default function LeaguePage() {
         (current) =>
           current ?? (days.find((day) => !day.deadlinePassed) ?? days.at(-1))?.id ?? null,
       );
-
-      const lastPassed = days.filter((day) => day.deadlinePassed).at(-1);
-      if (lastPassed) {
-        setTopPerfsDate(lastPassed.date);
-        const top = await authedFetch<TopPlayerEntry[]>(
-          `/scoring/leagues/${id}/days/${lastPassed.date}/top-players`,
-        );
-        if (top.length > 0) {
-          const players = await request<PlayerRef[]>(
-            `/data/players/by-ids?ids=${top.map((entry) => entry.playerId).join(',')}`,
-          );
-          const byId = new Map(players.map((player) => [player.id, player]));
-          setTopPerfs(
-            top.map((entry) => ({ points: entry.points, player: byId.get(entry.playerId) ?? null })),
-          );
-        }
-      }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Chargement impossible');
     }
@@ -152,6 +138,61 @@ export default function LeaguePage() {
     }, DAY_POLL_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [loadDayMatches]);
+
+  // Meilleures perfs de la journée sélectionnée, seulement si elle a démarré
+  // (deadline dépassée = premier match commencé) : rien à montrer sur un jour à venir.
+  const loadTopPerfs = useCallback(async () => {
+    if (!selectedDay || !selectedDay.deadlinePassed) {
+      setTopPerfs([]);
+      return;
+    }
+    const top = await authedFetch<TopPlayerEntry[]>(
+      `/scoring/leagues/${id}/days/${selectedDay.date}/top-players`,
+    );
+    if (top.length === 0) {
+      setTopPerfs([]);
+      return;
+    }
+    const players = await request<PlayerRef[]>(
+      `/data/players/by-ids?ids=${top.map((entry) => entry.playerId).join(',')}`,
+    );
+    const byId = new Map(players.map((player) => [player.id, player]));
+    setTopPerfs(
+      top.map((entry) => ({ points: entry.points, player: byId.get(entry.playerId) ?? null })),
+    );
+  }, [id, selectedDay, authedFetch]);
+
+  useEffect(() => {
+    setTopPerfs([]);
+    void loadTopPerfs();
+  }, [loadTopPerfs]);
+
+  // Flèches de navigation de la timeline : reflètent la possibilité de défiler.
+  const updateTlNav = useCallback(() => {
+    const el = timelineRef.current;
+    if (!el) return;
+    setTlNav({
+      left: el.scrollLeft > 4,
+      right: el.scrollLeft + el.clientWidth < el.scrollWidth - 4,
+    });
+  }, []);
+
+  useEffect(() => {
+    const el = timelineRef.current;
+    if (!el) return;
+    updateTlNav();
+    el.addEventListener('scroll', updateTlNav, { passive: true });
+    const ro = new ResizeObserver(updateTlNav);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener('scroll', updateTlNav);
+      ro.disconnect();
+    };
+  }, [updateTlNav, matchDays]);
+
+  function scrollTimeline(direction: 1 | -1) {
+    timelineRef.current?.scrollBy({ left: direction * 240, behavior: 'smooth' });
+  }
 
   const competitionName = useCallback(
     (competitionId: string) => catalog.find((c) => c.id === competitionId)?.name ?? competitionId,
@@ -289,10 +330,14 @@ export default function LeaguePage() {
           </button>
         </div>
         <div className={styles.stats}>
-          <div className={styles.stat}>
+          <button
+            className={`${styles.stat} ${styles.statButton}`}
+            onClick={() => setMembersOpen(true)}
+            title="Voir les membres"
+          >
             <span className={styles.statLabel}>Membres</span>
-            <span className={styles.statValue}>{memberCount}</span>
-          </div>
+            <span className={styles.statValue}>{memberCount} ›</span>
+          </button>
           <div className={styles.stat}>
             <span className={styles.statLabel}>Roster</span>
             <span className={styles.statValue}>{league.rosterSize}</span>
@@ -449,23 +494,41 @@ export default function LeaguePage() {
         {matchDays.length === 0 ? (
           <p className={styles.empty}>Aucune journée sur les compétitions suivies pour le moment.</p>
         ) : (
-          <div className={styles.timeline}>
-            {matchDays.map((day) => {
-              const today = day.date === todayParis();
-              const active = day.id === selectedDayId;
-              return (
-                <button
-                  key={day.id}
-                  className={`${styles.dayChip} ${active ? styles.dayChipActive : ''} ${
-                    !active && today ? styles.dayChipToday : ''
-                  } ${!active && !today && day.deadlinePassed ? styles.dayChipPast : ''}`}
-                  onClick={() => setSelectedDayId(day.id)}
-                >
-                  {formatDayChip(day.date)}
-                  {day.myRosterSubmitted && <span className={styles.daySubmitted}>✓</span>}
-                </button>
-              );
-            })}
+          <div className={styles.timelineWrap}>
+            <button
+              className={styles.tlArrow}
+              style={{ visibility: tlNav.left ? 'visible' : 'hidden' }}
+              onClick={() => scrollTimeline(-1)}
+              aria-label="Journées précédentes"
+            >
+              ‹
+            </button>
+            <div className={styles.timeline} ref={timelineRef}>
+              {matchDays.map((day) => {
+                const today = day.date === todayParis();
+                const active = day.id === selectedDayId;
+                return (
+                  <button
+                    key={day.id}
+                    className={`${styles.dayChip} ${active ? styles.dayChipActive : ''} ${
+                      !active && today ? styles.dayChipToday : ''
+                    } ${!active && !today && day.deadlinePassed ? styles.dayChipPast : ''}`}
+                    onClick={() => setSelectedDayId(day.id)}
+                  >
+                    {formatDayChip(day.date)}
+                    {day.myRosterSubmitted && <span className={styles.daySubmitted}>✓</span>}
+                  </button>
+                );
+              })}
+            </div>
+            <button
+              className={styles.tlArrow}
+              style={{ visibility: tlNav.right ? 'visible' : 'hidden' }}
+              onClick={() => scrollTimeline(1)}
+              aria-label="Journées suivantes"
+            >
+              ›
+            </button>
           </div>
         )}
       </section>
@@ -563,9 +626,11 @@ export default function LeaguePage() {
             )}
           </section>
 
-          {topPerfsDate && (
+          {selectedDay && selectedDay.deadlinePassed && (
             <section className={styles.card}>
-              <h2 className={styles.cardTitle}>Meilleures perfs · {topPerfsDate}</h2>
+              <h2 className={styles.cardTitle}>
+                Meilleures perfs · {formatDayChip(selectedDay.date)}
+              </h2>
               {topPerfs.length === 0 ? (
                 <p className={styles.empty}>Pas encore de points calculés sur cette journée.</p>
               ) : (
@@ -603,35 +668,49 @@ export default function LeaguePage() {
         </aside>
       </div>
 
-      {/* Membres, pleine largeur. */}
-      <section className={styles.membersSection}>
-        <h2 className={styles.sectionTitle}>Membres ({memberCount})</h2>
-        <ul className={styles.members}>
-          {(league.members ?? []).map((member) => {
-            const ref = members.get(member.userId);
-            return (
-              <li key={member.userId} className={styles.member}>
-                <Avatar
-                  src={ref?.avatarUrl ? `${API_URL}${ref.avatarUrl}` : null}
-                  label={ref?.username ?? '?'}
-                  size={24}
-                  fit="cover"
-                />
-                <span className={styles.memberName}>{ref?.username ?? 'Ancien membre'}</span>
-                {member.role === 'owner' && <span className={styles.ownerTag}>créateur</span>}
-                {isOwner && member.userId !== user.id && (
-                  <button
-                    className={styles.kickButton}
-                    onClick={() => void handleKick(member.userId)}
-                  >
-                    Exclure
-                  </button>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      </section>
+      {/* Membres, dans une modale ouverte depuis la case « Membres ». */}
+      {membersOpen && (
+        <div className={styles.overlay} onClick={() => setMembersOpen(false)}>
+          <div
+            className={styles.modal}
+            role="dialog"
+            aria-label="Membres de la ligue"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className={styles.modalHeader}>
+              <h2 className={styles.modalTitle}>Membres ({memberCount})</h2>
+              <button className={styles.closeButton} onClick={() => setMembersOpen(false)}>
+                Fermer
+              </button>
+            </div>
+            <ul className={styles.modalMembers}>
+              {(league.members ?? []).map((member) => {
+                const ref = members.get(member.userId);
+                return (
+                  <li key={member.userId} className={styles.member}>
+                    <Avatar
+                      src={ref?.avatarUrl ? `${API_URL}${ref.avatarUrl}` : null}
+                      label={ref?.username ?? '?'}
+                      size={24}
+                      fit="cover"
+                    />
+                    <span className={styles.memberName}>{ref?.username ?? 'Ancien membre'}</span>
+                    {member.role === 'owner' && <span className={styles.ownerTag}>créateur</span>}
+                    {isOwner && member.userId !== user.id && (
+                      <button
+                        className={styles.kickButton}
+                        onClick={() => void handleKick(member.userId)}
+                      >
+                        Exclure
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

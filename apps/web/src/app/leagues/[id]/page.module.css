@@ -79,6 +79,17 @@
   color: var(--color-accent);
 }
 
+.statButton {
+  align-items: flex-start;
+  text-align: left;
+  cursor: pointer;
+}
+
+.statButton:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
 .copyBtn {
   margin-left: auto;
   display: flex;
@@ -119,17 +130,49 @@
   margin-bottom: var(--space-2);
 }
 
+.timelineWrap {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-1);
+}
+
+.tlArrow {
+  flex-shrink: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg);
+  color: var(--color-text);
+  padding: 0 var(--space-2);
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.tlArrow:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
 .timeline {
   display: flex;
   gap: var(--space-1);
   overflow-x: auto;
-  padding-bottom: var(--space-1);
+  /* Scroll latéral conservé mais barre masquée (navigation par les flèches). */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.timeline::-webkit-scrollbar {
+  display: none;
 }
 
 .dayChip {
+  position: relative;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: var(--space-1);
+  justify-content: center;
+  /* Largeur uniforme pour toutes les pilules. */
+  min-width: 108px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-full);
   background: var(--color-bg);
@@ -159,6 +202,10 @@
 }
 
 .daySubmitted {
+  position: absolute;
+  top: 1px;
+  right: var(--space-2);
+  font-size: 0.7rem;
   color: var(--color-success);
 }
 
@@ -379,15 +426,11 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* ---------- Membres ---------- */
-.membersSection {
-  margin-top: var(--space-3);
-}
-
-.members {
+/* ---------- Membres (modale) ---------- */
+.modalMembers {
   list-style: none;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  display: flex;
+  flex-direction: column;
   gap: var(--space-2);
 }
 
