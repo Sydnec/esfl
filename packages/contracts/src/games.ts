@@ -10,10 +10,10 @@ export const GAME_LABELS: Record<GameId, string> = {
   rl: 'Rocket League',
 };
 
-/** Libellés courts pour les affichages condensés. */
+/** Libellés courts pour les affichages condensés (une seule ligne étroite). */
 export const GAME_SHORT_LABELS: Record<GameId, string> = {
-  cs2: 'CS',
-  valorant: 'Valo',
+  cs2: 'CS2',
+  valorant: 'Valorant',
   lol: 'LoL',
   rl: 'RL',
 };

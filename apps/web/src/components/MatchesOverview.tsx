@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { GAME_IDS, GAME_SHORT_LABELS, GameId } from '@esfl/contracts';
+import { GAME_IDS, GAME_LABELS, GameId } from '@esfl/contracts';
 import { request } from '@/lib/api';
 import { useMatchUpdates } from '@/lib/useMatchUpdates';
 import type { Competition, MatchSummary } from '@/lib/types';
@@ -101,7 +101,7 @@ export function MatchesOverview() {
             if (list.length === 0) return null;
             return (
               <div key={gameId} className={styles.filterGroup}>
-                <h3 className={styles.filterGame}>{GAME_SHORT_LABELS[gameId]}</h3>
+                <h3 className={styles.filterGame}>{GAME_LABELS[gameId]}</h3>
                 {list.map((competition) => (
                   <label key={competition.id} className={styles.filterItem}>
                     <input
@@ -131,7 +131,7 @@ export function MatchesOverview() {
           }
           return (
             <div key={gameId} className={styles.gameGroup}>
-              <h3 className={styles.gameTitle}>{GAME_SHORT_LABELS[gameId]}</h3>
+              <h3 className={styles.gameTitle}>{GAME_LABELS[gameId]}</h3>
               {[...byCompetition.values()].map((competitionMatches) => (
                 <div key={competitionMatches[0].competition.id} className={styles.compGroup}>
                   <h4 className={styles.compTitle}>
