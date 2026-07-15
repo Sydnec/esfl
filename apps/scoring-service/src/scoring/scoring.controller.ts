@@ -61,6 +61,13 @@ export class ScoringController {
     return this.scoring.playerPoints(playerIds ? playerIds.split(',').filter(Boolean) : []);
   }
 
+  /** Analytics de santé des points fantasy (page admin). */
+  @Get('admin/point-stats')
+  @UseGuards(AdminGuard)
+  pointStats() {
+    return this.scoring.pointStats();
+  }
+
   /** Recalcul manuel d'un match (admin). */
   @Post('recompute/:matchId')
   @UseGuards(AdminGuard)

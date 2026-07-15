@@ -113,6 +113,12 @@ export class CatalogController {
     return this.catalog.distinctStatsMatchIds();
   }
 
+  /** Métadonnées de tous les joueurs (analytics de points, appel interne scoring). */
+  @Get('internal/players/meta')
+  playersMeta() {
+    return this.catalog.playersMeta();
+  }
+
   /** Déclenchement manuel d'un job d'ingestion (réservé à un usage admin/dev). */
   @Post('admin/sync/:job')
   @UseGuards(AdminGuard)

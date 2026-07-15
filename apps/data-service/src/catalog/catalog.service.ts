@@ -209,6 +209,19 @@ export class CatalogService {
     }));
   }
 
+  /** Métadonnées légères de tous les joueurs (analytics de points, scoring interne). */
+  playersMeta() {
+    return this.prisma.player.findMany({
+      select: {
+        id: true,
+        name: true,
+        gameId: true,
+        role: true,
+        team: { select: { name: true, acronym: true } },
+      },
+    });
+  }
+
   /** Résolution de joueurs par ids (noms, équipes, images) — pour les tops de journée. */
   listPlayersByIds(ids: string[]) {
     if (ids.length === 0) return [];

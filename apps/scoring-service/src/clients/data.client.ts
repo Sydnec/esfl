@@ -24,6 +24,14 @@ export interface DataPlayerMatchStats {
   normalized: unknown;
 }
 
+export interface DataPlayerMeta {
+  id: string;
+  name: string;
+  gameId: string;
+  role: string | null;
+  team: { name: string; acronym: string | null } | null;
+}
+
 /** Client REST interne vers le data-service. */
 @Injectable()
 export class DataClient {
@@ -68,5 +76,10 @@ export class DataClient {
   /** Ids des matchs ayant des stats (pour le recalcul en masse). */
   listStatsMatchIds(): Promise<string[]> {
     return this.get<string[]>('/data/internal/stats/match-ids');
+  }
+
+  /** Métadonnées de tous les joueurs (pour l'analytics de points). */
+  getPlayerMeta(): Promise<DataPlayerMeta[]> {
+    return this.get<DataPlayerMeta[]>('/data/internal/players/meta');
   }
 }

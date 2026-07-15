@@ -5,6 +5,24 @@ import { DataClient, DataMatch } from '../clients/data.client';
 import { FantasyClient, FantasyRoster } from '../clients/fantasy.client';
 import { PrismaService } from '../prisma.service';
 
+const round2 = (value: number) => Math.round(value * 100) / 100;
+
+/** Minimum de matchs notés pour figurer dans les tops (évite le bruit). */
+const MIN_SCORES = 3;
+
+const LOL_ROLE_ORDER = ['TOP', 'JUN', 'MID', 'ADC', 'SUP', 'Autre'] as const;
+
+/** Rôle LoL canonique pour l'agrégation (regroupe les libellés des sources). */
+function lolRole(role: string | null): string {
+  const r = (role ?? '').toLowerCase();
+  if (/top/.test(r)) return 'TOP';
+  if (/jun|jgl|jng/.test(r)) return 'JUN';
+  if (/mid|middle/.test(r)) return 'MID';
+  if (/bot|adc|carry/.test(r)) return 'ADC';
+  if (/sup/.test(r)) return 'SUP';
+  return 'Autre';
+}
+
 @Injectable()
 export class ScoringService {
   private readonly logger = new Logger(ScoringService.name);
@@ -200,6 +218,76 @@ export class ScoringService {
       }))
       .sort((a, b) => b.points - a.points)
       .map((entry, index) => ({ rank: index + 1, ...entry }));
+  }
+
+  /**
+   * Analytics « santé » des points fantasy (page admin) : moyenne de points par
+   * jeu, par rôle LoL, et top joueurs par moyenne. Basé sur toutes les lignes
+   * `fantasy_points` (une par joueur×match noté).
+   */
+  async pointStats() {
+    const [byGameRows, perPlayer, meta] = await Promise.all([
+      this.prisma.fantasyPoints.groupBy({
+        by: ['gameId'],
+        _avg: { points: true },
+        _count: { _all: true },
+      }),
+      this.prisma.fantasyPoints.groupBy({
+        by: ['playerId', 'gameId'],
+        _avg: { points: true },
+        _count: { _all: true },
+      }),
+      this.data.getPlayerMeta(),
+    ]);
+    const metaById = new Map(meta.map((entry) => [entry.id, entry]));
+
+    const byGame = byGameRows
+      .map((row) => ({
+        gameId: row.gameId,
+        avgPoints: round2(row._avg.points ?? 0),
+        scores: row._count._all,
+      }))
+      .sort((a, b) => b.avgPoints - a.avgPoints);
+
+    // Par rôle LoL : moyenne pondérée sur toutes les notes des joueurs du rôle.
+    const roleAgg = new Map<string, { sum: number; scores: number; players: number }>();
+    for (const player of perPlayer) {
+      if (player.gameId !== 'lol') continue;
+      const role = lolRole(metaById.get(player.playerId)?.role ?? null);
+      const agg = roleAgg.get(role) ?? { sum: 0, scores: 0, players: 0 };
+      agg.sum += (player._avg.points ?? 0) * player._count._all;
+      agg.scores += player._count._all;
+      agg.players += 1;
+      roleAgg.set(role, agg);
+    }
+    const byRole = LOL_ROLE_ORDER.filter((role) => roleAgg.has(role)).map((role) => {
+      const agg = roleAgg.get(role)!;
+      return {
+        role,
+        avgPoints: round2(agg.scores ? agg.sum / agg.scores : 0),
+        scores: agg.scores,
+        players: agg.players,
+      };
+    });
+
+    const topPlayers = perPlayer
+      .filter((player) => player._count._all >= MIN_SCORES)
+      .sort((a, b) => (b._avg.points ?? 0) - (a._avg.points ?? 0))
+      .slice(0, 60)
+      .map((player) => {
+        const info = metaById.get(player.playerId);
+        return {
+          playerId: player.playerId,
+          name: info?.name ?? 'Inconnu',
+          gameId: player.gameId,
+          role: info?.role ?? null,
+          team: info?.team?.acronym || info?.team?.name || null,
+          avgPoints: round2(player._avg.points ?? 0),
+          scores: player._count._all,
+        };
+      });
+
+    return { generatedAt: new Date().toISOString(), minScores: MIN_SCORES, byGame, byRole, topPlayers };
   }
 
   /** Scores d'une journée donnée dans une ligue. */
