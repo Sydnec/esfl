@@ -1,12 +1,13 @@
 'use client';
 
 import Link from 'next/link';
+import { formatDateTime } from '@/lib/format';
 import type { MatchSummary, TeamRef } from '@/lib/types';
 import { Avatar } from './Avatar';
 import styles from './BracketDiagram.module.css';
 
-const CARD_H = 54;
-const SLOT_H = 72; // hauteur réservée par match du 1er tour (carte + espace)
+const CARD_H = 68; // carte : entête heure + 2 lignes d'équipe
+const SLOT_H = 88; // hauteur réservée par match du 1er tour (carte + espace)
 const COL_W = 200;
 
 /** Tour d'un match : rank 0 = finale (droite), rank plus grand = tour plus tôt (gauche). */
@@ -163,6 +164,9 @@ function SubBracket({ matches, label }: { matches: MatchSummary[]; label?: strin
                 className={styles.card}
                 style={{ left: m.cx - cardW / 2, top: m.cy - CARD_H / 2, width: cardW }}
               >
+                {m.scheduledAt && (
+                  <span className={styles.cardTime}>{formatDateTime(m.scheduledAt)}</span>
+                )}
                 <BracketRow team={m.teamA} score={m.scoreA} won={winnerSide === 'A'} />
                 <BracketRow team={m.teamB} score={m.scoreB} won={winnerSide === 'B'} />
               </Link>

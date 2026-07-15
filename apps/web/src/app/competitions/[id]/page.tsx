@@ -154,7 +154,6 @@ export default function CompetitionPage() {
             <StandingsTable matches={phase.matches} />
             <div className={styles.phaseMatches}>
               <MatchGrid
-                showDate
                 matches={[...phase.matches].sort((a, b) =>
                   (a.scheduledAt ?? '').localeCompare(b.scheduledAt ?? ''),
                 )}
@@ -174,7 +173,7 @@ export default function CompetitionPage() {
       {finished.length > 0 && (
         <section className={styles.section}>
           <h2 className={styles.sectionTitle}>Résultats récents</h2>
-          <MatchGrid showDate matches={finished} />
+          <MatchGrid matches={finished} />
         </section>
       )}
 

@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { formatDateTime, formatKickoff } from '@/lib/format';
+import { formatKickoff } from '@/lib/format';
 import type { MatchSummary, TeamRef } from '@/lib/types';
 import { Avatar } from './Avatar';
 import styles from './MatchCard.module.css';
@@ -26,7 +26,7 @@ function TeamSide({ team, side, won }: { team: TeamRef | null; side: 'A' | 'B'; 
   );
 }
 
-export function MatchCard({ match, showDate }: { match: MatchSummary; showDate?: boolean }) {
+export function MatchCard({ match }: { match: MatchSummary }) {
   const running = match.status === 'running';
   const forfeit = match.forfeit ?? match.status === 'canceled';
   const withScore = running || match.status === 'finished';
@@ -43,8 +43,7 @@ export function MatchCard({ match, showDate }: { match: MatchSummary; showDate?:
           {running ? (
             <span><span className={styles.live}>●</span> {formatKickoff(match.scheduledAt)}<span style={{ opacity: 0 }}>●</span></span>
           ) : match.status === 'finished' ? (
-            // Dans les listes de tournoi, l'heure de début prime sur le libellé.
-            showDate ? formatDateTime(match.scheduledAt) : 'Terminé'
+            'Terminé'
           ) : forfeit ? (
             'Forfait'
           ) : (
@@ -74,17 +73,11 @@ export function MatchCard({ match, showDate }: { match: MatchSummary; showDate?:
 }
 
 /** Grille de cartes : plusieurs matchs par ligne. */
-export function MatchGrid({
-  matches,
-  showDate,
-}: {
-  matches: MatchSummary[];
-  showDate?: boolean;
-}) {
+export function MatchGrid({ matches }: { matches: MatchSummary[] }) {
   return (
     <ul className={styles.grid}>
       {matches.map((match) => (
-        <MatchCard key={match.id} match={match} showDate={showDate} />
+        <MatchCard key={match.id} match={match} />
       ))}
     </ul>
   );
