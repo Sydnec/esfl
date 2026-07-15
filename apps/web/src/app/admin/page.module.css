@@ -359,3 +359,40 @@
   background: var(--color-accent);
   color: var(--color-bg, #fff);
 }
+
+/* Onglet File d'attente : badges d'état de job + action destructive. */
+.badge[data-state='active'] {
+  border-left-color: var(--color-success, #27ae60);
+}
+
+.badge[data-state='delayed'] {
+  border-left-color: #e08a00;
+}
+
+.badge[data-state='waiting'] {
+  border-left-color: var(--color-text-muted);
+}
+
+.badge[data-state='failed'] {
+  border-left-color: var(--color-danger, #c0392b);
+}
+
+.dangerAction {
+  border: 1px solid var(--color-danger, #c0392b);
+  border-radius: var(--radius);
+  background: none;
+  color: var(--color-danger, #c0392b);
+  padding: 2px var(--space-2);
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.dangerAction:hover:not(:disabled) {
+  background: var(--color-danger, #c0392b);
+  color: var(--color-bg, #fff);
+}
+
+.dangerAction:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

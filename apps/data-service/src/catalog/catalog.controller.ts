@@ -176,6 +176,27 @@ export class CatalogController {
     return this.catalog.pruneObsoleteFailures(this.ingestionQueue);
   }
 
+  /** Contenu détaillé de la file BullMQ (compteurs + jobs par état) — page admin. */
+  @Get('admin/queue')
+  @UseGuards(AdminGuard)
+  queue() {
+    return this.catalog.queueSnapshot(this.ingestionQueue);
+  }
+
+  /**
+   * Vide la file selon l'état (`completed`, `failed`, `pending`, `all`) en
+   * préservant les syncs planifiés et les jobs en cours.
+   */
+  @Post('admin/queue/clean')
+  @UseGuards(AdminGuard)
+  cleanQueue(@Query('state') state?: string) {
+    const allowed = ['completed', 'failed', 'pending', 'all'] as const;
+    if (!allowed.includes(state as (typeof allowed)[number])) {
+      throw new BadRequestException(`État inconnu : ${state}`);
+    }
+    return this.catalog.cleanQueue(this.ingestionQueue, state as (typeof allowed)[number]);
+  }
+
   /** Équipes de matchs finis récents sans stats (candidates à un alias). */
   @Get('admin/unmatched-teams')
   @UseGuards(AdminGuard)

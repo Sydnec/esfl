@@ -47,6 +47,32 @@ const SYNC_JOBS: Array<{ job: string; label: string }> = [
   { job: 'check-grid-coverage', label: 'Couverture Grid (CS2)' },
 ];
 
+const STATE_LABELS: Record<QueueJob['state'], string> = {
+  active: 'En cours',
+  delayed: 'Retry programmé',
+  waiting: 'En attente',
+  failed: 'En échec',
+};
+
+interface QueueJob {
+  id: string | null;
+  job: string;
+  jobLabel: string;
+  state: 'active' | 'delayed' | 'waiting' | 'failed';
+  matchId: string | null;
+  gameId: string | null;
+  cible: string | null;
+  introuvable: boolean;
+  recurrent: boolean;
+  raison: string | null;
+  tentatives: number;
+}
+
+interface QueueSnapshot {
+  counts: Record<string, number>;
+  jobs: QueueJob[];
+}
+
 interface IngestionHealth {
   generatedAt: string;
   parJeu: Record<
@@ -73,7 +99,7 @@ interface IngestionHealth {
   pandascore: { requetesDerniereHeure: number; quotaHoraire: number };
 }
 
-type Tab = 'dashboard' | 'gestion';
+type Tab = 'dashboard' | 'gestion' | 'queue';
 
 function gameLabel(gameId: string): string {
   return GAME_LABELS[gameId as GameId] ?? gameId;
@@ -96,6 +122,7 @@ export default function AdminPage() {
   const { user, loading, authedFetch } = useAuth();
   const [tab, setTab] = useState<Tab>('dashboard');
   const [health, setHealth] = useState<IngestionHealth | null>(null);
+  const [queue, setQueue] = useState<QueueSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
@@ -111,6 +138,14 @@ export default function AdminPage() {
     }
   }, [authedFetch]);
 
+  const loadQueue = useCallback(async () => {
+    try {
+      setQueue(await authedFetch<QueueSnapshot>('/data/admin/queue'));
+    } catch {
+      setError('Impossible de charger la file d’attente');
+    }
+  }, [authedFetch]);
+
   useEffect(() => {
     if (loading || !user?.isAdmin) return;
     void load();
@@ -119,6 +154,16 @@ export default function AdminPage() {
     }, REFRESH_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [loading, user, load]);
+
+  // La file n'est rafraîchie que quand son onglet est ouvert (requêtes Redis).
+  useEffect(() => {
+    if (loading || !user?.isAdmin || tab !== 'queue') return;
+    void loadQueue();
+    const interval = setInterval(() => {
+      if (!document.hidden) void loadQueue();
+    }, REFRESH_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [loading, user, tab, loadQueue]);
 
   async function setStatsPage(matchId: string) {
     const url = (vlrUrl[matchId] ?? '').trim();
@@ -147,6 +192,7 @@ export default function AdminPage() {
       });
       setNotice('Ingestion relancée.');
       await load();
+      if (tab === 'queue') await loadQueue();
     } catch {
       setError('Relance impossible');
     } finally {
@@ -191,6 +237,30 @@ export default function AdminPage() {
       await load();
     } catch {
       setError('Purge des échecs impossible');
+    } finally {
+      setPending(null);
+    }
+  }
+
+  async function cleanQueue(
+    state: 'completed' | 'failed' | 'pending' | 'all',
+    confirmLabel?: string,
+  ) {
+    if (confirmLabel && !window.confirm(confirmLabel)) return;
+    setPending(`clean-${state}`);
+    setError(null);
+    try {
+      const { removed } = await authedFetch<{ removed: number }>(
+        `/data/admin/queue/clean?state=${state}`,
+        { method: 'POST' },
+      );
+      setNotice(
+        removed === 0 ? 'Aucun job à retirer.' : `${removed} job(s) retiré(s) de la file.`,
+      );
+      await loadQueue();
+      await load();
+    } catch {
+      setError('Nettoyage de la file impossible');
     } finally {
       setPending(null);
     }
@@ -247,6 +317,12 @@ export default function AdminPage() {
           {health && health.queue.failed > 0 && (
             <span className={styles.tabBadge}>{health.queue.failed}</span>
           )}
+        </button>
+        <button
+          className={tab === 'queue' ? styles.tabActive : styles.tab}
+          onClick={() => setTab('queue')}
+        >
+          File d’attente
         </button>
       </nav>
 
@@ -658,6 +734,166 @@ export default function AdminPage() {
               </div>
             )}
           </section>
+        </>
+      )}
+
+      {tab === 'queue' && (
+        <>
+          {!queue && !error && <p>Chargement…</p>}
+          {queue && (
+            <>
+              <section className={styles.tiles}>
+                <div className={styles.tile}>
+                  <span className={styles.tileLabel}>En attente</span>
+                  <span className={styles.tileValue}>{queue.counts.waiting ?? 0}</span>
+                </div>
+                <div className={styles.tile}>
+                  <span className={styles.tileLabel}>En cours</span>
+                  <span className={styles.tileValue}>{queue.counts.active ?? 0}</span>
+                </div>
+                <div className={styles.tile}>
+                  <span className={styles.tileLabel}>Retry programmés</span>
+                  <span className={styles.tileValue}>{queue.counts.delayed ?? 0}</span>
+                </div>
+                <div className={styles.tile}>
+                  <span className={styles.tileLabel}>En échec</span>
+                  <span
+                    className={
+                      (queue.counts.failed ?? 0) > 0 ? styles.tileAlert : styles.tileValue
+                    }
+                  >
+                    {queue.counts.failed ?? 0}
+                  </span>
+                </div>
+                <div className={styles.tile}>
+                  <span className={styles.tileLabel}>Terminés</span>
+                  <span className={styles.tileValue}>{queue.counts.completed ?? 0}</span>
+                </div>
+              </section>
+
+              <section className={styles.section}>
+                <div className={styles.headerRow}>
+                  <h2 className={styles.sectionTitle}>Jobs dans la file ({queue.jobs.length})</h2>
+                  <button
+                    className={styles.action}
+                    disabled={pending === 'queue-refresh'}
+                    onClick={() => void loadQueue()}
+                  >
+                    Rafraîchir
+                  </button>
+                </div>
+                <p className={styles.hint}>
+                  Les jobs des synchronisations planifiées (récurrents) et les jobs en cours sont
+                  toujours préservés par les purges — seuls les jobs terminés, en échec ou en
+                  attente ponctuels sont retirés.
+                </p>
+                <div className={styles.actions}>
+                  <button
+                    className={styles.action}
+                    disabled={pending === 'clean-completed'}
+                    onClick={() => void cleanQueue('completed')}
+                  >
+                    {pending === 'clean-completed' ? 'Nettoyage…' : 'Nettoyer les terminés'}
+                  </button>
+                  <button
+                    className={styles.action}
+                    disabled={pending === 'clean-failed'}
+                    onClick={() => void cleanQueue('failed')}
+                  >
+                    {pending === 'clean-failed' ? 'Nettoyage…' : 'Nettoyer les échecs'}
+                  </button>
+                  <button
+                    className={styles.action}
+                    disabled={pending === 'clean-pending'}
+                    onClick={() =>
+                      void cleanQueue(
+                        'pending',
+                        'Retirer tous les jobs en attente et retries programmés (hors syncs récurrents) ?',
+                      )
+                    }
+                  >
+                    {pending === 'clean-pending' ? 'Nettoyage…' : 'Vider les jobs en attente'}
+                  </button>
+                  <button
+                    className={styles.dangerAction}
+                    disabled={pending === 'clean-all'}
+                    onClick={() =>
+                      void cleanQueue(
+                        'all',
+                        'Vider entièrement la file (terminés, échecs, en attente et retries) ? Les syncs planifiés et les jobs en cours sont conservés.',
+                      )
+                    }
+                  >
+                    {pending === 'clean-all' ? 'Nettoyage…' : 'Tout vider'}
+                  </button>
+                </div>
+                {queue.jobs.length === 0 ? (
+                  <p className={styles.empty}>Aucun job dans la file.</p>
+                ) : (
+                  <div className={styles.tableWrap}>
+                    <table className={styles.table}>
+                      <thead>
+                        <tr>
+                          <th>État</th>
+                          <th>Tâche</th>
+                          <th>Cible</th>
+                          <th>Tentatives</th>
+                          <th>Détail</th>
+                          <th />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {queue.jobs.map((job) => (
+                          <tr key={job.id ?? `${job.job}-${job.state}-${job.cible}`}>
+                            <td>
+                              <span className={styles.badge} data-state={job.state}>
+                                {STATE_LABELS[job.state]}
+                              </span>
+                            </td>
+                            <td>
+                              {job.jobLabel}
+                              {job.recurrent && (
+                                <span className={styles.gridDetail}> · récurrent</span>
+                              )}
+                            </td>
+                            <td>
+                              {job.introuvable ? (
+                                <span className={styles.empty}>Match supprimé (obsolète)</span>
+                              ) : job.matchId ? (
+                                <>
+                                  {job.gameId && (
+                                    <span className={styles.badge} data-game={job.gameId}>
+                                      {gameLabel(job.gameId)}
+                                    </span>
+                                  )}{' '}
+                                  <Link href={`/matches/${job.matchId}`}>{job.cible}</Link>
+                                </>
+                              ) : (
+                                (job.cible ?? '—')
+                              )}
+                            </td>
+                            <td>{job.tentatives}</td>
+                            <td className={styles.reason}>{job.raison ?? '—'}</td>
+                            <td>
+                              {job.matchId && (
+                                <button
+                                  className={styles.action}
+                                  disabled={pending === job.matchId}
+                                  onClick={() => void retrigger(job.matchId as string, true)}
+                                >
+                                  Relancer
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </section>
+            </>
+          )}
         </>
       )}
     </main>

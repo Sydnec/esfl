@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import type { Queue } from 'bullmq';
+import type { Job, Queue } from 'bullmq';
 import { normalizeName, teamNamesMatch } from '../stats/matching';
 import { PrismaService } from '../prisma.service';
 
@@ -731,6 +731,107 @@ export class CatalogService {
     let removed = 0;
     for (const { job, matchId } of targets) {
       if (!existing.has(matchId)) {
+        await job.remove();
+        removed += 1;
+      }
+    }
+    return { removed };
+  }
+
+  /**
+   * Instantané détaillé de la file BullMQ pour la page admin : compteurs par
+   * état + liste des jobs (attente, actif, retry programmé, échec) avec cible
+   * lisible. Les jobs `ingest-stats` portent un matchId résolu en nom de match.
+   */
+  async queueSnapshot(queue: Queue) {
+    const counts = await queue.getJobCounts(
+      'waiting',
+      'active',
+      'delayed',
+      'failed',
+      'completed',
+    );
+    const [waiting, active, delayed, failed] = await Promise.all([
+      queue.getWaiting(0, 49),
+      queue.getActive(0, 49),
+      queue.getDelayed(0, 49),
+      queue.getFailed(0, 49),
+    ]);
+    const groups: Array<{ state: 'waiting' | 'active' | 'delayed' | 'failed'; jobs: Job[] }> = [
+      { state: 'active', jobs: active },
+      { state: 'delayed', jobs: delayed },
+      { state: 'waiting', jobs: waiting },
+      { state: 'failed', jobs: failed },
+    ];
+
+    // Résolution groupée matchId → nom (les jobs ingest-stats visent un match).
+    const matchIds = [
+      ...new Set(
+        groups
+          .flatMap((group) => group.jobs)
+          .map((job) => (job.data as { matchId?: string }).matchId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    const matches = new Map(
+      (
+        await this.prisma.match.findMany({
+          where: { id: { in: matchIds } },
+          select: { id: true, name: true, gameId: true },
+        })
+      ).map((match) => [match.id, match]),
+    );
+
+    const jobs = groups.flatMap((group) =>
+      group.jobs.map((job) => {
+        const data = job.data as { matchId?: string };
+        const match = data.matchId ? matches.get(data.matchId) : undefined;
+        return {
+          id: job.id ?? null,
+          job: job.name,
+          jobLabel: JOB_LABELS[job.name] ?? job.name,
+          state: group.state,
+          matchId: match?.id ?? null,
+          gameId: match?.gameId ?? null,
+          // matchId présent mais match absent : reliquat visant un match supprimé.
+          cible: match?.name ?? (data.matchId ? null : (JOB_LABELS[job.name] ?? job.name)),
+          introuvable: Boolean(data.matchId) && !match,
+          // Job produit par un scheduler répétable (sync planifié) : ne pas vider.
+          recurrent: Boolean(job.repeatJobKey),
+          raison: group.state === 'failed' ? humanizeFailure(job.failedReason) : null,
+          tentatives: job.attemptsMade,
+        };
+      }),
+    );
+
+    return { counts, jobs };
+  }
+
+  /**
+   * Vide la file selon l'état demandé, en préservant toujours les jobs des
+   * schedulers répétables (sync planifiés) et les jobs actifs (en cours) :
+   * - `completed` / `failed` : purge les jobs terminés ou en échec.
+   * - `pending` : retire les jobs en attente et les retries programmés
+   *   (`waiting` + `delayed`) sauf ceux produits par un scheduler.
+   * - `all` : combine les trois.
+   */
+  async cleanQueue(
+    queue: Queue,
+    state: 'completed' | 'failed' | 'pending' | 'all',
+  ): Promise<{ removed: number }> {
+    let removed = 0;
+    if (state === 'completed' || state === 'all') {
+      removed += (await queue.clean(0, 0, 'completed')).length;
+    }
+    if (state === 'failed' || state === 'all') {
+      removed += (await queue.clean(0, 0, 'failed')).length;
+    }
+    if (state === 'pending' || state === 'all') {
+      // On ne passe pas par queue.clean('delayed') : il supprimerait aussi les
+      // occurrences planifiées des syncs répétables. On filtre sur repeatJobKey.
+      const pending = [...(await queue.getWaiting()), ...(await queue.getDelayed())];
+      for (const job of pending) {
+        if (job.repeatJobKey) continue;
         await job.remove();
         removed += 1;
       }
