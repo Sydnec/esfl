@@ -157,6 +157,7 @@ function SubBracket({ matches, label }: { matches: MatchSummary[]; label?: strin
           {placed.map((m) => {
             const winnerSide =
               m.winnerTeamId === m.teamA?.id ? 'A' : m.winnerTeamId === m.teamB?.id ? 'B' : null;
+            const live = m.status === 'running';
             return (
               <Link
                 key={m.id}
@@ -164,8 +165,38 @@ function SubBracket({ matches, label }: { matches: MatchSummary[]; label?: strin
                 className={styles.card}
                 style={{ left: m.cx - cardW / 2, top: m.cy - CARD_H / 2, width: cardW }}
               >
-                {m.scheduledAt && (
-                  <span className={styles.cardTime}>{formatDateTime(m.scheduledAt)}</span>
+                {(m.scheduledAt || live) && (
+                  <span className={styles.cardTime}>
+                    <span className={styles.cardTimeText}>
+                      {m.scheduledAt ? formatDateTime(m.scheduledAt) : ''}
+                    </span>
+                    {live &&
+                      (m.streamUrl ? (
+                        <span
+                          className={styles.live}
+                          role="link"
+                          tabIndex={0}
+                          title="Voir le live"
+                          onClick={(event) => {
+                            // Carte = lien vers le match ; on ne suit que le stream.
+                            event.preventDefault();
+                            event.stopPropagation();
+                            window.open(m.streamUrl as string, '_blank', 'noopener');
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              window.open(m.streamUrl as string, '_blank', 'noopener');
+                            }
+                          }}
+                        >
+                          live
+                        </span>
+                      ) : (
+                        <span className={styles.liveStatic}>live</span>
+                      ))}
+                  </span>
                 )}
                 <BracketRow team={m.teamA} score={m.scoreA} won={winnerSide === 'A'} />
                 <BracketRow team={m.teamB} score={m.scoreB} won={winnerSide === 'B'} />

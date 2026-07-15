@@ -65,13 +65,36 @@
 }
 
 .cardTime {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1);
   padding: 2px var(--space-2);
   font-size: 0.7rem;
   color: var(--color-muted);
   border-bottom: 1px solid var(--color-border);
-  white-space: nowrap;
+}
+
+.cardTimeText {
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Indicateur live : rouge, souligné au survol, ouvre le stream. */
+.live,
+.liveStatic {
+  flex-shrink: 0;
+  color: var(--color-danger);
+  font-weight: 700;
+}
+
+.live {
+  cursor: pointer;
+}
+
+.live:hover {
+  text-decoration: underline;
 }
 
 .row {
