@@ -48,6 +48,13 @@ model Team {
   location     String?
   /** Noms alternatifs chez les providers de stats (appris par corrélation adverse). */
   aliases      String[] @default([]) @map("aliases")
+  /**
+   * Identifiant de l'équipe chez chaque source spécialisée : { vlr: "1184",
+   * leaguepedia: "T1", grid: "47369" }. Appris UNIQUEMENT depuis un match
+   * résolu (les deux équipes reconnues) → fiable et persistant. Sert à taper
+   * la bonne page équipe pour les rosters, sans recherche par nom (fragile).
+   */
+  providerIds  Json?   @map("provider_ids")
   players      Player[]
   competitions CompetitionTeam[]
 

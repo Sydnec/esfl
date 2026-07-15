@@ -1,6 +1,33 @@
 import { describe, expect, it } from 'vitest';
 import type { MapStatsEntry } from '@esfl/contracts';
-import { mapVlrMatchHtml, parseVlrRoster, parseVlrTeamSearch } from './vlr.provider';
+import {
+  mapVlrMatchHtml,
+  parseVlrMatchTeamIds,
+  parseVlrRoster,
+  parseVlrTeamSearch,
+} from './vlr.provider';
+
+describe('parseVlrMatchTeamIds', () => {
+  const html =
+    '<a class="match-header-link mod-1" href="/team/13576/jdg-esports"></a>' +
+    '<a class="match-header-link mod-2" href="/team/11328/funplus-phoenix"></a>' +
+    '<div class="vm-stats-game-header">' +
+    '<div class="team-name">JDG Esports</div><div class="team-name">FunPlus Phoenix</div></div>';
+
+  it('rattache les ids VLR au bon côté selon le header', () => {
+    expect(
+      parseVlrMatchTeamIds(html, { name: 'JDG Esports' }, { name: 'FunPlus Phoenix' }),
+    ).toEqual({ A: '13576', B: '11328' });
+    // Côtés inversés : l'équipe de gauche devient B.
+    expect(
+      parseVlrMatchTeamIds(html, { name: 'FunPlus Phoenix' }, { name: 'JDG Esports' }),
+    ).toEqual({ A: '11328', B: '13576' });
+  });
+
+  it('renvoie undefined si le côté gauche n’est pas reconnu', () => {
+    expect(parseVlrMatchTeamIds(html, { name: 'Inconnu' }, { name: 'Autre' })).toBeUndefined();
+  });
+});
 
 /** Item de roster VLR : `role` vide = titulaire ; sinon remplaçant/staff. */
 const rosterItem = (alias: string, role = '') =>

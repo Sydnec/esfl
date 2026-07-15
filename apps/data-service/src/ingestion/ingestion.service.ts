@@ -292,8 +292,12 @@ export class IngestionService {
     const key = `${team.gameId}:${team.id}`;
     const cached = this.starterCache.get(key);
     if (cached && Date.now() - cached.at < STARTER_CACHE_TTL_MS) return cached.starters;
+    // Id provider appris depuis un match résolu : la source tape la bonne équipe
+    // directement (plus de recherche par nom faillible).
+    const providerId =
+      (team.providerIds as Record<string, string> | null)?.[provider.source] ?? null;
     const starters = await provider
-      .fetchStarters(team.name, team.aliases ?? [])
+      .fetchStarters(team.name, team.aliases ?? [], providerId)
       .catch((error) => {
         this.logger.warn(`Roster ${provider.source} « ${team.name} » : ${String(error)}`);
         return null;

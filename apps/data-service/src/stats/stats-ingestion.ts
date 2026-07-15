@@ -259,7 +259,28 @@ export class StatsIngestionService {
       });
     }
     await this.learnSourceAliases(match, context, source, sideByTeam);
+    // Id de l'équipe chez la source, appris depuis ce match résolu : persistant
+    // et fiable (les deux équipes reconnues) → sert à taper la bonne page
+    // équipe pour les rosters sans recherche par nom.
+    if (result.teamIds) {
+      await this.saveProviderTeamId(context.teamA, source, result.teamIds.A);
+      await this.saveProviderTeamId(context.teamB, source, result.teamIds.B);
+    }
     return persisted;
+  }
+
+  /** Écrit `Team.providerIds[source]` (fusion), en mémoire et en base. */
+  private async saveProviderTeamId(
+    team: MatchContext['teamA'],
+    source: string,
+    id: string | null | undefined,
+  ): Promise<void> {
+    if (!team || !id) return;
+    const current = (team.providerIds as Record<string, string> | null) ?? {};
+    if (current[source] === id) return;
+    const next = { ...current, [source]: id };
+    await this.prisma.team.update({ where: { id: team.id }, data: { providerIds: next } });
+    team.providerIds = next;
   }
 
   /**

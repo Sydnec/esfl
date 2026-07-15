@@ -7,10 +7,21 @@ import {
   championImageUrl,
   LeaguepediaRow,
   LeaguepediaStatsProvider,
+  leaguepediaTeamNames,
   mapLeaguepediaRows,
   parseLeaguepediaRoster,
 } from './leaguepedia.provider';
 import type { MatchContext } from './provider';
+
+describe('leaguepediaTeamNames', () => {
+  it('rend le nom canonique de chaque équipe par côté', () => {
+    const rows: LeaguepediaRow[] = [{ Team1: 'T1', Team2: 'Gen.G Esports' }];
+    expect(leaguepediaTeamNames(rows, { name: 'T1' }, { name: 'Gen.G' })).toEqual({
+      A: 'T1',
+      B: 'Gen.G Esports',
+    });
+  });
+});
 
 describe('parseLeaguepediaRoster', () => {
   it('garde les joueurs actifs, exclut retraités, remplaçants et coachs', () => {

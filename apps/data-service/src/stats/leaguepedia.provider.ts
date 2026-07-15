@@ -222,6 +222,26 @@ export function mapLeaguepediaRows(
   return lines;
 }
 
+/**
+ * Nom canonique Leaguepedia de chaque équipe (celui des scoreboards / de la
+ * table Players), par côté A/B — à persister comme id provider pour requêter le
+ * roster sans ambiguïté.
+ */
+export function leaguepediaTeamNames(
+  rows: LeaguepediaRow[],
+  teamA: TeamRef,
+  teamB: TeamRef,
+): { A?: string | null; B?: string | null } {
+  const canonical = (team: TeamRef): string | null => {
+    for (const row of rows) {
+      if (row.Team1 && teamMatches(row.Team1, team)) return row.Team1;
+      if (row.Team2 && teamMatches(row.Team2, team)) return row.Team2;
+    }
+    return null;
+  };
+  return { A: canonical(teamA), B: canonical(teamB) };
+}
+
 /** Manches LoL : « score » = total de kills de chaque équipe sur la game. */
 export function mapLeaguepediaGames(
   rows: LeaguepediaRow[],
@@ -373,6 +393,7 @@ export class LeaguepediaStatsProvider implements GameStatsProvider {
     return {
       lines,
       games: mapLeaguepediaGames(rows, context.teamA, context.teamB),
+      teamIds: leaguepediaTeamNames(rows, context.teamA, context.teamB),
     };
   }
 
@@ -472,9 +493,20 @@ export class LeaguepediaStatsProvider implements GameStatsProvider {
    * remplaçants). Résout d'abord le nom canonique via TeamRedirects. Null si la
    * requête échoue ou ne rend rien → fallback Pandascore côté ingestion.
    */
-  async fetchStarters(teamName: string, aliases: string[]): Promise<StarterRef[] | null> {
-    const resolved = await this.resolveTeamNames(teamName).catch(() => []);
-    const names = [...new Set([...resolved, teamName, ...aliases])].filter(Boolean);
+  async fetchStarters(
+    teamName: string,
+    aliases: string[],
+    providerTeamId?: string | null,
+  ): Promise<StarterRef[] | null> {
+    // Nom canonique appris depuis un match résolu : requête directe, sinon on
+    // le résout via TeamRedirects (+ nom/alias en repli).
+    let names: string[];
+    if (providerTeamId) {
+      names = [providerTeamId];
+    } else {
+      const resolved = await this.resolveTeamNames(teamName).catch(() => []);
+      names = [...new Set([...resolved, teamName, ...aliases])].filter(Boolean);
+    }
     if (names.length === 0) return null;
     const rows = await this.queryRoster(names);
     if (rows === null) return null;

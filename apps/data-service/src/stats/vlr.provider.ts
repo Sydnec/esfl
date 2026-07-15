@@ -30,6 +30,32 @@ export function parseVlrTeamSearch(html: string): Array<{ id: string; name: stri
 }
 
 /**
+ * Ids d'équipe VLR d'une page match, rattachés au bon côté A/B. Les deux liens
+ * `.match-header-link` sont dans l'ordre gauche→droite ; le côté du header
+ * gauche est résolu par le nom. Undefined si les deux ids/côtés ne sont pas
+ * sûrs (on n'apprend un id que depuis un match clairement résolu).
+ */
+export function parseVlrMatchTeamIds(
+  html: string,
+  teamA: TeamRef,
+  teamB: TeamRef,
+): { A?: string | null; B?: string | null } | undefined {
+  const $ = cheerio.load(html);
+  const ids: string[] = [];
+  $('a.match-header-link').each((_, el) => {
+    const id = ($(el).attr('href') ?? '').match(/\/team\/(\d+)\//)?.[1];
+    if (id) ids.push(id);
+  });
+  const names = $('.vm-stats-game-header .team-name')
+    .map((_, el) => $(el).text().trim())
+    .get();
+  if (ids.length < 2 || names.length < 2) return undefined;
+  if (teamMatches(names[0], teamA)) return { A: ids[0], B: ids[1] };
+  if (teamMatches(names[0], teamB)) return { B: ids[0], A: ids[1] };
+  return undefined;
+}
+
+/**
  * Titulaires depuis une page équipe VLR : les items de roster **sans rôle**
  * (les remplaçants portent « sub », le staff « coach »/« manager »… → exclus).
  */
@@ -324,9 +350,25 @@ export class VlrStatsProvider implements GameStatsProvider {
    * rôle (remplaçants/staff exclus). Null si l'équipe n'est pas trouvée avec
    * certitude (nom qui matche) → fallback Pandascore côté ingestion.
    */
-  async fetchStarters(teamName: string, aliases: string[]): Promise<StarterRef[] | null> {
+  async fetchStarters(
+    teamName: string,
+    aliases: string[],
+    providerTeamId?: string | null,
+  ): Promise<StarterRef[] | null> {
+    // Id VLR appris depuis un match résolu : on tape directement la bonne page
+    // équipe (fiable). Sinon, repli sur la recherche par nom (faillible).
+    const teamId = providerTeamId ?? (await this.searchTeamId(teamName, aliases));
+    if (!teamId) return null;
+
+    const page = await politeFetch(`${BASE_URL}/team/${teamId}`);
+    if (!page.ok) return null;
+    const starters = parseVlrRoster(await page.text());
+    return starters.length > 0 ? starters : null;
+  }
+
+  /** Résolution de secours nom → id VLR par la recherche (peut se tromper d'équipe). */
+  private async searchTeamId(teamName: string, aliases: string[]): Promise<string | null> {
     const teamRef: TeamRef = { name: teamName, aliases };
-    let teamId: string | null = null;
     for (const query of [teamName, ...aliases]) {
       const response = await politeFetch(
         `${BASE_URL}/search/?q=${encodeURIComponent(query)}&type=teams`,
@@ -338,15 +380,9 @@ export class VlrStatsProvider implements GameStatsProvider {
       if (results.length === 0) continue;
       // Égalité exacte de nom préférée à une inclusion (« NAVI » vs « NAVI Junior »).
       const exact = results.find((result) => normalizeName(result.name) === normalizeName(query));
-      teamId = (exact ?? results[0]).id;
-      break;
+      return (exact ?? results[0]).id;
     }
-    if (!teamId) return null;
-
-    const page = await politeFetch(`${BASE_URL}/team/${teamId}`);
-    if (!page.ok) return null;
-    const starters = parseVlrRoster(await page.text());
-    return starters.length > 0 ? starters : null;
+    return null;
   }
 
   /**
@@ -383,6 +419,7 @@ export class VlrStatsProvider implements GameStatsProvider {
       lines,
       games: mapVlrGames(html),
       pageUrl: matchPath,
+      teamIds: parseVlrMatchTeamIds(html, context.teamA, context.teamB),
     };
   }
 

@@ -45,6 +45,12 @@ export interface ProviderResult {
   games?: ProviderGameInfo[];
   /** Chemin/URL de la page source, mémorisé sur le match pour les fetchs suivants. */
   pageUrl?: string | null;
+  /**
+   * Identifiant de l'équipe chez la source, par côté résolu — appris et
+   * persisté sur `Team.providerIds` (fiable car le match a été trouvé et les
+   * deux équipes reconnues). Ex. VLR : id numérique ; Leaguepedia : nom canonique.
+   */
+  teamIds?: { A?: string | null; B?: string | null };
 }
 
 /** Titulaire renvoyé par une source spécialisée (Leaguepedia, VLR…). */
@@ -68,7 +74,11 @@ export interface GameStatsProvider {
    * vrais titulaires ; null si la source ne sait pas répondre (→ fallback
    * Pandascore). Optionnel : jeux sans source de roster fiable.
    */
-  fetchStarters?(teamName: string, aliases: string[]): Promise<StarterRef[] | null>;
+  fetchStarters?(
+    teamName: string,
+    aliases: string[],
+    providerTeamId?: string | null,
+  ): Promise<StarterRef[] | null>;
   /**
    * Instantané des stats d'un match en cours, pour les sources qui publient
    * pendant la série (page VLR vivante, series state Grid). Optionnel : les
