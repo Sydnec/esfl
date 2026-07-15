@@ -12,12 +12,11 @@
   margin-bottom: var(--space-1);
 }
 
-/* Un seul ascenseur horizontal pour tout l'arbre (upper + lower compris). */
-.scroll {
-  overflow-x: auto;
-}
-
 .wrapper {
+  /* Scroll horizontal si l'arbre déborde ; overflow-y explicite pour éviter le
+   * quirk CSS où overflow-x:auto force overflow-y:auto (barre verticale parasite). */
+  overflow-x: auto;
+  overflow-y: hidden;
   padding-top: 1.5rem;
 }
 
