@@ -72,7 +72,9 @@ services:
       REDIS_URL: redis://redis:6379
       PANDASCORE_TOKEN: ${PANDASCORE_TOKEN:-}
       GRID_API_KEY: ${GRID_API_KEY:-}
+      BALLCHASING_API_KEY: ${BALLCHASING_API_KEY:-}
       ADMIN_TOKEN: ${ADMIN_TOKEN:?}
+      HISTORY_BACKFILL_SINCE: ${HISTORY_BACKFILL_SINCE:-2026-01-01}
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }

@@ -3,6 +3,9 @@
 Backend (5 micro-services + Postgres + Redis + Caddy) sur un VPS via Docker Compose,
 frontend Next.js sur Vercel.
 
+> Pour la **toute première mise en route** (création de la base, compte admin,
+> ingestion automatique de l'historique), voir [docs/premier-lancement.md](docs/premier-lancement.md).
+
 ## 1. Prérequis
 
 - Un VPS avec Docker + le plugin compose, et un nom de domaine.
@@ -70,6 +73,10 @@ service (`prisma migrate deploy`). L'ingestion Pandascore démarre seule si
 
 Les stats détaillées sont ingérées à la fin de chaque match (fenêtre 48 h) avec retries en
 backoff exponentiel (départ 15 min, 8 tentatives) et throttle par hôte.
+
+Au **premier démarrage sur une base vide**, un job `backfill-history` ingère en arrière-plan tout
+l'historique depuis `HISTORY_BACKFILL_SINCE` (défaut `2026-01-01`) : catalogue, matchs et stats des
+matchs finis. Détails et suivi dans [docs/premier-lancement.md](docs/premier-lancement.md).
 
 ## 3. Frontend sur Vercel
 

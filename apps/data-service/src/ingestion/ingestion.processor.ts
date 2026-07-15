@@ -43,6 +43,12 @@ export class IngestionProcessor extends WorkerHost {
       case 'sync-live-stats':
         await this.statsIngestion.syncLiveStats();
         break;
+      case 'backfill-history': {
+        // Premier démarrage (base vide) : ingestion de tout l'historique.
+        const since = (job.data as { since?: string }).since;
+        await this.ingestion.backfillHistory(since ? new Date(since) : new Date('2026-01-01'));
+        break;
+      }
       case 'retry-stats-backfill':
         // Masque d'abord les irrécupérables (le backfill les saute ensuite),
         // puis ré-arme l'ingestion des matchs encore récupérables.

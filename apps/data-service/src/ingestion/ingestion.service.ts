@@ -136,6 +136,62 @@ export class IngestionService {
     });
   }
 
+  /**
+   * Backfill historique (premier démarrage, base vide) : ingère le catalogue et
+   * les matchs de toutes les séries dont l'activité chevauche [since, now], puis
+   * met en file l'ingestion des stats de tous les matchs finis depuis `since`.
+   * Idempotent (upserts + jobId déterministe), lancé en arrière-plan par un job
+   * BullMQ ; le throttle Pandascore et la sérialisation de la file bornent la
+   * charge (l'ingestion s'étale sur plusieurs heures selon le volume).
+   */
+  async backfillHistory(since: Date): Promise<void> {
+    this.logger.log(
+      `Backfill historique depuis ${since.toISOString().slice(0, 10)} : catalogue + matchs…`,
+    );
+    let competitions = 0;
+    for (const game of GAME_IDS) {
+      let series: PSSerie[];
+      try {
+        series = await this.pandascore.listSeriesSince(game, since);
+      } catch (error) {
+        this.logger.error(`Backfill ${game} : listing des séries échoué (${String(error)})`);
+        continue;
+      }
+      for (const serie of series) {
+        const tier = serie.tier ?? bestTier(serie.tournaments);
+        if (tier === 'c' || tier === 'd') continue;
+        try {
+          const competition = await this.upsertCompetition(game, serie);
+          // enqueueStats=false : le gating < 48h ignorerait l'historique ; les
+          // stats sont mises en file en masse ci-dessous pour tous les finis.
+          await this.syncMatchesForCompetition(competition.id, false);
+          competitions += 1;
+        } catch (error) {
+          this.logger.error(`Backfill série ${serie.id} : ${String(error)}`);
+        }
+      }
+    }
+
+    // Stats de tous les matchs finis (hors forfait) depuis `since`. CS2 encore
+    // non vérifié (gridCovered null) inclus : la vérif de couverture fera le tri.
+    const finished = await this.prisma.match.findMany({
+      where: {
+        status: 'finished',
+        forfeit: false,
+        endAt: { gte: since },
+        competition: { hidden: false, AND: [TIER_ALLOWED] },
+        OR: [{ gameId: { not: 'cs2' } }, { gridCovered: true }, { gridCovered: null }],
+      },
+      select: { id: true },
+    });
+    for (const match of finished) {
+      await enqueueIngestStats(this.ingestionQueue, match.id);
+    }
+    this.logger.log(
+      `Backfill historique : ${competitions} compétitions, ${finished.length} matchs finis mis en file pour les stats`,
+    );
+  }
+
   async syncAllActiveMatches(): Promise<void> {
     const competitions = await this.activeCompetitions();
     for (const competition of competitions) {

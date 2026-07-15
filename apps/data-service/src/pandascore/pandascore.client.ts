@@ -89,6 +89,24 @@ export class PandascoreClient {
     return [...running, ...upcoming];
   }
 
+  /**
+   * Séries passées + en cours + à venir dont l'activité chevauche [since, now]
+   * — pour le backfill historique du premier démarrage (base vide). Les séries
+   * passées sont filtrées sur leur date de fin (≥ since) ; dédupliquées par id.
+   */
+  async listSeriesSince(game: GameId, since: Date): Promise<PSSerie[]> {
+    const prefix = PANDASCORE_PATHS[game];
+    const past = await this.getAllPages<PSSerie>(
+      `/${prefix}/series/past`,
+      { 'range[end_at]': `${since.toISOString()},${new Date().toISOString()}`, sort: '-begin_at' },
+      20,
+    );
+    const active = await this.listActiveSeries(game);
+    const byId = new Map<number, PSSerie>();
+    for (const serie of [...past, ...active]) byId.set(serie.id, serie);
+    return [...byId.values()];
+  }
+
   listMatchesForSerie(game: GameId, serieId: number): Promise<PSMatch[]> {
     const prefix = PANDASCORE_PATHS[game];
     return this.getAllPages<PSMatch>(`/${prefix}/matches`, {

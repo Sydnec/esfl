@@ -70,4 +70,5 @@ export type IngestionJobName =
   | 'ingest-stats'
   | 'check-grid-coverage'
   | 'sync-live-stats'
-  | 'retry-stats-backfill';
+  | 'retry-stats-backfill'
+  | 'backfill-history';
