@@ -67,27 +67,24 @@
   opacity: 0.5;
 }
 
-.gameSection {
+.teamGroup {
   margin-top: var(--space-4);
 }
 
-.gameTitle {
-  font-size: 0.875rem;
-  color: var(--color-muted);
-  text-transform: uppercase;
-  margin-bottom: var(--space-2);
-}
-
-.teamGroup {
-  margin-top: var(--space-3);
-}
-
 .teamTitle {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
   font-size: 1rem;
   font-weight: 600;
   margin-bottom: var(--space-2);
   cursor: pointer;
   user-select: none;
+}
+
+.teamName {
+  min-width: 0;
 }
 
 .teamCount {
@@ -96,11 +93,20 @@
   font-size: 0.875rem;
 }
 
+/* Jeu à droite du nom d'équipe. */
+.teamGame {
+  color: var(--color-muted);
+  font-size: 0.8125rem;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
 .players {
   list-style: none;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: var(--space-2);
+  /* Cases compactes : ~5 équipiers alignés sur une ligne (la plupart en ont 5). */
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: var(--space-1);
 }
 
 .playerItem {
@@ -112,12 +118,12 @@
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-1);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   background: var(--color-bg);
   color: var(--color-text);
-  padding: var(--space-2);
+  padding: var(--space-1) var(--space-2);
   text-align: left;
 }
 
@@ -154,11 +160,15 @@
 
 .playerName {
   font-weight: 600;
+  font-size: 0.875rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .playerMeta {
   color: var(--color-muted);
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
 }
 
 .lockTag {

@@ -10,6 +10,7 @@ import { BracketDiagram } from '@/components/BracketDiagram';
 import { StandingsTable } from '@/components/StandingsTable';
 import { request } from '@/lib/api';
 import { flagEmoji } from '@/lib/flags';
+import { sortTeamPlayers } from '@/lib/roles';
 import type { CompetitionDetail, MatchSummary, PlayerRef } from '@/lib/types';
 import styles from './page.module.css';
 
@@ -120,6 +121,8 @@ export default function CompetitionPage() {
       const key = player.team?.id ?? 'sans-equipe';
       groups.set(key, [...(groups.get(key) ?? []), player]);
     }
+    // Ordre des rôles LoL (TOP/JUN/MID/ADC/SUP) au sein de chaque équipe.
+    for (const [key, list] of groups) groups.set(key, sortTeamPlayers(list));
     return groups;
   }, [players, started, statPlayerIds]);
 

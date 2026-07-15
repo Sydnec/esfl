@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { GAME_IDS, GAME_LABELS, GameId } from '@esfl/contracts';
+import { GAME_LABELS, GameId } from '@esfl/contracts';
 import { useAuth } from '@/components/AuthProvider';
 import { Avatar } from '@/components/Avatar';
 import { ApiError } from '@/lib/api';
-import type { PickBoard } from '@/lib/types';
+import { sortTeamPlayers } from '@/lib/roles';
+import type { BoardPlayer, PickBoard } from '@/lib/types';
 import styles from './page.module.css';
 
 export default function PickPage() {
@@ -51,6 +52,28 @@ export default function PickPage() {
         )
       : board.players;
   }, [board, search]);
+
+  // Regroupement par équipe (tous jeux confondus, plus de sections par jeu) :
+  // le jeu est indiqué à droite du nom d'équipe. Joueurs triés (ordre des rôles
+  // LoL). Équipes ordonnées par jeu puis nom.
+  const teamGroups = useMemo(() => {
+    const byTeam = new Map<
+      string,
+      { team: BoardPlayer['team']; gameId: GameId; players: BoardPlayer[] }
+    >();
+    for (const player of filtered) {
+      const key = player.team?.id ?? `sans-${player.gameId}`;
+      const entry = byTeam.get(key) ?? { team: player.team, gameId: player.gameId, players: [] };
+      entry.players.push(player);
+      byTeam.set(key, entry);
+    }
+    const groups = [...byTeam.values()];
+    for (const group of groups) group.players = sortTeamPlayers(group.players);
+    return groups.sort(
+      (a, b) =>
+        a.gameId.localeCompare(b.gameId) || (a.team?.name ?? '').localeCompare(b.team?.name ?? ''),
+    );
+  }, [filtered]);
 
   function toggle(playerId: string) {
     if (!board || board.matchDay.deadlinePassed) return;
@@ -138,78 +161,58 @@ export default function PickPage() {
       {error && <p className={styles.error}>{error}</p>}
       {saved && <p className={styles.saved}>Roster enregistré ✓</p>}
 
-      {GAME_IDS.map((gameId: GameId) => {
-        const players = filtered.filter((player) => player.gameId === gameId);
-        if (players.length === 0) return null;
-        // Regroupement par équipe : seuls les joueurs dont l'équipe dispute
-        // un match ce jour-là sont listés par le backend.
-        const byTeam = new Map<string, typeof players>();
-        for (const player of players) {
-          const key = player.team?.id ?? 'sans-equipe';
-          byTeam.set(key, [...(byTeam.get(key) ?? []), player]);
-        }
-        const teams = [...byTeam.values()].sort((a, b) =>
-          (a[0].team?.name ?? '').localeCompare(b[0].team?.name ?? ''),
-        );
+      {teamGroups.map(({ team, gameId, players: teamPlayers }) => {
+        const selectedInTeam = teamPlayers.filter((p) => selected.has(p.id)).length;
         return (
-          <section key={gameId} className={styles.gameSection}>
-            <h2 className={styles.gameTitle}>{GAME_LABELS[gameId]}</h2>
-            {teams.map((teamPlayers) => {
-              const selectedInTeam = teamPlayers.filter((p) => selected.has(p.id)).length;
-              return (
-              <details
-                key={teamPlayers[0].team?.id ?? 'sans-equipe'}
-                className={styles.teamGroup}
-                open
-              >
-                <summary className={styles.teamTitle}>
-                  {teamPlayers[0].team
-                    ? `${teamPlayers[0].team.acronym ? `${teamPlayers[0].team.acronym} · ` : ''}${teamPlayers[0].team.name}`
-                    : 'Sans équipe'}
-                  {selectedInTeam > 0 && (
-                    <span className={styles.teamCount}> · {selectedInTeam} sélectionné(s)</span>
-                  )}
-                </summary>
-                <ul className={styles.players}>
-                  {teamPlayers.map((player) => {
-                    const isSelected = selected.has(player.id);
-                    return (
-                      <li key={player.id} className={styles.playerItem}>
-                        <button
-                          className={`${styles.player} ${isSelected ? styles.selected : ''} ${
-                            player.locked ? styles.locked : ''
-                          }`}
-                          onClick={() => !player.locked && toggle(player.id)}
-                          disabled={player.locked || board.matchDay.deadlinePassed}
-                        >
-                          <Avatar
-                            src={player.imageUrl}
-                            fallbackSrc={player.team?.imageUrl}
-                            label={player.name}
-                            size={36}
-                            fit="cover"
-                          />
-                          <span className={styles.playerText}>
-                            <span className={styles.playerName}>{player.name}</span>
-                            <span className={styles.playerMeta}>{player.role ?? 'joueur'}</span>
-                            {player.locked && (
-                              <span className={styles.lockTag}>
-                                verrouillé{player.lockedUntil ? ` → ${player.lockedUntil}` : ''}
-                              </span>
-                            )}
+          <details key={team?.id ?? `sans-${gameId}`} className={styles.teamGroup} open>
+            <summary className={styles.teamTitle}>
+              <span className={styles.teamName}>
+                {team
+                  ? `${team.acronym ? `${team.acronym} · ` : ''}${team.name}`
+                  : 'Sans équipe'}
+                {selectedInTeam > 0 && (
+                  <span className={styles.teamCount}> · {selectedInTeam} sélectionné(s)</span>
+                )}
+              </span>
+              <span className={styles.teamGame}>{GAME_LABELS[gameId]}</span>
+            </summary>
+            <ul className={styles.players}>
+              {teamPlayers.map((player) => {
+                const isSelected = selected.has(player.id);
+                return (
+                  <li key={player.id} className={styles.playerItem}>
+                    <button
+                      className={`${styles.player} ${isSelected ? styles.selected : ''} ${
+                        player.locked ? styles.locked : ''
+                      }`}
+                      onClick={() => !player.locked && toggle(player.id)}
+                      disabled={player.locked || board.matchDay.deadlinePassed}
+                    >
+                      <Avatar
+                        src={player.imageUrl}
+                        fallbackSrc={player.team?.imageUrl}
+                        label={player.name}
+                        size={30}
+                        fit="cover"
+                      />
+                      <span className={styles.playerText}>
+                        <span className={styles.playerName}>{player.name}</span>
+                        <span className={styles.playerMeta}>{player.role ?? 'joueur'}</span>
+                        {player.locked && (
+                          <span className={styles.lockTag}>
+                            verrouillé{player.lockedUntil ? ` → ${player.lockedUntil}` : ''}
                           </span>
-                        </button>
-                        <Link className={styles.playerSheet} href={`/players/${player.id}`}>
-                          fiche
-                        </Link>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </details>
-              );
-            })}
-          </section>
+                        )}
+                      </span>
+                    </button>
+                    <Link className={styles.playerSheet} href={`/players/${player.id}`}>
+                      fiche
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </details>
         );
       })}
     </main>
