@@ -200,7 +200,7 @@ function BracketList({ matches }: { matches: MatchSummary[] }) {
       {matches.map((m) => (
         <li key={m.id}>
           <Link href={`/matches/${m.id}`} className={styles.extraLink}>
-            {m.name} — {m.scoreA ?? '-'} : {m.scoreB ?? '-'}
+            {m.name} · {m.scoreA ?? 0} : {m.scoreB ?? 0}
           </Link>
         </li>
       ))}

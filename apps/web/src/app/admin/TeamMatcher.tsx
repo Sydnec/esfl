@@ -67,7 +67,7 @@ export function TeamMatcher() {
           return null;
         }
         setNote(
-          `Alias ajouté(s) à ${label} : ${res.added.join(', ')} — ${res.reingested} match(s) relancé(s).`,
+          `Alias ajouté(s) à ${label} : ${res.added.join(', ')} · ${res.reingested} match(s) relancé(s).`,
         );
         return res.aliases;
       } catch {
@@ -93,7 +93,7 @@ export function TeamMatcher() {
           `/data/admin/matches/${matchId}/stats-page?url=${encodeURIComponent(clean)}`,
           { method: 'POST' },
         );
-        setNote(`Page VLR appliquée à ${label} — ingestion relancée.`);
+        setNote(`Page VLR appliquée à ${label}, ingestion relancée.`);
         return true;
       } catch {
         setNote('Page VLR invalide ou match introuvable');
@@ -111,7 +111,7 @@ export function TeamMatcher() {
       <p className={styles.hint}>
         Seuls les vrais problèmes de nom sont listés (les trous de couverture sont écartés). Pour
         CS2 et Rocket League, ajoute le nom qu’un provider donne à une équipe (ex. « LP » pour
-        largadosypelados) — l’alias relance l’ingestion des matchs récents. Pour LoL, tu peux coller
+        largadosypelados) : l’alias relance l’ingestion des matchs récents. Pour LoL, tu peux coller
         le lien de l’équipe sur lol.fandom.com (le nom est extrait automatiquement). Pour Valorant,
         colle directement le lien du match sur VLR.gg.
       </p>

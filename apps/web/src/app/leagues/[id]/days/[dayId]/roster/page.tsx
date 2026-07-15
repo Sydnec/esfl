@@ -110,7 +110,7 @@ export default function RosterViewPage() {
 
       <p className={styles.status}>
         {started
-          ? 'Journée en cours ou terminée — roster figé.'
+          ? 'Journée en cours ou terminée : roster figé.'
           : `Clôture des picks : ${formatDateTime(matchDay.firstMatchAt)}`}
       </p>
       {error && <p className={styles.error}>{error}</p>}
@@ -152,11 +152,12 @@ export default function RosterViewPage() {
                       {player.role ? ` · ${player.role}` : ''}
                     </span>
                   </div>
-                  {started && (
-                    <span className={styles.points}>
-                      {pts === undefined ? '—' : `${Math.round(pts)} pts`}
-                    </span>
-                  )}
+                  {started &&
+                    (pts === undefined ? (
+                      <span className={styles.pending}>en attente</span>
+                    ) : (
+                      <span className={styles.points}>{Math.round(pts)} pts</span>
+                    ))}
                 </li>
               );
             })}

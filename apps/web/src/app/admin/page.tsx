@@ -106,7 +106,7 @@ function gameLabel(gameId: string): string {
 }
 
 function coverage(row: { finis: number; avecStats: number } | undefined): string {
-  if (!row || row.finis === 0) return '—';
+  if (!row || row.finis === 0) return 'aucun';
   return `${row.avecStats}/${row.finis} (${Math.round((row.avecStats / row.finis) * 100)} %)`;
 }
 
@@ -211,7 +211,7 @@ export default function AdminPage() {
       setNotice(
         enqueued === 0
           ? 'Aucun match récupérable à relancer.'
-          : `${enqueued} match(s) relancé(s) — les stats réapparaîtront au fil de l’ingestion.`,
+          : `${enqueued} match(s) relancé(s), les stats réapparaîtront au fil de l’ingestion.`,
       );
       await load();
     } catch {
@@ -348,7 +348,7 @@ export default function AdminPage() {
               <span className={styles.tileValue}>{enCoursTotal}</span>
             </div>
             <div className={styles.tile}>
-              <span className={styles.tileLabel}>Queue — en cours / retry</span>
+              <span className={styles.tileLabel}>Queue : en cours / retry</span>
               <span className={styles.tileValue}>
                 {health.queue.waiting + health.queue.active} / {health.queue.delayed}
               </span>
@@ -403,7 +403,7 @@ export default function AdminPage() {
                         <td className={incomplete ? styles.warn : undefined}>{coverage(cover)}</td>
                         <td>
                           {source.source}
-                          {source.live ? ' (live)' : ''} —{' '}
+                          {source.live ? ' (live)' : ''} :{' '}
                           {source.configuree ? (
                             <span className={styles.ok}>configurée</span>
                           ) : (
@@ -452,7 +452,7 @@ export default function AdminPage() {
                         <td>
                           <Link href={`/matches/${match.id}`}>{match.name}</Link>
                         </td>
-                        <td>{match.beginAt ? formatDateTime(match.beginAt) : '—'}</td>
+                        <td>{match.beginAt ? formatDateTime(match.beginAt) : ''}</td>
                         <td>
                           {match.statsMaj ? (
                             `maj ${formatDateTime(match.statsMaj)}`
@@ -490,7 +490,7 @@ export default function AdminPage() {
                         </span>
                       </td>
                       <td>{row.competitions}</td>
-                      <td>{row.suivies ?? '—'}</td>
+                      <td>{row.suivies ?? ''}</td>
                       <td>{row.equipes}</td>
                       <td>{row.joueurs}</td>
                     </tr>
@@ -499,7 +499,7 @@ export default function AdminPage() {
               </table>
             </div>
             {Object.keys(health.catalogue).length === 0 && (
-              <p className={styles.empty}>Catalogue vide — le sync initial est en cours.</p>
+              <p className={styles.empty}>Catalogue vide, le sync initial est en cours.</p>
             )}
           </section>
         </>
@@ -551,10 +551,10 @@ export default function AdminPage() {
                         <td>
                           <Link href={`/matches/${match.id}`}>{match.name}</Link>
                         </td>
-                        <td>{match.endAt ? formatDateTime(match.endAt) : '—'}</td>
+                        <td>{match.endAt ? formatDateTime(match.endAt) : ''}</td>
                         <td>
                           {match.gameId !== 'cs2' ? (
-                            '—'
+                            ''
                           ) : match.gridCovered === false ? (
                             <span className={styles.warn}>hors couverture</span>
                           ) : match.gridCovered ? (
@@ -655,10 +655,10 @@ export default function AdminPage() {
                               <Link href={`/matches/${echec.matchId}`}>{echec.cible}</Link>
                             </>
                           ) : (
-                            (echec.cible ?? '—')
+                            (echec.cible ?? '')
                           )}
                         </td>
-                        <td className={styles.reason}>{echec.raison ?? '—'}</td>
+                        <td className={styles.reason}>{echec.raison ?? ''}</td>
                         <td>{echec.tentatives}</td>
                         <td>
                           {echec.matchId && (
@@ -784,7 +784,7 @@ export default function AdminPage() {
                 </div>
                 <p className={styles.hint}>
                   Les jobs des synchronisations planifiées (récurrents) et les jobs en cours sont
-                  toujours préservés par les purges — seuls les jobs terminés, en échec ou en
+                  toujours préservés par les purges : seuls les jobs terminés, en échec ou en
                   attente ponctuels sont retirés.
                 </p>
                 <div className={styles.actions}>
@@ -869,11 +869,11 @@ export default function AdminPage() {
                                   <Link href={`/matches/${job.matchId}`}>{job.cible}</Link>
                                 </>
                               ) : (
-                                (job.cible ?? '—')
+                                (job.cible ?? '')
                               )}
                             </td>
                             <td>{job.tentatives}</td>
-                            <td className={styles.reason}>{job.raison ?? '—'}</td>
+                            <td className={styles.reason}>{job.raison ?? ''}</td>
                             <td>
                               {job.matchId && (
                                 <button

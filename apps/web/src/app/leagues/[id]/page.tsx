@@ -362,7 +362,7 @@ export default function LeaguePage() {
           <div className={`${styles.stat} ${styles.statAccent}`}>
             <span className={styles.statLabel}>Ton rang</span>
             <span className={styles.statValue}>
-              {myEntry ? `${myEntry.rank}e · ${myEntry.points} pts` : '—'}
+              {myEntry ? `${myEntry.rank}e · ${myEntry.points} pts` : 'Non classé'}
             </span>
           </div>
           <button className={styles.copyBtn} onClick={copyInvite} title="Copier le code d’invitation">
@@ -542,7 +542,7 @@ export default function LeaguePage() {
                     ) : needsAction(day) ? (
                       <span
                         className={`${styles.pastille} ${styles.pastilleAction}`}
-                        title="Clôture dans moins de 24 h — roster à composer"
+                        title="Clôture dans moins de 24 h : roster à composer"
                       />
                     ) : null}
                   </button>
