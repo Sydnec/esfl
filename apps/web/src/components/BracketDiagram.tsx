@@ -52,16 +52,24 @@ export function BracketDiagram({ matches }: { matches: MatchSummary[] }) {
     else rest.push(match);
   }
 
+  // Un seul conteneur scrollable pour tout l'arbre : sinon chaque sous-arbre
+  // (upper/lower) aurait son propre ascenseur horizontal, peu pratique.
   if (upper.length > 0 || lower.length > 0) {
     return (
-      <div className={styles.doubleElim}>
-        {upper.length > 0 && <SubBracket matches={upper} label="Upper bracket" />}
-        {lower.length > 0 && <SubBracket matches={lower} label="Lower bracket" />}
-        {rest.length > 0 && <SubBracket matches={rest} />}
+      <div className={styles.scroll}>
+        <div className={styles.doubleElim}>
+          {upper.length > 0 && <SubBracket matches={upper} label="Upper bracket" />}
+          {lower.length > 0 && <SubBracket matches={lower} label="Lower bracket" />}
+          {rest.length > 0 && <SubBracket matches={rest} />}
+        </div>
       </div>
     );
   }
-  return <SubBracket matches={matches} />;
+  return (
+    <div className={styles.scroll}>
+      <SubBracket matches={matches} />
+    </div>
+  );
 }
 
 interface Placed extends MatchSummary {

@@ -12,8 +12,12 @@
   margin-bottom: var(--space-1);
 }
 
-.wrapper {
+/* Un seul ascenseur horizontal pour tout l'arbre (upper + lower compris). */
+.scroll {
   overflow-x: auto;
+}
+
+.wrapper {
   padding-top: 1.5rem;
 }
 
