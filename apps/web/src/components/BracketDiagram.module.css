@@ -14,10 +14,13 @@
 
 .wrapper {
   /* Scroll horizontal si l'arbre déborde ; overflow-y explicite pour éviter le
-   * quirk CSS où overflow-x:auto force overflow-y:auto (barre verticale parasite). */
+   * quirk CSS où overflow-x:auto force overflow-y:auto (barre verticale parasite).
+   * padding-bottom : réserve la hauteur de la barre horizontale, qui sinon
+   * rognerait le bas des cartes du 1er tour (overflow-y:hidden les couperait). */
   overflow-x: auto;
   overflow-y: hidden;
   padding-top: 1.5rem;
+  padding-bottom: 1.25rem;
 }
 
 .bracket {
