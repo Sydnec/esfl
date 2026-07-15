@@ -9,6 +9,7 @@ import { request } from '@/lib/api';
 import { flagEmoji } from '@/lib/flags';
 import { agentIconSrc } from '@/lib/agents';
 import { formatDateTime, formatKickoff } from '@/lib/format';
+import { lolRoleRank } from '@/lib/roles';
 import { formatStat, STAT_COLUMNS } from '@/lib/stat-columns';
 import { useMatchUpdates } from '@/lib/useMatchUpdates';
 import type { FantasyPointsLine, MatchStatsLine, MatchSummary, PlayerRef } from '@/lib/types';
@@ -237,6 +238,17 @@ export default function MatchPage() {
           {[match.teamA, match.teamB].map((team) => {
             const lines = statsByTeam(team?.id);
             if (!team || lines.length === 0) return null;
+            // LoL : ordre usuel des rôles (TOP/JUN/MID/ADC/SUP).
+            if (match.gameId === 'lol') {
+              lines.sort((a, b) => {
+                const pa = players.get(a.playerId);
+                const pb = players.get(b.playerId);
+                return (
+                  lolRoleRank(pa?.role) - lolRoleRank(pb?.role) ||
+                  (pa?.name ?? '').localeCompare(pb?.name ?? '')
+                );
+              });
+            }
             const columns = STAT_COLUMNS[match.gameId];
             const cumulative = selectedMap === null;
             const withAgents = mapTabs.length > 0;
