@@ -1,0 +1,177 @@
+.main {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: var(--space-4) var(--space-3);
+}
+
+.back {
+  font-size: 0.875rem;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-top: var(--space-2);
+}
+
+.headerText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.title {
+  font-size: 1.6rem;
+}
+
+.subtitle {
+  color: var(--color-muted);
+  font-size: 0.95rem;
+}
+
+.editButton {
+  border-radius: var(--radius);
+  background: var(--color-accent);
+  color: var(--color-accent-text);
+  padding: var(--space-2) var(--space-3);
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.editButton:hover {
+  filter: brightness(1.05);
+}
+
+.totalBadge {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius);
+  background: var(--color-accent-soft);
+  padding: var(--space-1) var(--space-3);
+}
+
+.totalLabel {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-muted);
+}
+
+.totalValue {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--color-accent);
+}
+
+.status {
+  color: var(--color-muted);
+  font-size: 0.9rem;
+  margin-top: var(--space-3);
+}
+
+.count {
+  font-size: 0.85rem;
+  color: var(--color-muted);
+  margin-top: var(--space-4);
+  margin-bottom: var(--space-2);
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  color: var(--color-muted);
+  margin-top: var(--space-4);
+}
+
+.roster {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-2) var(--space-3);
+}
+
+.cardText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.name {
+  color: var(--color-text);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.name:hover {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-muted);
+  font-size: 0.85rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gameBadge {
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-muted);
+  border-radius: var(--radius);
+  padding: 0 var(--space-1);
+  font-size: 0.72rem;
+  color: var(--color-text);
+  white-space: nowrap;
+}
+
+.gameBadge[data-game='cs2'] {
+  border-left-color: #e08a00;
+}
+
+.gameBadge[data-game='valorant'] {
+  border-left-color: #fa4454;
+}
+
+.gameBadge[data-game='lol'] {
+  border-left-color: #1e9de3;
+}
+
+.gameBadge[data-game='rl'] {
+  border-left-color: #2f6fd0;
+}
+
+.points {
+  flex-shrink: 0;
+  font-weight: 700;
+  color: var(--color-accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.error {
+  color: var(--color-danger);
+  margin-top: var(--space-2);
+}

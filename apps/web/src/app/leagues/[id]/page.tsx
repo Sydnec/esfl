@@ -582,14 +582,16 @@ export default function LeaguePage() {
                   </span>
                 </div>
                 <Link
-                  href={`/leagues/${league.id}/days/${selectedDay.id}`}
+                  href={
+                    selectedDay.deadlinePassed || selectedDay.myRosterSubmitted
+                      ? `/leagues/${league.id}/days/${selectedDay.id}/roster`
+                      : `/leagues/${league.id}/days/${selectedDay.id}`
+                  }
                   className={selectedDay.deadlinePassed ? styles.dayCtaMuted : styles.dayCta}
                 >
-                  {selectedDay.deadlinePassed
+                  {selectedDay.deadlinePassed || selectedDay.myRosterSubmitted
                     ? 'Voir mon roster'
-                    : selectedDay.myRosterSubmitted
-                      ? 'Modifier mon roster'
-                      : 'Composer mon roster'}
+                    : 'Composer mon roster'}
                 </Link>
               </div>
               {dayMatches === null ? (

@@ -91,9 +91,16 @@ export default function PickPage() {
 
   return (
     <main className={styles.main}>
-      <Link href={`/leagues/${id}`} className={styles.back}>
-        ← Retour à la ligue
-      </Link>
+      <div className={styles.topLinks}>
+        <Link href={`/leagues/${id}`} className={styles.back}>
+          ← Retour à la ligue
+        </Link>
+        {board.myPicks.length > 0 && (
+          <Link href={`/leagues/${id}/days/${dayId}/roster`} className={styles.back}>
+            Voir mon roster →
+          </Link>
+        )}
+      </div>
       <div className={styles.headerRow}>
         <h1 className={styles.title}>Journée du {board.matchDay.date}</h1>
         <span className={styles.deadline}>
