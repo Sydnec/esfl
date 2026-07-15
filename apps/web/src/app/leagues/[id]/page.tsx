@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { GAME_SHORT_LABELS } from '@esfl/contracts';
+import { GAME_IDS, GAME_SHORT_LABELS, GameId } from '@esfl/contracts';
 import { useAuth } from '@/components/AuthProvider';
 import { Avatar } from '@/components/Avatar';
 import { MatchGrid } from '@/components/MatchCard';
@@ -599,7 +599,16 @@ export default function LeaguePage() {
               ) : dayMatches.length === 0 ? (
                 <p className={styles.empty}>Aucun match ce jour-là.</p>
               ) : (
-                <MatchGrid matches={dayMatches} />
+                GAME_IDS.map((gameId: GameId) => {
+                  const ofGame = dayMatches.filter((match) => match.gameId === gameId);
+                  if (ofGame.length === 0) return null;
+                  return (
+                    <div key={gameId} className={styles.dayGame}>
+                      <h4 className={styles.dayGameTitle}>{GAME_SHORT_LABELS[gameId]}</h4>
+                      <MatchGrid matches={ofGame} />
+                    </div>
+                  );
+                })
               )}
             </>
           ) : (

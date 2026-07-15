@@ -259,6 +259,19 @@
   padding: var(--space-3);
 }
 
+/* Groupes de matchs par jeu dans le panneau journée. */
+.dayGame + .dayGame {
+  margin-top: var(--space-3);
+}
+
+.dayGameTitle {
+  font-size: 0.78rem;
+  color: var(--color-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: var(--space-2);
+}
+
 .side {
   display: flex;
   flex-direction: column;
