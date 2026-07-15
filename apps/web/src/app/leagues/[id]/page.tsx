@@ -48,6 +48,17 @@ function relativeDay(date: string): string {
   return `Il y a ${-diff} jours`;
 }
 
+/** La clôture des picks a-t-elle lieu dans les 24 prochaines heures ? */
+function closesSoon(firstMatchAt: string): boolean {
+  const diff = new Date(firstMatchAt).getTime() - Date.now();
+  return diff > 0 && diff <= 24 * 3600 * 1000;
+}
+
+/** Une journée demande-t-elle une action (clôture < 24 h, roster non composé) ? */
+function needsAction(day: MatchDaySummary): boolean {
+  return !day.deadlinePassed && !day.myRosterSubmitted && closesSoon(day.firstMatchAt);
+}
+
 export default function LeaguePage() {
   const { id } = useParams<{ id: string }>();
   const { user, loading, authedFetch } = useAuth();
@@ -111,6 +122,8 @@ export default function LeaguePage() {
     () => matchDays.find((day) => day.id === selectedDayId) ?? null,
     [matchDays, selectedDayId],
   );
+
+  const hasActionSoon = useMemo(() => matchDays.some(needsAction), [matchDays]);
 
   // Matchs de la journée sélectionnée, rafraîchis périodiquement.
   const loadDayMatches = useCallback(async () => {
@@ -336,7 +349,7 @@ export default function LeaguePage() {
             title="Voir les membres"
           >
             <span className={styles.statLabel}>Membres</span>
-            <span className={styles.statValue}>{memberCount} ›</span>
+            <span className={styles.statValue}>{memberCount}</span>
           </button>
           <div className={styles.stat}>
             <span className={styles.statLabel}>Roster</span>
@@ -490,7 +503,12 @@ export default function LeaguePage() {
 
       {/* Timeline des journées, en tête. */}
       <section className={styles.timelineSection}>
-        <h2 className={styles.sectionTitle}>Journées</h2>
+        <h2 className={styles.sectionTitle}>
+          Journées
+          {hasActionSoon && (
+            <span className={styles.titlePastille} title="Une action à faire sous 24 h" />
+          )}
+        </h2>
         {matchDays.length === 0 ? (
           <p className={styles.empty}>Aucune journée sur les compétitions suivies pour le moment.</p>
         ) : (
@@ -516,7 +534,17 @@ export default function LeaguePage() {
                     onClick={() => setSelectedDayId(day.id)}
                   >
                     {formatDayChip(day.date)}
-                    {day.myRosterSubmitted && <span className={styles.daySubmitted}>✓</span>}
+                    {day.myRosterSubmitted ? (
+                      <span
+                        className={`${styles.pastille} ${styles.pastilleDone}`}
+                        title="Roster composé"
+                      />
+                    ) : needsAction(day) ? (
+                      <span
+                        className={`${styles.pastille} ${styles.pastilleAction}`}
+                        title="Clôture dans moins de 24 h — roster à composer"
+                      />
+                    ) : null}
                   </button>
                 );
               })}

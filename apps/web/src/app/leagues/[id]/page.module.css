@@ -201,16 +201,41 @@
   color: var(--color-accent-text);
 }
 
-.daySubmitted {
+/* Pastille d'état dans le coin de la pilule (dans les limites : pas de rognage
+ * par le scroll horizontal de la timeline). */
+.pastille {
   position: absolute;
-  top: 1px;
-  right: var(--space-2);
-  font-size: 0.7rem;
-  color: var(--color-success);
+  top: 4px;
+  right: 5px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
 }
 
-.dayChipActive .daySubmitted {
-  color: var(--color-accent-text);
+/* Roster composé pour cette journée. */
+.pastilleDone {
+  background: var(--color-success);
+}
+
+/* Action à faire sous 24 h (notification). */
+.pastilleAction {
+  background: var(--color-danger);
+}
+
+/* Anneau clair pour rester visible sur la pilule active (fond accent). */
+.dayChipActive .pastille {
+  outline: 1.5px solid var(--color-accent-text);
+}
+
+/* Pastille de notification à côté du titre « Journées ». */
+.titlePastille {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-left: var(--space-1);
+  border-radius: 50%;
+  background: var(--color-danger);
+  vertical-align: middle;
 }
 
 /* ---------- Grille principale ---------- */
