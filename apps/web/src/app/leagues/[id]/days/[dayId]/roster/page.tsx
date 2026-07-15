@@ -146,9 +146,8 @@ export default function RosterViewPage() {
                       {player.name}
                     </Link>
                     <span className={styles.meta}>
-                      <span className={styles.gameBadge} data-game={player.gameId}>
-                        {GAME_SHORT_LABELS[player.gameId as GameId]}
-                      </span>
+                      {GAME_SHORT_LABELS[player.gameId as GameId]}
+                      {' · '}
                       {player.team?.acronym || player.team?.name || 'sans équipe'}
                       {player.role ? ` · ${player.role}` : ''}
                     </span>
