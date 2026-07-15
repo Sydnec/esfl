@@ -224,6 +224,10 @@ export class IngestionService {
       });
       if (!localTeam) continue;
 
+      // Roster courant Pandascore : sert à ne garder actifs que les titulaires
+      // du moment (les départs / remplaçants d'un seul match sont désactivés).
+      const currentPandascoreIds = team.players.map((player) => player.id);
+
       // Fiches créées par les providers de stats (pandascoreId null) dans
       // cette équipe : candidates à l'adoption quand Pandascore rattrape.
       const orphans = await this.prisma.player.findMany({
@@ -261,6 +265,20 @@ export class IngestionService {
         }
         await this.prisma.player.create({
           data: { ...enrichment, pandascoreId: player.id, gameId: game },
+        });
+      }
+
+      // Réconciliation « titulaires actuels » : tout le monde inactif, puis on
+      // réactive le roster courant. Garde-fou : liste vide (hoquet API) → on ne
+      // touche à rien pour ne pas masquer toute une équipe par erreur.
+      if (currentPandascoreIds.length > 0) {
+        await this.prisma.player.updateMany({
+          where: { teamId: localTeam.id },
+          data: { active: false },
+        });
+        await this.prisma.player.updateMany({
+          where: { teamId: localTeam.id, pandascoreId: { in: currentPandascoreIds } },
+          data: { active: true },
         });
       }
     }

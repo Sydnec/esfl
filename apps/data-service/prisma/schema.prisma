@@ -81,6 +81,14 @@ model Player {
   /** Code pays ISO2 (drapeau). */
   nationality  String?
   teamId       String? @map("team_id")
+  /**
+   * Titulaire actuel de son équipe : seuls les joueurs du roster courant
+   * Pandascore restent actifs. Les départs / remplaçants d'un seul match
+   * passent à false et sortent des listes pickables (mais restent résolubles
+   * pour l'historique, les fiches et les tops). Défaut true (rien masqué tant
+   * qu'aucune réconciliation de roster n'a eu lieu).
+   */
+  active       Boolean @default(true)
   team         Team?   @relation(fields: [teamId], references: [id], onDelete: SetNull)
   stats        PlayerMatchStats[]
 

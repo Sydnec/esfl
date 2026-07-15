@@ -147,7 +147,10 @@ export class CatalogService {
     });
     const teamIds = [...new Set(entries.map((entry) => entry.teamId))];
     return this.prisma.player.findMany({
-      where: { teamId: { in: teamIds } },
+      // active : uniquement les titulaires actuels (réconciliés au sync des
+      // rosters). Les joueurs partis restent résolubles ailleurs (getPlayer,
+      // listPlayersByIds) pour l'historique, les fiches et les tops.
+      where: { teamId: { in: teamIds }, active: true },
       include: { team: { select: { id: true, name: true, acronym: true, imageUrl: true } } },
       orderBy: [{ gameId: 'asc' }, { name: 'asc' }],
     });
