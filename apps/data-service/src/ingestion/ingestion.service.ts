@@ -315,9 +315,18 @@ export class IngestionService {
     const source = team.gameId === 'lol' ? 'leaguepedia' : 'vlr';
     const teamPlayers = await this.prisma.player.findMany({ where: { teamId: team.id } });
     const index = buildPlayerIndex(teamPlayers);
+    // Index par id provider : un titulaire dont l'id est déjà connu est rattaché
+    // sans ambiguïté (fiable après une première ingestion de match).
+    const byProviderId = new Map<string, { id: string; name: string }>();
+    for (const player of teamPlayers) {
+      const id = (player.providerIds as Record<string, string> | null)?.[source];
+      if (id) byProviderId.set(id, player);
+    }
     const activeIds = new Set<string>();
     for (const starter of starters) {
-      let local = matchPlayer(index, starter.name);
+      let local =
+        (starter.externalId ? byProviderId.get(starter.externalId) : undefined) ??
+        matchPlayer(index, starter.name);
       if (!local) {
         const created = await this.prisma.player.create({
           data: {
@@ -326,10 +335,12 @@ export class IngestionService {
             teamId: team.id,
             role: starter.role ?? null,
             source,
+            providerIds: starter.externalId ? { [source]: starter.externalId } : undefined,
           },
         });
         local = { id: created.id, name: created.name };
         index.set(normalizeName(created.name), local);
+        if (starter.externalId) byProviderId.set(starter.externalId, local);
       }
       activeIds.add(local.id);
     }

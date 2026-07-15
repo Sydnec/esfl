@@ -64,10 +64,12 @@ export function parseVlrRoster(html: string): StarterRef[] {
   const starters: StarterRef[] = [];
   $('.team-roster-item').each((_, el) => {
     const item = $(el);
-    if (item.find('a[href*="/player/"]').length === 0) return;
+    const href = item.find('a[href*="/player/"]').first().attr('href') ?? '';
+    const externalId = href.match(/\/player\/(\d+)\//)?.[1];
+    if (!externalId) return;
     if (item.find('.team-roster-item-name-role').text().trim()) return;
     const name = item.find('.team-roster-item-name-alias').text().trim();
-    if (name) starters.push({ name });
+    if (name) starters.push({ name, externalId });
   });
   return starters;
 }
@@ -75,6 +77,8 @@ export function parseVlrRoster(html: string): StarterRef[] {
 interface VlrRowStats {
   /** Pseudo affiché par VLR (repris dans raw). */
   name: string;
+  /** Id joueur VLR (numérique) de la ligne, depuis le lien /player/<id>. */
+  externalId: string | null;
   /** Tag d'équipe VLR de la ligne (ex. « 2G ») : sert à résoudre le côté A/B. */
   teamTag: string;
   agent: string | null;
@@ -169,8 +173,10 @@ export function mapVlrMatchHtml(
           const agentImg = $(row).find('.mod-agent img').first();
           const agentSrc = agentImg.attr('src') ?? null;
 
+          const playerHref = $(row).find('a[href*="/player/"]').first().attr('href') ?? '';
           rows.set(normalizeName(name), {
             name,
+            externalId: playerHref.match(/\/player\/(\d+)\//)?.[1] ?? null,
             teamTag: $(row).find('.ovw-player-tag').first().text().trim(),
             agent: agentImg.attr('title') ?? agentImg.attr('alt') ?? null,
             agentImage: agentSrc
@@ -251,6 +257,7 @@ export function mapVlrMatchHtml(
     const perMap = perMapByPlayer.get(nameKey);
     lines.push({
       externalName: stats.name,
+      externalId: stats.externalId,
       side: sideOf(stats.teamTag),
       // Nom d'équipe VLR du joueur (gauche/droite du header) : l'ingestion
       // rattache l'équipe via les joueurs quand le nom ne matche pas le nôtre.

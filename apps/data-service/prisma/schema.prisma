@@ -96,6 +96,12 @@ model Player {
    * qu'aucune réconciliation de roster n'a eu lieu).
    */
   active       Boolean @default(true)
+  /**
+   * Id du joueur chez chaque source ({ vlr: "7857" }), appris depuis un match
+   * résolu. L'id numérique VLR survit aux renommages → matching fiable des
+   * lignes de stats et des titulaires (au-delà du rapprochement par pseudo).
+   */
+  providerIds  Json?   @map("provider_ids")
   team         Team?   @relation(fields: [teamId], references: [id], onDelete: SetNull)
   stats        PlayerMatchStats[]
 

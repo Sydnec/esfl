@@ -30,30 +30,33 @@ describe('parseVlrMatchTeamIds', () => {
 });
 
 /** Item de roster VLR : `role` vide = titulaire ; sinon remplaçant/staff. */
-const rosterItem = (alias: string, role = '') =>
-  `<div class="team-roster-item"><a href="/player/1/${alias}" style="display:flex;">` +
+const rosterItem = (alias: string, role = '', id = '1') =>
+  `<div class="team-roster-item"><a href="/player/${id}/${alias}" style="display:flex;">` +
   `<div class="team-roster-item-name"><div class="team-roster-item-name-alias">` +
   `<i class="flag mod-gb"></i>${alias}</div>` +
   (role ? `<div class="team-roster-item-name-role">${role}</div>` : '') +
   `</div></a></div>`;
 
 describe('parseVlrRoster', () => {
-  it('ne garde que les joueurs sans rôle (exclut sub et staff)', () => {
+  it('ne garde que les joueurs sans rôle (exclut sub et staff), avec leur id VLR', () => {
     const html =
-      rosterItem('musashi') +
-      rosterItem('azury') +
+      rosterItem('musashi', '', '7857') +
+      rosterItem('azury', '', '42') +
       rosterItem('Fizzy') +
       rosterItem('MONSTEERR') +
       rosterItem('Jamelinho') +
       rosterItem('kendo', 'sub') +
       rosterItem('Sebe', 'head coach');
-    expect(parseVlrRoster(html).map((s) => s.name)).toEqual([
+    const starters = parseVlrRoster(html);
+    expect(starters.map((s) => s.name)).toEqual([
       'musashi',
       'azury',
       'Fizzy',
       'MONSTEERR',
       'Jamelinho',
     ]);
+    expect(starters[0]).toEqual({ name: 'musashi', externalId: '7857' });
+    expect(starters[1].externalId).toBe('42');
   });
 });
 

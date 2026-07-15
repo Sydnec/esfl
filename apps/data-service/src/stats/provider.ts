@@ -16,6 +16,9 @@ export interface MatchContext {
 export interface ProviderStatLine {
   /** Pseudo publié par la source. */
   externalName: string;
+  /** Id stable du joueur chez la source (VLR : id numérique) : matching fiable
+   * au-delà du pseudo, appris sur `Player.providerIds`. */
+  externalId?: string | null;
   /** Côté du match résolu par noms d'équipes, null si indéterminé. */
   side: 'A' | 'B' | null;
   /** Nom d'équipe brut de la source pour ce joueur : sert à résoudre le côté et
@@ -57,6 +60,8 @@ export interface ProviderResult {
 export interface StarterRef {
   name: string;
   role?: string | null;
+  /** Id du joueur chez la source (VLR : id numérique) : matching par id si connu. */
+  externalId?: string | null;
 }
 
 /**

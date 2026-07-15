@@ -195,10 +195,20 @@ export class StatsIngestionService {
     result: ProviderResult,
   ): Promise<number> {
     const index = buildPlayerIndex(context.players);
-    // Résolution des joueurs une seule fois : réutilisée pour le mapping et la persistance.
+    // Index par id provider (VLR) : rapprochement fiable au-delà du pseudo.
+    const byProviderId = new Map<string, NamedPlayer>();
+    const providerIdsByPlayer = new Map<string, Record<string, string>>();
+    for (const player of context.players) {
+      const ids = (player.providerIds as Record<string, string> | null) ?? {};
+      providerIdsByPlayer.set(player.id, ids);
+      if (ids[source]) byProviderId.set(ids[source], player);
+    }
+    // Résolution une seule fois : id provider d'abord, sinon rapprochement par pseudo.
     const resolved = result.lines.map((line) => ({
       line,
-      local: matchPlayer(index, line.externalName),
+      local:
+        (line.externalId ? byProviderId.get(line.externalId) : undefined) ??
+        matchPlayer(index, line.externalName),
     }));
     // Côté local (A/B) de chaque équipe source — via le côté résolu par le
     // provider (nom), sinon via les joueurs. Robuste même quand les deux noms
@@ -224,10 +234,21 @@ export class StatsIngestionService {
             name: line.externalName,
             teamId: team.id,
             source,
+            providerIds: line.externalId ? { [source]: line.externalId } : undefined,
           },
         });
         index.set(normalizeName(local.name), local);
+        if (line.externalId) providerIdsByPlayer.set(local.id, { [source]: line.externalId });
         this.logger.log(`Fiche joueur créée depuis ${source} : ${line.externalName} (${team.name})`);
+      }
+      // Apprend l'id provider du joueur résolu (fiabilise les prochains matchings).
+      if (line.externalId) {
+        const known = providerIdsByPlayer.get(local.id) ?? {};
+        if (known[source] !== line.externalId) {
+          const next = { ...known, [source]: line.externalId };
+          await this.prisma.player.update({ where: { id: local.id }, data: { providerIds: next } });
+          providerIdsByPlayer.set(local.id, next);
+        }
       }
       await this.prisma.playerMatchStats.upsert({
         where: { matchId_playerId: { matchId: match.id, playerId: local.id } },
