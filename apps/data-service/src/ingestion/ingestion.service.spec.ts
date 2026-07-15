@@ -20,7 +20,6 @@ function setup(configValue?: unknown) {
   const service = new IngestionService(
     prisma,
     {} as never, // pandascore
-    {} as never, // fantasyClient
     {} as never, // liveEvents
     config,
     queue,
@@ -56,9 +55,8 @@ function flagSetup(opts: {
   } as unknown as PrismaService;
   const service = new IngestionService(
     prisma,
-    {} as never,
-    {} as never,
-    {} as never,
+    {} as never, // pandascore
+    {} as never, // liveEvents
     { get: vi.fn() } as unknown as ConfigService,
     { add: vi.fn(), getJob: vi.fn() } as unknown as Queue,
   );

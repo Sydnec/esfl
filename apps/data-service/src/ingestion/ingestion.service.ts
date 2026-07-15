@@ -5,7 +5,6 @@ import { GAME_IDS, GameId } from '@esfl/contracts';
 import type { Competition, Prisma } from '../../generated/client';
 import { Queue } from 'bullmq';
 import { mergeGamesSummary } from '../common/games-summary';
-import { FantasyClient } from '../fantasy-client/fantasy.client';
 import { buildPlayerIndex, matchPlayer, normalizeName } from '../stats/matching';
 import { PandascoreClient } from '../pandascore/pandascore.client';
 import type { PSMatch, PSSerie, PSStream, PSTeamRef } from '../pandascore/pandascore.types';
@@ -55,7 +54,6 @@ export class IngestionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly pandascore: PandascoreClient,
-    private readonly fantasyClient: FantasyClient,
     private readonly liveEvents: LiveEventsService,
     private readonly config: ConfigService,
     @InjectQueue(INGESTION_QUEUE) private readonly ingestionQueue: Queue,
@@ -94,28 +92,6 @@ export class IngestionService {
     for (const match of matches) {
       await this.upsertMatch(competition, match, enqueueStats);
     }
-  }
-
-  /**
-   * Compétitions suivies par au moins une ligue ET actives — le périmètre
-   * des rosters, la donnée la plus chère à synchroniser et utile uniquement
-   * au fantasy (picks).
-   */
-  private async followedActiveCompetitions() {
-    const followed = await this.fantasyClient.followedCompetitionIds();
-    if (followed === null) {
-      this.logger.warn('Compétitions suivies indisponibles — cycle de sync sauté');
-      return [];
-    }
-    if (followed.length === 0) return [];
-    const cutoff = new Date(Date.now() - 3 * 24 * 3600 * 1000);
-    return this.prisma.competition.findMany({
-      where: {
-        id: { in: followed },
-        hidden: false,
-        AND: [TIER_ALLOWED, { OR: [{ endAt: null }, { endAt: { gte: cutoff } }] }],
-      },
-    });
   }
 
   /**
@@ -284,8 +260,14 @@ export class IngestionService {
     }
   }
 
+  /**
+   * Rosters de TOUTES les compétitions actives (plus de distinction suivie /
+   * non suivie) : la réconciliation des titulaires actuels doit s'appliquer
+   * partout, sinon une équipe d'un tournoi non suivi garde tous ses anciens
+   * joueurs pickables. Borné par l'espacement Pandascore (4 s).
+   */
   async syncAllActiveRosters(): Promise<void> {
-    const competitions = await this.followedActiveCompetitions();
+    const competitions = await this.activeCompetitions();
     for (const competition of competitions) {
       try {
         await this.syncRostersForCompetition(competition.id);

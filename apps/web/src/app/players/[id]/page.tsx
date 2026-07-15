@@ -17,6 +17,11 @@ function formatMatchDate(iso: string | null): string {
   return new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
 }
 
+/** Points fantasy : toujours 2 décimales pour aligner les colonnes (41 → 41.00). */
+function formatPoints(value: number | undefined): string {
+  return value === undefined ? '·' : value.toFixed(2);
+}
+
 export default function PlayerPage() {
   const { id } = useParams<{ id: string }>();
   const [player, setPlayer] = useState<PlayerRef | null>(null);
@@ -57,13 +62,6 @@ export default function PlayerPage() {
   const average =
     ratedPoints.length > 0 ? Math.round((totalPoints / ratedPoints.length) * 100) / 100 : null;
 
-  /** Adversaire du joueur sur un match (l'équipe qui n'est pas la sienne). */
-  const opponentOf = (line: PlayerMatchHistoryLine) => {
-    const { teamA, teamB } = line.match;
-    if (player.team && teamA?.id === player.team.id) return teamB;
-    return teamA;
-  };
-
   return (
     <main className={styles.main}>
       <header className={styles.header}>
@@ -95,11 +93,11 @@ export default function PlayerPage() {
         <dl className={styles.summary}>
           <div className={styles.summaryItem}>
             <dt>Points fantasy</dt>
-            <dd>{totalPoints}</dd>
+            <dd>{totalPoints.toFixed(2)}</dd>
           </div>
           <div className={styles.summaryItem}>
             <dt>Moyenne / match</dt>
-            <dd>{average}</dd>
+            <dd>{average?.toFixed(2) ?? '·'}</dd>
           </div>
           <div className={styles.summaryItem}>
             <dt>Matchs notés</dt>
@@ -119,17 +117,15 @@ export default function PlayerPage() {
                 <tr>
                   <th>Date</th>
                   <th>Compétition</th>
-                  <th>Adversaire</th>
-                  <th>Score</th>
+                  <th>Match</th>
                   {columns.map((column) => (
                     <th key={column.key}>{column.label}</th>
                   ))}
-                  <th>Pts fantasy</th>
+                  <th className={styles.pts}>Pts fantasy</th>
                 </tr>
               </thead>
               <tbody>
                 {history.map((line) => {
-                  const opponent = opponentOf(line);
                   const { match } = line;
                   return (
                     <tr key={line.id}>
@@ -140,22 +136,48 @@ export default function PlayerPage() {
                       </td>
                       <td className={styles.competitionCell}>{match.competition.name}</td>
                       <td>
-                        <span className={styles.opponentCell}>
-                          {opponent && (
-                            <Avatar src={opponent.imageUrl} label={opponent.name} size={20} />
-                          )}
-                          {opponent?.acronym || opponent?.name || 'TBD'}
+                        <span className={styles.matchCell}>
+                          <span className={styles.matchTeam} title={match.teamA?.name ?? 'À déterminer'}>
+                            <Avatar
+                              src={match.teamA?.imageUrl}
+                              label={match.teamA?.name ?? 'TBD'}
+                              size={20}
+                            />
+                          </span>
+                          <span className={styles.matchScore}>
+                            <span
+                              className={
+                                match.winnerTeamId != null && match.winnerTeamId === match.teamA?.id
+                                  ? styles.win
+                                  : undefined
+                              }
+                            >
+                              {match.scoreA ?? '·'}
+                            </span>
+                            <span className={styles.dash}>-</span>
+                            <span
+                              className={
+                                match.winnerTeamId != null && match.winnerTeamId === match.teamB?.id
+                                  ? styles.win
+                                  : undefined
+                              }
+                            >
+                              {match.scoreB ?? '·'}
+                            </span>
+                          </span>
+                          <span className={styles.matchTeam} title={match.teamB?.name ?? 'À déterminer'}>
+                            <Avatar
+                              src={match.teamB?.imageUrl}
+                              label={match.teamB?.name ?? 'TBD'}
+                              size={20}
+                            />
+                          </span>
                         </span>
-                      </td>
-                      <td className={styles.score}>
-                        {match.scoreA != null && match.scoreB != null
-                          ? `${match.scoreA}-${match.scoreB}`
-                          : '·'}
                       </td>
                       {columns.map((column) => (
                         <td key={column.key}>{formatStat(line.normalized[column.key])}</td>
                       ))}
-                      <td className={styles.points}>{points.get(line.matchId) ?? '·'}</td>
+                      <td className={styles.pts}>{formatPoints(points.get(line.matchId))}</td>
                     </tr>
                   );
                 })}
