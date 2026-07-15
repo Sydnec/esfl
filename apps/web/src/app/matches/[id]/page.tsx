@@ -32,10 +32,16 @@ interface AgentIconProps {
 }
 
 function AgentIcon({ entry, gameId }: AgentIconProps) {
-  const [failed, setFailed] = useState(false);
-  const src = agentIconSrc(gameId, entry);
+  // Repli progressif : icône locale → image du provider (CDN VLR pour Valorant,
+  // « téléchargement » à la volée depuis VLR.gg si le fichier local manque) →
+  // nom en texte. Un nouvel agent sans fichier local reste ainsi visible.
+  const sources = [...new Set([agentIconSrc(gameId, entry), entry.agentImage ?? null])].filter(
+    (source): source is string => Boolean(source),
+  );
+  const [index, setIndex] = useState(0);
+  const src = sources[index];
 
-  if (failed || !src) {
+  if (!src) {
     return <span>{entry.agent}</span>;
   }
 
@@ -45,7 +51,7 @@ function AgentIcon({ entry, gameId }: AgentIconProps) {
       src={src}
       alt={entry.agent ?? 'agent'}
       title={entry.agent ?? undefined}
-      onError={() => setFailed(true)}
+      onError={() => setIndex((current) => current + 1)}
     />
   );
 }
