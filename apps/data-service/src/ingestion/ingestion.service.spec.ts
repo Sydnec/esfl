@@ -22,6 +22,8 @@ function setup(configValue?: unknown) {
     {} as never, // pandascore
     {} as never, // liveEvents
     config,
+    {} as never, // vlr
+    {} as never, // leaguepedia
     queue,
   );
   return { service, findMany, add, config };
@@ -58,6 +60,8 @@ function flagSetup(opts: {
     {} as never, // pandascore
     {} as never, // liveEvents
     { get: vi.fn() } as unknown as ConfigService,
+    {} as never, // vlr
+    {} as never, // leaguepedia
     { add: vi.fn(), getJob: vi.fn() } as unknown as Queue,
   );
   return { service, updates };

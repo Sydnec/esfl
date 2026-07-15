@@ -10,9 +10,51 @@ import type {
   ProviderGameInfo,
   ProviderResult,
   ProviderStatLine,
+  StarterRef,
 } from './provider';
 
 const API_URL = 'https://lol.fandom.com/api.php';
+
+/**
+ * Espacement des requêtes Cargo. Authentifié (bot password), Fandom autorise un
+ * débit bien plus élevé qu'en anonyme : on desserre nettement (l'ancien 35 s
+ * était très conservateur). Ré-augmenter si des 429 apparaissent.
+ */
+const CARGO_SPACING_MS = 6_000;
+
+/** Rôle de joueur LoL (exclut coach/manager/analyst de la table Players). */
+function isLolStarterRole(role: string): boolean {
+  return /top|jung|jgl|mid|bot|adc|carry|sup/i.test(role);
+}
+
+/** Ligne de la table Cargo Players (roster courant d'une équipe). */
+export interface LeaguepediaRosterRow {
+  ID?: string;
+  Role?: string;
+  IsRetired?: string;
+  IsSubstitute?: string;
+}
+
+function isTruthyFlag(value?: string): boolean {
+  const flag = (value ?? '').trim().toLowerCase();
+  return flag === '1' || flag === 'true' || flag === 'yes';
+}
+
+/** Titulaires depuis les lignes Players : rôle de joueur, ni retraité, ni remplaçant. */
+export function parseLeaguepediaRoster(rows: LeaguepediaRosterRow[]): StarterRef[] {
+  const seen = new Set<string>();
+  const starters: StarterRef[] = [];
+  for (const row of rows) {
+    if (isTruthyFlag(row.IsRetired) || isTruthyFlag(row.IsSubstitute)) continue;
+    if (!isLolStarterRole(row.Role ?? '')) continue;
+    const name = stripDisambiguation(row.ID ?? '').trim();
+    const key = name.toLowerCase();
+    if (!name || seen.has(key)) continue;
+    seen.add(key);
+    starters.push({ name, role: row.Role ?? null });
+  }
+  return starters;
+}
 
 // Cache de fenêtre : la requête Cargo ramène TOUS les matchs LoL de la période
 // (le filtrage par équipe est côté client), donc tous les matchs d'une même
@@ -400,9 +442,7 @@ export class LeaguepediaStatsProvider implements GameStatsProvider {
     const rows: LeaguepediaRow[] = [];
     for (let offset = 0; offset < 1500; offset += 500) {
       url.searchParams.set('offset', String(offset));
-      // Fandom rate-limite fort les bursts anonymes ; authentifié (bot password)
-      // la limite est bien plus haute. Espacement conservé par prudence.
-      const response = await this.fetchAuthed(url, 35_000);
+      const response = await this.fetchAuthed(url, CARGO_SPACING_MS);
       if (!response.ok) {
         this.logger.warn(`Leaguepedia → ${response.status}`);
         return null;
@@ -424,6 +464,51 @@ export class LeaguepediaStatsProvider implements GameStatsProvider {
 
     this.windowCache.set(bucketStart, { rows, at: now });
     return rows;
+  }
+
+  /**
+   * Titulaires actuels d'une équipe LoL : table Cargo `Players` (roster courant
+   * via le champ Team), filtrée aux joueurs (rôle de joueur, ni retraités ni
+   * remplaçants). Résout d'abord le nom canonique via TeamRedirects. Null si la
+   * requête échoue ou ne rend rien → fallback Pandascore côté ingestion.
+   */
+  async fetchStarters(teamName: string, aliases: string[]): Promise<StarterRef[] | null> {
+    const resolved = await this.resolveTeamNames(teamName).catch(() => []);
+    const names = [...new Set([...resolved, teamName, ...aliases])].filter(Boolean);
+    if (names.length === 0) return null;
+    const rows = await this.queryRoster(names);
+    if (rows === null) return null;
+    const starters = parseLeaguepediaRoster(rows);
+    return starters.length > 0 ? starters : null;
+  }
+
+  private async queryRoster(names: string[]): Promise<LeaguepediaRosterRow[] | null> {
+    const inList = names.map((name) => `'${name.replace(/'/g, "''")}'`).join(', ');
+    const url = new URL(API_URL);
+    url.searchParams.set('action', 'cargoquery');
+    url.searchParams.set('format', 'json');
+    url.searchParams.set('limit', '60');
+    url.searchParams.set('tables', 'Players');
+    url.searchParams.set(
+      'fields',
+      'Players.ID=ID,Players.Role=Role,Players.IsRetired=IsRetired,Players.IsSubstitute=IsSubstitute',
+    );
+    url.searchParams.set('where', `Players.Team IN (${inList})`);
+    const response = await this.fetchAuthed(url, CARGO_SPACING_MS);
+    if (!response.ok) {
+      this.logger.warn(`Leaguepedia roster → ${response.status}`);
+      return null;
+    }
+    const payload = (await response.json()) as {
+      cargoquery?: Array<{ title: LeaguepediaRosterRow }>;
+      error?: { code?: string };
+    };
+    if (payload.error) {
+      if (payload.error.code === 'assertuserfailed') this.invalidateSession();
+      this.logger.warn(`Leaguepedia roster en erreur : ${JSON.stringify(payload.error)}`);
+      return null;
+    }
+    return (payload.cargoquery ?? []).map((entry) => entry.title);
   }
 
   /**

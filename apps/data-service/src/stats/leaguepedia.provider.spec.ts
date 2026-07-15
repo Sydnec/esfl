@@ -8,8 +8,25 @@ import {
   LeaguepediaRow,
   LeaguepediaStatsProvider,
   mapLeaguepediaRows,
+  parseLeaguepediaRoster,
 } from './leaguepedia.provider';
 import type { MatchContext } from './provider';
+
+describe('parseLeaguepediaRoster', () => {
+  it('garde les joueurs actifs, exclut retraités, remplaçants et coachs', () => {
+    const starters = parseLeaguepediaRoster([
+      { ID: 'Doran', Role: 'Top', IsRetired: '', IsSubstitute: '' },
+      { ID: 'Oner', Role: 'Jungle' },
+      { ID: 'Faker', Role: 'Mid' },
+      { ID: 'Gumayusi', Role: 'Bot' },
+      { ID: 'Keria', Role: 'Support' },
+      { ID: 'Poby', Role: 'Bot', IsSubstitute: '1' },
+      { ID: 'OldMid', Role: 'Mid', IsRetired: '1' },
+      { ID: 'Tom', Role: 'Coach' },
+    ]);
+    expect(starters.map((s) => s.name)).toEqual(['Doran', 'Oner', 'Faker', 'Gumayusi', 'Keria']);
+  });
+});
 
 vi.mock('./polite-fetch', () => ({ politeFetch: vi.fn() }));
 

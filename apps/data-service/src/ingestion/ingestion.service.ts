@@ -2,15 +2,21 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectQueue } from '@nestjs/bullmq';
 import { GAME_IDS, GameId } from '@esfl/contracts';
-import type { Competition, Prisma } from '../../generated/client';
+import type { Competition, Prisma, Team } from '../../generated/client';
 import { Queue } from 'bullmq';
 import { mergeGamesSummary } from '../common/games-summary';
 import { buildPlayerIndex, matchPlayer, normalizeName } from '../stats/matching';
+import type { StarterRef } from '../stats/provider';
+import { LeaguepediaStatsProvider } from '../stats/leaguepedia.provider';
+import { VlrStatsProvider } from '../stats/vlr.provider';
 import { PandascoreClient } from '../pandascore/pandascore.client';
 import type { PSMatch, PSSerie, PSStream, PSTeamRef } from '../pandascore/pandascore.types';
 import { PrismaService } from '../prisma.service';
 import { LiveEventsService } from '../live/live-events.service';
 import { enqueueIngestStats, INGESTION_QUEUE, STATS_BACKFILL_DAYS } from './ingestion.constants';
+
+/** Durée de cache des rosters spécialisés (une équipe apparaît dans N compétitions). */
+const STARTER_CACHE_TTL_MS = 6 * 3600 * 1000;
 
 /** Rang des tiers Pandascore (s le plus haut). Sert à choisir le tier d'une série. */
 const TIER_RANK: Record<string, number> = { s: 5, a: 4, b: 3, c: 2, d: 1 };
@@ -51,11 +57,16 @@ function pickStream(streams: PSStream[] | null): string | null {
 export class IngestionService {
   private readonly logger = new Logger(IngestionService.name);
 
+  /** Cache mémoire des titulaires par équipe (source spécialisée), TTL court. */
+  private readonly starterCache = new Map<string, { starters: StarterRef[] | null; at: number }>();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly pandascore: PandascoreClient,
     private readonly liveEvents: LiveEventsService,
     private readonly config: ConfigService,
+    private readonly vlr: VlrStatsProvider,
+    private readonly leaguepedia: LeaguepediaStatsProvider,
     @InjectQueue(INGESTION_QUEUE) private readonly ingestionQueue: Queue,
   ) {}
 
@@ -244,20 +255,85 @@ export class IngestionService {
         });
       }
 
-      // Réconciliation « titulaires actuels » : tout le monde inactif, puis on
-      // réactive le roster courant. Garde-fou : liste vide (hoquet API) → on ne
-      // touche à rien pour ne pas masquer toute une équipe par erreur.
-      if (currentPandascoreIds.length > 0) {
-        await this.prisma.player.updateMany({
-          where: { teamId: localTeam.id },
-          data: { active: false },
-        });
-        await this.prisma.player.updateMany({
-          where: { teamId: localTeam.id, pandascoreId: { in: currentPandascoreIds } },
-          data: { active: true },
-        });
-      }
+      // Réconciliation « titulaires actuels » : source spécialisée (Leaguepedia
+      // LoL, VLR Valorant) en priorité, sinon roster courant Pandascore.
+      await this.reconcileActiveRoster(localTeam, currentPandascoreIds);
     }
+  }
+
+  /**
+   * Marque `active` les seuls titulaires : source spécialisée du jeu si elle
+   * répond, sinon fallback sur le roster courant Pandascore. Garde-fou : on ne
+   * désactive jamais toute une équipe sur une liste vide.
+   */
+  private async reconcileActiveRoster(team: Team, pandascoreIds: number[]): Promise<void> {
+    const starters = await this.fetchSpecializedStarters(team);
+    if (starters && starters.length > 0) {
+      await this.applyStarterRoster(team, starters);
+      return;
+    }
+    if (pandascoreIds.length > 0) {
+      await this.prisma.player.updateMany({
+        where: { teamId: team.id },
+        data: { active: false },
+      });
+      await this.prisma.player.updateMany({
+        where: { teamId: team.id, pandascoreId: { in: pandascoreIds } },
+        data: { active: true },
+      });
+    }
+  }
+
+  /** Titulaires via la source spécialisée du jeu (cache court par équipe). */
+  private async fetchSpecializedStarters(team: Team): Promise<StarterRef[] | null> {
+    const provider =
+      team.gameId === 'valorant' ? this.vlr : team.gameId === 'lol' ? this.leaguepedia : null;
+    if (!provider) return null;
+    const key = `${team.gameId}:${team.id}`;
+    const cached = this.starterCache.get(key);
+    if (cached && Date.now() - cached.at < STARTER_CACHE_TTL_MS) return cached.starters;
+    const starters = await provider
+      .fetchStarters(team.name, team.aliases ?? [])
+      .catch((error) => {
+        this.logger.warn(`Roster ${provider.source} « ${team.name} » : ${String(error)}`);
+        return null;
+      });
+    this.starterCache.set(key, { starters, at: Date.now() });
+    return starters;
+  }
+
+  /**
+   * Applique un roster de titulaires : résout chaque nom vers un joueur local
+   * (crée les recrues absentes de Pandascore), active ceux-là et désactive le
+   * reste de l'équipe.
+   */
+  private async applyStarterRoster(team: Team, starters: StarterRef[]): Promise<void> {
+    const source = team.gameId === 'lol' ? 'leaguepedia' : 'vlr';
+    const teamPlayers = await this.prisma.player.findMany({ where: { teamId: team.id } });
+    const index = buildPlayerIndex(teamPlayers);
+    const activeIds = new Set<string>();
+    for (const starter of starters) {
+      let local = matchPlayer(index, starter.name);
+      if (!local) {
+        const created = await this.prisma.player.create({
+          data: {
+            name: starter.name,
+            gameId: team.gameId,
+            teamId: team.id,
+            role: starter.role ?? null,
+            source,
+          },
+        });
+        local = { id: created.id, name: created.name };
+        index.set(normalizeName(created.name), local);
+      }
+      activeIds.add(local.id);
+    }
+    await this.prisma.player.updateMany({ where: { teamId: team.id }, data: { active: false } });
+    await this.prisma.player.updateMany({
+      where: { teamId: team.id, id: { in: [...activeIds] } },
+      data: { active: true },
+    });
   }
 
   /**

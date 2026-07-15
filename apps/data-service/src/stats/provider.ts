@@ -47,6 +47,12 @@ export interface ProviderResult {
   pageUrl?: string | null;
 }
 
+/** Titulaire renvoyé par une source spécialisée (Leaguepedia, VLR…). */
+export interface StarterRef {
+  name: string;
+  role?: string | null;
+}
+
 /**
  * Adapter de stats détaillées par jeu. Contrat : retourner null (ou lever)
  * si les stats ne sont pas encore disponibles, le job ingest-stats retentera
@@ -56,6 +62,13 @@ export interface GameStatsProvider {
   readonly source: string;
   readonly gameId: GameId;
   fetchStats(match: Match, context: MatchContext): Promise<ProviderResult | null>;
+  /**
+   * Titulaires actuels d'une équipe selon la source spécialisée du jeu
+   * (Leaguepedia pour LoL, VLR pour Valorant). Sert à ne garder actifs que les
+   * vrais titulaires ; null si la source ne sait pas répondre (→ fallback
+   * Pandascore). Optionnel : jeux sans source de roster fiable.
+   */
+  fetchStarters?(teamName: string, aliases: string[]): Promise<StarterRef[] | null>;
   /**
    * Instantané des stats d'un match en cours, pour les sources qui publient
    * pendant la série (page VLR vivante, series state Grid). Optionnel : les

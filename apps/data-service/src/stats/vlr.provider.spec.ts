@@ -1,6 +1,48 @@
 import { describe, expect, it } from 'vitest';
 import type { MapStatsEntry } from '@esfl/contracts';
-import { mapVlrMatchHtml } from './vlr.provider';
+import { mapVlrMatchHtml, parseVlrRoster, parseVlrTeamSearch } from './vlr.provider';
+
+/** Item de roster VLR : `role` vide = titulaire ; sinon remplaçant/staff. */
+const rosterItem = (alias: string, role = '') =>
+  `<div class="team-roster-item"><a href="/player/1/${alias}" style="display:flex;">` +
+  `<div class="team-roster-item-name"><div class="team-roster-item-name-alias">` +
+  `<i class="flag mod-gb"></i>${alias}</div>` +
+  (role ? `<div class="team-roster-item-name-role">${role}</div>` : '') +
+  `</div></a></div>`;
+
+describe('parseVlrRoster', () => {
+  it('ne garde que les joueurs sans rôle (exclut sub et staff)', () => {
+    const html =
+      rosterItem('musashi') +
+      rosterItem('azury') +
+      rosterItem('Fizzy') +
+      rosterItem('MONSTEERR') +
+      rosterItem('Jamelinho') +
+      rosterItem('kendo', 'sub') +
+      rosterItem('Sebe', 'head coach');
+    expect(parseVlrRoster(html).map((s) => s.name)).toEqual([
+      'musashi',
+      'azury',
+      'Fizzy',
+      'MONSTEERR',
+      'Jamelinho',
+    ]);
+  });
+});
+
+describe('parseVlrTeamSearch', () => {
+  it('extrait id + nom des résultats équipe', () => {
+    const html =
+      '<a href="/search/r/team/20697/idx" class="wf-module-item search-item mod-first">' +
+      '<div class="search-item-title">FUT Esports</div></a>' +
+      '<a href="/search/r/team/1184/idx" class="wf-module-item search-item">' +
+      '<div class="search-item-title">FUT Academy</div></a>';
+    expect(parseVlrTeamSearch(html)).toEqual([
+      { id: '20697', name: 'FUT Esports' },
+      { id: '1184', name: 'FUT Academy' },
+    ]);
+  });
+});
 
 // Reproduit la grille .ovw-table de vlr.gg (une table par équipe). Ordre des
 // valeurs : R, ACS, K, D, A, +/-, KAST, ADR, HS%, FK, FD, +/-.

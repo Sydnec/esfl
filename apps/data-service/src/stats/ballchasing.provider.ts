@@ -302,7 +302,8 @@ export class BallchasingStatsProvider implements GameStatsProvider {
 
   private async get<T>(url: string, token: string): Promise<T | null> {
     try {
-      const response = await politeFetch(url, { headers: { Authorization: token } });
+      // Free tier ballchasing : 2 req/s → 500 ms d'espacement (au lieu du défaut 1 s).
+      const response = await politeFetch(url, { headers: { Authorization: token } }, 500);
       if (!response.ok) {
         this.logger.warn(`Ballchasing ${url} → ${response.status}`);
         return null;
