@@ -135,6 +135,12 @@
   font-weight: 500;
   white-space: nowrap;
   text-transform: capitalize;
+  /* Durée au-dessus de la ligne map + score. */
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
 }
 
 button.mapChip:hover {
@@ -159,6 +165,21 @@ button.mapChip:hover {
   font-weight: 500;
 }
 
+/* Durée de la manche, au-dessus du score (LoL surtout : durée variable). */
+.mapChipDuration {
+  color: var(--color-muted);
+  font-weight: 400;
+  text-transform: none;
+  font-size: 0.6875rem;
+  line-height: 1.2;
+}
+
+.mapChipLine {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
 .statsSection {
   margin-top: var(--space-5);
 }
@@ -166,6 +187,50 @@ button.mapChip:hover {
 .statsTitle {
   font-size: 1.125rem;
   margin-bottom: var(--space-3);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* Bascule essentiel / avancé (façon onglets VLR), à droite du titre. */
+.viewToggle {
+  display: inline-flex;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.viewToggle button {
+  border: none;
+  background: var(--color-bg);
+  color: var(--color-muted);
+  padding: 2px var(--space-2);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.viewToggle button + button {
+  border-left: 1px solid var(--color-border);
+}
+
+.viewToggle button.viewToggleActive {
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+/* Lien discret vers la page de stats du provider (VLR, Leaguepedia...). */
+.sourceLink {
+  margin-left: var(--space-2);
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: var(--color-muted);
+}
+
+.sourceLink:hover {
+  color: var(--color-accent);
 }
 
 .agentCell {
@@ -187,6 +252,8 @@ button.mapChip:hover {
 
 .teamStats {
   margin-top: var(--space-3);
+  /* Beaucoup de colonnes (Valorant surtout) : on défile horizontalement. */
+  overflow-x: auto;
 }
 
 .teamStatsTitle {
@@ -243,6 +310,8 @@ button.mapChip:hover {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  /* Jamais sur deux lignes : le pseudo long est tronqué, pas replié. */
+  white-space: nowrap;
   color: inherit;
 }
 

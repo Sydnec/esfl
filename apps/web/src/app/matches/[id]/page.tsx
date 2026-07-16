@@ -10,7 +10,7 @@ import { flagEmoji } from '@/lib/flags';
 import { agentIconSrc } from '@/lib/agents';
 import { formatDateTime, formatKickoff } from '@/lib/format';
 import { lolRoleRank } from '@/lib/roles';
-import { formatStat, STAT_COLUMNS } from '@/lib/stat-columns';
+import { formatStat, PER_MAP_KEYS, STAT_COLUMNS } from '@/lib/stat-columns';
 import { useMatchUpdates } from '@/lib/useMatchUpdates';
 import type { FantasyPointsLine, MatchStatsLine, MatchSummary, PlayerRef } from '@/lib/types';
 import styles from './page.module.css';
@@ -64,6 +64,8 @@ export default function MatchPage() {
   const [points, setPoints] = useState<Map<string, number>>(new Map());
   /** Manche affichée dans les tableaux de perfs (null = cumul du match). */
   const [selectedMap, setSelectedMap] = useState<number | null>(null);
+  /** Groupe de colonnes affiché (essentiel / avancé, comme les onglets VLR). */
+  const [statView, setStatView] = useState<'base' | 'advanced'>('base');
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -127,6 +129,17 @@ export default function MatchPage() {
 
   const running = match.status === 'running';
   const finished = match.status === 'finished';
+  // Lien vers la page de stats originale : chemin VLR à préfixer, URL complète
+  // (Leaguepedia, ballchasing) telle quelle ; le seriesId Grid n'est pas un lien.
+  const sourceUrl = match.statsPageUrl
+    ? match.statsPageUrl.startsWith('http')
+      ? match.statsPageUrl
+      : match.gameId === 'valorant' && match.statsPageUrl.startsWith('/')
+        ? `https://www.vlr.gg${match.statsPageUrl}`
+        : null
+    : null;
+  const sourceLabel =
+    match.gameId === 'valorant' ? 'VLR.gg' : match.gameId === 'lol' ? 'Leaguepedia' : 'ballchasing';
   const forfeit = match.forfeit ?? match.status === 'canceled';
   const winnerName =
     match.winnerTeamId === match.teamA?.id
@@ -138,8 +151,19 @@ export default function MatchPage() {
   const tagB = match.teamB?.acronym || match.teamB?.name || 'TBD';
   const games = match.gamesSummary ?? [];
 
-  const statsByTeam = (teamId: string | null | undefined) =>
+  // Durée par game : seulement en LoL pour l'instant (durée variable,
+  // signifiante). Valorant/CS2 : inutile ; RL : à trancher plus tard.
+  const showDuration = match.gameId === 'lol';
+  // Game en cours d'un match live : la première sans vainqueur. Sa puce garde
+  // le même format, avec « en cours » à la place de la durée (Leaguepedia ne
+  // publie la durée réelle qu'en fin de game, toute estimation serait fausse).
+  const liveGamePosition = running ? (games.find((game) => game.winner == null)?.position ?? null) : null;
+
+  // Groupement par le côté snapshoté à l'ingestion (survit aux transferts) ;
+  // repli sur l'équipe courante du joueur pour les lignes historiques.
+  const statsBySide = (side: 'A' | 'B', teamId: string | null | undefined) =>
     stats.filter((line) => {
+      if (line.teamSide) return line.teamSide === side;
       const player = players.get(line.playerId);
       return player?.team?.id && player.team.id === teamId;
     });
@@ -221,43 +245,67 @@ export default function MatchPage() {
             </button>
           )}
           {games.map((game) => {
-            // Pas de choix de map en LoL : on parle de « Game N ».
-            const label =
-              game.map ?? (match.gameId === 'lol' ? `Game ${game.position} :` : `M${game.position}`);
             const clickable = mapTabs.some((tab) => tab.position === game.position);
+            // Manche jamais jouée (game 3 d'un BO3 plié en 2-0) : ni vainqueur,
+            // ni point marqué, ni détail joueur → on ne l'affiche pas du tout.
+            const played =
+              game.winner != null || (game.scoreA ?? 0) > 0 || (game.scoreB ?? 0) > 0 || clickable;
+            if (finished && !played) return null;
+            const hasScores = game.scoreA != null && game.scoreB != null;
+            // Durée au-dessus du score : celle de la game finie ; la game en
+            // cours affiche « en cours » (même format de puce, pas de durée
+            // estimée : Leaguepedia ne publie qu'en fin de game).
+            const ongoing =
+              showDuration && !game.lengthSec && game.position === liveGamePosition;
+            const duration = showDuration
+              ? game.lengthSec
+                ? formatLength(game.lengthSec)
+                : ongoing
+                  ? 'en cours'
+                  : null
+              : null;
+            // Pas de choix de map en LoL : on parle de « Game N » (deux-points
+            // seulement quand quelque chose suit).
+            const label =
+              game.map ??
+              (match.gameId === 'lol'
+                ? `Game ${game.position}${hasScores || !ongoing ? ' :' : ''}`
+                : `M${game.position}`);
             // Le score du vainqueur reste accentué, celui du perdant passe en
             // gris : en LoL le total de kills ne dit pas qui gagne la game.
             const content = (
               <>
-                {label}{' '}
-                {game.scoreA != null && game.scoreB != null ? (
-                  <span className={styles.mapChipScore}>
-                    <span className={game.winner === 'B' ? styles.mapChipLoser : ''}>
-                      {game.scoreA}
+                {duration ? <span className={styles.mapChipDuration}>{duration}</span> : null}
+                <span className={styles.mapChipLine}>
+                  {label}{' '}
+                  {hasScores ? (
+                    <span className={styles.mapChipScore}>
+                      <span className={game.winner === 'B' ? styles.mapChipLoser : ''}>
+                        {game.scoreA}
+                      </span>
+                      <span className={styles.mapChipLoser}> - </span>
+                      <span className={game.winner === 'A' ? styles.mapChipLoser : ''}>
+                        {game.scoreB}
+                      </span>
                     </span>
-                    <span className={styles.mapChipLoser}> - </span>
-                    <span className={game.winner === 'A' ? styles.mapChipLoser : ''}>
-                      {game.scoreB}
+                  ) : ongoing ? null : (
+                    <span className={styles.mapChipScore}>
+                      {game.winner ? `victoire ${game.winner === 'A' ? tagA : tagB}` : 'en cours'}
                     </span>
-                  </span>
-                ) : (
-                  <span className={styles.mapChipScore}>
-                    {game.winner ? `victoire ${game.winner === 'A' ? tagA : tagB}` : 'en cours'}
-                  </span>
-                )}
+                  )}
+                </span>
               </>
             );
             return clickable ? (
               <button
                 key={game.position}
                 className={`${styles.mapChip} ${selectedMap === game.position ? styles.mapChipActive : ''}`}
-                title={formatLength(game.lengthSec)}
                 onClick={() => setSelectedMap(game.position)}
               >
                 {content}
               </button>
             ) : (
-              <span key={game.position} className={styles.mapChip} title={formatLength(game.lengthSec)}>
+              <span key={game.position} className={styles.mapChip}>
                 {content}
               </span>
             );
@@ -267,29 +315,71 @@ export default function MatchPage() {
 
       {stats.length > 0 && (
         <section className={styles.statsSection}>
-          <h2 className={styles.statsTitle}>Performances{running ? ' · en cours' : ''}</h2>
-          {[match.teamA, match.teamB].map((team) => {
-            const lines = statsByTeam(team?.id);
-            if (!team || lines.length === 0) return null;
-            // LoL : ordre usuel des rôles (TOP/JUN/MID/ADC/SUP).
+          <h2 className={styles.statsTitle}>
+            <span>
+              Performances{running ? ' · en cours' : ''}
+              {sourceUrl && (
+                <a className={styles.sourceLink} href={sourceUrl} target="_blank" rel="noreferrer">
+                  stats via {sourceLabel} ↗
+                </a>
+              )}
+            </span>
+            {/* Deux groupes de colonnes (façon onglets VLR) : tout tient en
+                largeur sans ascenseur. Vue par map : colonnes du perMap seules. */}
+            {STAT_COLUMNS[match.gameId].advanced.length > 0 && (
+              <span className={styles.viewToggle}>
+                <button
+                  className={statView === 'base' ? styles.viewToggleActive : ''}
+                  onClick={() => setStatView('base')}
+                >
+                  Essentiel
+                </button>
+                <button
+                  className={statView === 'advanced' ? styles.viewToggleActive : ''}
+                  onClick={() => setStatView('advanced')}
+                >
+                  Avancé
+                </button>
+              </span>
+            )}
+          </h2>
+          {(['A', 'B'] as const).map((side) => {
+            const team = side === 'A' ? match.teamA : match.teamB;
+            const snapshot = side === 'A' ? match.teamASnapshot : match.teamBSnapshot;
+            const lines = statsBySide(side, team?.id);
+            if (lines.length === 0) return null;
+            // LoL : ordre usuel des rôles (TOP/JUN/MID/ADC/SUP), rôle du match d'abord.
             if (match.gameId === 'lol') {
               lines.sort((a, b) => {
                 const pa = players.get(a.playerId);
                 const pb = players.get(b.playerId);
                 return (
-                  lolRoleRank(pa?.role) - lolRoleRank(pb?.role) ||
-                  (pa?.name ?? '').localeCompare(pb?.name ?? '')
+                  lolRoleRank(a.role ?? pa?.role) - lolRoleRank(b.role ?? pb?.role) ||
+                  (a.playerName ?? pa?.name ?? '').localeCompare(b.playerName ?? pb?.name ?? '')
                 );
               });
             }
-            const columns = STAT_COLUMNS[match.gameId];
             const cumulative = selectedMap === null;
-            const withAgents = mapTabs.length > 0;
+            const group = STAT_COLUMNS[match.gameId];
+            const advanced = statView === 'advanced';
+            const chosen = advanced ? group.advanced : group.base;
+            // Vue par map : seules les colonnes présentes dans le perMap
+            // (le reste ne rendrait que des « · »).
+            const columns = cumulative
+              ? chosen
+              : chosen.filter((column) => PER_MAP_KEYS.has(column.key));
+            // Agent/champion visible sur les deux vues ; pas d'agents en CS2
+            // (Grid n'en fournit pas, la colonne ne rendrait que des « · »).
+            // Les points fantasy restent sur l'essentiel (la vue avancée tient
+            // ainsi en largeur).
+            const withAgents = match.gameId !== 'cs2' && mapTabs.length > 0;
+            const withPoints = cumulative && !advanced;
             const agentLabel = match.gameId === 'lol' ? 'Champion' : 'Agent';
             return (
-              <div key={team.id} className={styles.teamStats}>
+              <div key={side} className={styles.teamStats}>
                 <h3 className={styles.teamStatsTitle}>
-                  {team.name} {flagEmoji(team.location)}
+                  {snapshot?.name ?? team?.name ?? (side === 'A' ? 'Équipe A' : 'Équipe B')}{' '}
+                  {flagEmoji(team?.location)}
                 </h3>
                 <table className={styles.table}>
                   <thead>
@@ -301,9 +391,11 @@ export default function MatchPage() {
                         </th>
                       )}
                       {columns.map((column) => (
-                        <th key={column.key}>{column.label}</th>
+                        <th key={column.key} title={column.title}>
+                          {column.label}
+                        </th>
                       ))}
-                      {cumulative && <th>Pts fantasy</th>}
+                      {withPoints && <th>Pts fantasy</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -337,9 +429,10 @@ export default function MatchPage() {
                                 size={24}
                                 fit="cover"
                               />
-                              {player?.name ?? 'Inconnu'} {flagEmoji(player?.nationality)}
-                              {player?.role && (
-                                <span className={styles.roleTag}>{player.role}</span>
+                              {line.playerName ?? player?.name ?? 'Inconnu'}{' '}
+                              {flagEmoji(player?.nationality)}
+                              {(line.role ?? player?.role) && (
+                                <span className={styles.roleTag}>{line.role ?? player?.role}</span>
                               )}
                             </Link>
                           </td>
@@ -357,9 +450,9 @@ export default function MatchPage() {
                             </td>
                           )}
                           {columns.map((column) => (
-                            <td key={column.key}>{formatStat(values[column.key])}</td>
+                            <td key={column.key}>{formatStat(values[column.key], column.pct)}</td>
                           ))}
-                          {cumulative && (
+                          {withPoints && (
                             <td className={styles.points}>{points.get(line.playerId) ?? '·'}</td>
                           )}
                         </tr>

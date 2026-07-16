@@ -94,6 +94,8 @@ export interface MatchSummary {
   gameId: GameId;
   status: string;
   scheduledAt: string | null;
+  /** Début réel du match (durée écoulée de la game en cours). */
+  beginAt?: string | null;
   name: string;
   scoreA: number | null;
   scoreB: number | null;
@@ -109,6 +111,17 @@ export interface MatchSummary {
   bestOf?: number | null;
   streamUrl?: string | null;
   gamesSummary?: GameSummaryEntry[] | null;
+  /** Page de stats chez le provider : chemin VLR, URL wiki Leaguepedia,
+   * URL replay ballchasing, ou seriesId Grid (non cliquable). */
+  statsPageUrl?: string | null;
+  /** Snapshot de l'équipe au moment des stats (nom/tag figés, pas de logo). */
+  teamASnapshot?: TeamSnapshot | null;
+  teamBSnapshot?: TeamSnapshot | null;
+}
+
+export interface TeamSnapshot {
+  name: string;
+  acronym: string | null;
 }
 
 export interface MatchStatsLine {
@@ -118,6 +131,12 @@ export interface MatchStatsLine {
   normalized: Record<string, number | boolean | null>;
   /** Détail par manche (agent, KDA par map) quand la source le fournit. */
   perMap?: MapStatsEntry[] | null;
+  /** Snapshot au moment du match : pseudo publié par la source. */
+  playerName?: string | null;
+  /** Snapshot : rôle joué sur CE match (LoL). */
+  role?: string | null;
+  /** Snapshot : côté du joueur, survit aux transferts. */
+  teamSide?: 'A' | 'B' | null;
 }
 
 export interface FantasyPointsLine {

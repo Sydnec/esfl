@@ -54,7 +54,8 @@ export default function PlayerPage() {
   if (error) return <main className={styles.main}>{error}</main>;
   if (!player) return <main className={styles.main}>Chargement…</main>;
 
-  const columns = STAT_COLUMNS[player.gameId];
+  // Historique : colonnes essentielles seulement (le détail avancé vit sur la page match).
+  const columns = STAT_COLUMNS[player.gameId].base;
   const ratedPoints = history
     .map((line) => points.get(line.matchId))
     .filter((value): value is number => value !== undefined);
@@ -119,7 +120,9 @@ export default function PlayerPage() {
                   <th>Compétition</th>
                   <th>Match</th>
                   {columns.map((column) => (
-                    <th key={column.key}>{column.label}</th>
+                    <th key={column.key} title={column.title}>
+                      {column.label}
+                    </th>
                   ))}
                   <th className={styles.pts}>Pts fantasy</th>
                 </tr>
@@ -175,7 +178,9 @@ export default function PlayerPage() {
                         </span>
                       </td>
                       {columns.map((column) => (
-                        <td key={column.key}>{formatStat(line.normalized[column.key])}</td>
+                        <td key={column.key}>
+                          {formatStat(line.normalized[column.key], column.pct)}
+                        </td>
                       ))}
                       <td className={styles.pts}>{formatPoints(points.get(line.matchId))}</td>
                     </tr>
