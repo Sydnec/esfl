@@ -67,6 +67,9 @@ export function parseLeaguepediaRoster(rows: LeaguepediaRosterRow[]): StarterRef
     const image = row.Image?.trim();
     starters.push({
       name,
+      // Pas d'id numérique chez Leaguepedia : le pseudo canonique (champ ID de
+      // la table Players) EST l'identifiant, mémorisé comme id provider.
+      externalId: name,
       role: row.Role ?? null,
       imageUrl: image
         ? `https://lol.fandom.com/wiki/Special:Filepath/${encodeURIComponent(image)}`
@@ -278,6 +281,9 @@ export function mapLeaguepediaRows(
         : null;
     lines.push({
       externalName: name,
+      // Le pseudo canonique des scoreboards (Link désambiguïsé) sert d'id
+      // provider : appris sur Player.providerIds.leaguepedia.
+      externalId: name,
       side,
       teamName: aggregate.team ?? null,
       role: aggregate.role,
