@@ -9,7 +9,12 @@ import { TeamEnrichmentService } from './team-enrichment.service';
 export { INGESTION_QUEUE };
 export type { IngestionJobName };
 
-@Processor(INGESTION_QUEUE)
+// Concurrence > 1 : les attentes de throttle par hôte (VLR 1 s, Grid 3,5 s,
+// Cargo 6 s, ballchasing 1 s) se recouvrent entre jobs de jeux différents —
+// la file avance au rythme cumulé des sources au lieu du rythme d'une seule.
+// politeFetch réserve les créneaux par hôte de façon atomique : le rate limit
+// de chaque source reste respecté quel que soit le parallélisme.
+@Processor(INGESTION_QUEUE, { concurrency: 5 })
 export class IngestionProcessor extends WorkerHost {
   private readonly logger = new Logger(IngestionProcessor.name);
 
