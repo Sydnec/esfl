@@ -26,8 +26,11 @@ const SERIES_MAX_PAGES = 4;
 // garder une marge — sinon un findSeries rate-limité renvoie null et se traduit
 // à tort en « no-coverage ». Les deux endpoints partagent l'hôte api-op.grid.gg.
 const GRID_MIN_SPACING_MS = 3_500;
-// Corrélation adverse : affiches à moins de 2h du coup d'envoi local.
-const ALIAS_MAX_DELTA_MS = 2 * 3600 * 1000;
+// Corrélation adverse : affiches à moins de 30 min du coup d'envoi local.
+// Grid et Pandascore publient tous deux l'heure PLANIFIÉE (les retards réels
+// n'écartent pas les deux horloges) : une tolérance large attrapait le match
+// précédent/suivant d'une phase de groupes et apprenait de faux alias.
+const ALIAS_MAX_DELTA_MS = 30 * 60 * 1000;
 
 export interface GridSeriesStateTeam {
   /** Id d'équipe Grid (stable) : appris sur Team.providerIds.grid. */
@@ -375,13 +378,14 @@ export class GridStatsProvider implements GameStatsProvider {
 
     const inferred = inferOpponentAlias(pairs, teamA, teamB, ALIAS_MAX_DELTA_MS);
     if (!inferred) return null;
-    // Garde-fou anti-faux-alias : si le nom inféré est déjà une équipe connue
-    // du catalogue, ce n'est pas une graphie alternative de la nôtre mais une
-    // vraie équipe tierce. L'adversaire a joué CETTE équipe-là dans la fenêtre
-    // (notre match était sans doute un forfait / non couvert par Grid) — on
-    // n'apprend rien et on ne rattache pas sa série, sinon on lui volerait ses
-    // stats à chaque ingestion (cas Julie&cie ré-associé à BRUTE).
-    if (await this.isKnownTeam(inferred.alias)) {
+    // Garde-fou anti-faux-alias : si le nom inféré ressemble (nom flou ou
+    // alias exact, cf. teamMatches) à une AUTRE équipe du catalogue, ce n'est
+    // pas une graphie alternative de la nôtre mais une vraie équipe tierce.
+    // L'adversaire a joué CETTE équipe-là dans la fenêtre (notre match était
+    // sans doute un forfait / non couvert par Grid) — on n'apprend rien et on
+    // ne rattache pas sa série, sinon on lui volerait ses stats à chaque
+    // ingestion (cas Julie&cie ré-associé à BRUTE, VP alias « TEAM VITALITY »).
+    if (await this.isOtherKnownTeam(inferred.alias, [teamA.id, teamB.id])) {
       this.logger.warn(
         `Grid : « ${inferred.alias} » est déjà une équipe connue — corrélation ignorée (pas un alias)`,
       );
@@ -396,23 +400,18 @@ export class GridStatsProvider implements GameStatsProvider {
   }
 
   /**
-   * Vrai si un nom correspond (forme normalisée) à une équipe CS2 déjà connue
-   * du catalogue. Chemin rare (seulement quand une corrélation se dégage), donc
-   * un scan des noms du jeu est acceptable.
+   * Vrai si un nom appartient déjà à une autre équipe du jeu — nom en flou
+   * (inclusion) ou alias en exact, comme le matching (`teamMatches`). Chemin
+   * rare (seulement quand une corrélation se dégage), donc un scan des équipes
+   * du jeu est acceptable.
    */
-  private async isKnownTeam(name: string): Promise<boolean> {
-    const normalized = normalizeName(name);
-    if (!normalized) return false;
-    return (await this.knownTeamNames()).has(normalized);
-  }
-
-  /** Noms normalisés de toutes les équipes CS2 connues du catalogue. */
-  private async knownTeamNames(): Promise<Set<string>> {
+  private async isOtherKnownTeam(name: string, excludeTeamIds: string[]): Promise<boolean> {
+    if (!normalizeName(name)) return false;
     const teams = await this.prisma.team.findMany({
-      where: { gameId: this.gameId },
-      select: { name: true },
+      where: { gameId: this.gameId, id: { notIn: excludeTeamIds } },
+      select: { name: true, aliases: true },
     });
-    return new Set(teams.map((team) => normalizeName(team.name)).filter(Boolean));
+    return teams.some((team) => teamMatches(name, team));
   }
 
   /** Noms de séries CS2 proches du match dont une seule équipe est reconnue (matching manuel). */
@@ -442,10 +441,13 @@ export class GridStatsProvider implements GameStatsProvider {
     // On ne suggère pas un nom déjà porté par une équipe connue : c'est une vraie
     // équipe tierce (ex. « Brute », adversaire de Honvéd dans un autre tournoi le
     // même jour), pas un alias de la nôtre — sinon on lui volerait son identité.
-    const known = await this.knownTeamNames();
-    return opponentAliasCandidates(pairs, context.teamA, context.teamB)
-      .filter((candidate) => !known.has(normalizeName(candidate.alias)))
-      .map((candidate) => ({ side: candidate.team, name: candidate.alias }));
+    const excludeIds = [context.teamA.id, context.teamB.id];
+    const suggestions: Array<{ side: 'A' | 'B'; name: string }> = [];
+    for (const candidate of opponentAliasCandidates(pairs, context.teamA, context.teamB)) {
+      if (await this.isOtherKnownTeam(candidate.alias, excludeIds)) continue;
+      suggestions.push({ side: candidate.team, name: candidate.alias });
+    }
+    return suggestions;
   }
 
   /** Persiste un alias appris et met à jour l'objet en mémoire (contexte du fetch en cours). */

@@ -292,6 +292,40 @@ describe('persistResult', () => {
   });
 });
 
+describe('garde « les joueurs collent »', () => {
+  it('rejette des stats où aucun joueur connu du roster ne se résout', async () => {
+    const { prisma, upserts } = fakePrisma();
+    const ingestion = service(prisma);
+    // team-a a un roster connu ; la source ne renvoie que des inconnus de son
+    // côté → alias volé ou mauvaise page : rien ne doit être enregistré.
+    const ctx = context([
+      { id: 'p1', name: 'Alpha', teamId: 'team-a' },
+      { id: 'p2', name: 'Bravo', teamId: 'team-a' },
+      { id: 'p3', name: 'Charlie', teamId: 'team-a' },
+    ]);
+    await expect(
+      ingestion['persistResult'](match, ctx, 'grid', {
+        lines: [line('Inconnu1', 'A'), line('Inconnu2', 'A'), line('Inconnu3', 'A')],
+      }),
+    ).rejects.toThrow(/rattachement suspect/);
+    expect(upserts).toHaveLength(0);
+  });
+
+  it('laisse passer quand au moins un joueur connu se résout', async () => {
+    const { prisma, upserts } = fakePrisma();
+    const ingestion = service(prisma);
+    const ctx = context([
+      { id: 'p1', name: 'Alpha', teamId: 'team-a' },
+      { id: 'p2', name: 'Bravo', teamId: 'team-a' },
+      { id: 'p3', name: 'Charlie', teamId: 'team-a' },
+    ]);
+    await ingestion['persistResult'](match, ctx, 'grid', {
+      lines: [line('Alpha', 'A'), line('Remplaçant', 'A')],
+    });
+    expect(upserts).toHaveLength(2);
+  });
+});
+
 describe('applyMatchRoster', () => {
   const playedAt = new Date('2026-07-10T18:00:00Z');
   const datedMatch = { ...match, beginAt: playedAt } as Match;

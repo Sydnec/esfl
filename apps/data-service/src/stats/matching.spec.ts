@@ -102,13 +102,18 @@ describe('inferOpponentAlias', () => {
 
   it('apprend le nom inconnu quand une seule équipe est reconnue', () => {
     const pairs = [
-      { nameA: 'LP', nameB: 'Fake do Biru', deltaMs: 10 * 60 * 1000 },
+      { nameA: 'LPX Prime', nameB: 'Fake do Biru', deltaMs: 10 * 60 * 1000 },
       { nameA: 'Vitality', nameB: 'NAVI', deltaMs: 0 },
     ];
     expect(inferOpponentAlias(pairs, teamA, teamB, 2 * 3600 * 1000)).toEqual({
       team: 'A',
-      alias: 'LP',
+      alias: 'LPX Prime',
     });
+  });
+
+  it('refuse un nom trop court comme alias (« LP », « 2 »)', () => {
+    const pairs = [{ nameA: 'LP', nameB: 'Fake do Biru', deltaMs: 0 }];
+    expect(inferOpponentAlias(pairs, teamA, teamB, 2 * 3600 * 1000)).toBeNull();
   });
 
   it('s’abstient si deux candidats distincts se dégagent (équipe multi-matchs)', () => {

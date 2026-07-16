@@ -220,6 +220,31 @@ export class StatsIngestionService {
     // d'équipe diffèrent des nôtres (cas VCT China).
     const sideByTeam = this.sourceTeamSides(resolved, context);
 
+    // Garde « les joueurs collent » (règle 4 du rapprochement) : quand une
+    // équipe a déjà un roster connu (≥ 3 fiches) et qu'AUCUN de ses joueurs ne
+    // se résout dans les lignes de son côté, le rattachement est suspect
+    // (alias volé, mauvaise page d'un matchup répété) — on n'enregistre rien,
+    // le retry/diagnostic et le matching manuel prennent le relais.
+    const sideOf = (line: ProviderResult['lines'][number]) =>
+      line.side ?? (line.teamName ? sideByTeam.get(line.teamName.trim()) ?? null : null);
+    for (const side of ['A', 'B'] as const) {
+      const team = side === 'A' ? context.teamA : context.teamB;
+      if (!team) continue;
+      const knownIds = new Set(
+        context.players.filter((player) => player.teamId === team.id).map((player) => player.id),
+      );
+      if (knownIds.size < 3) continue;
+      const sideLines = resolved.filter(({ line }) => sideOf(line) === side);
+      if (sideLines.length === 0) continue;
+      const confirmed = sideLines.some(({ local }) => local && knownIds.has(local.id));
+      if (!confirmed) {
+        throw new Error(
+          `Stats ${source} rejetées pour ${match.name} : aucun joueur connu de ${team.name} ` +
+            `parmi les lignes récupérées — rattachement suspect, rien n'est enregistré`,
+        );
+      }
+    }
+
     let persisted = 0;
     // Lineup résolu par côté : devient le roster courant de l'équipe (le lien
     // joueur-équipe suit le dernier match connu).
@@ -450,6 +475,8 @@ export class StatsIngestionService {
     for (const [name, side] of sideByTeam) {
       const team = side === 'A' ? context.teamA : context.teamB;
       if (!team || teamMatches(name, team)) continue;
+      // Nom trop court : jamais un alias crédible.
+      if (normalizeName(name).length < 3) continue;
       if (await this.isOtherKnownTeam(name, match.gameId, team.id)) continue;
       await this.prisma.team.update({
         where: { id: team.id },
@@ -472,11 +499,9 @@ export class StatsIngestionService {
       where: { gameId, id: { not: excludeTeamId } },
       select: { name: true, aliases: true },
     });
-    return teams.some(
-      (team) =>
-        normalizeName(team.name) === normalized ||
-        (team.aliases ?? []).some((alias) => normalizeName(alias) === normalized),
-    );
+    // Même sémantique que le matching (nom en flou, alias en exact) : un nom
+    // qui « ressemble » à une autre équipe ne doit jamais devenir un alias.
+    return teams.some((team) => teamMatches(name, team));
   }
 
   /**

@@ -260,9 +260,13 @@ export class BallchasingStatsProvider implements GameStatsProvider {
         deltaMs: replay.date ? Date.parse(replay.date) - reference.getTime() : null,
       }));
       const inferred = inferOpponentAlias(pairs, context.teamA, context.teamB, 2 * 3600 * 1000);
-      // Garde-fou : un nom déjà connu comme équipe est une vraie équipe tierce,
-      // pas un alias de la nôtre — on ne l'apprend pas (cf. Grid).
-      if (inferred && !(await this.isKnownTeam(inferred.alias))) {
+      // Garde-fou : un nom qui ressemble à une autre équipe connue (nom flou
+      // ou alias exact) est une vraie équipe tierce, pas un alias de la nôtre
+      // — on ne l'apprend pas (cf. Grid).
+      if (
+        inferred &&
+        !(await this.isOtherKnownTeam(inferred.alias, [context.teamA.id, context.teamB.id]))
+      ) {
         const target = inferred.team === 'A' ? context.teamA : context.teamB;
         await this.learnAlias(target, inferred.alias);
         summaries = findBallchasingReplays(listing.list ?? [], context.teamA, context.teamB);
@@ -320,14 +324,14 @@ export class BallchasingStatsProvider implements GameStatsProvider {
   }
 
   /** Vrai si un nom correspond (forme normalisée) à une équipe RL déjà connue. */
-  private async isKnownTeam(name: string): Promise<boolean> {
-    const normalized = normalizeName(name);
-    if (!normalized) return false;
+  /** Vrai si un nom appartient déjà (nom flou ou alias exact) à une autre équipe RL. */
+  private async isOtherKnownTeam(name: string, excludeTeamIds: string[]): Promise<boolean> {
+    if (!normalizeName(name)) return false;
     const teams = await this.prisma.team.findMany({
-      where: { gameId: this.gameId },
-      select: { name: true },
+      where: { gameId: this.gameId, id: { notIn: excludeTeamIds } },
+      select: { name: true, aliases: true },
     });
-    return teams.some((team) => normalizeName(team.name) === normalized);
+    return teams.some((team) => teamMatches(name, team));
   }
 
   private async get<T>(url: string, token: string): Promise<T | null> {

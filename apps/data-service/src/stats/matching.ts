@@ -78,6 +78,9 @@ export function opponentAliasCandidates(
 ): Array<{ team: 'A' | 'B'; alias: string }> {
   const candidates = new Map<string, { team: 'A' | 'B'; alias: string }>();
   for (const pair of pairs) {
+    // Un nom trop court (« 2 », tag d'un caster) n'est jamais un alias
+    // crédible : ni appris, ni même proposé.
+    if (normalizeName(pair.nameA).length < 3 || normalizeName(pair.nameB).length < 3) continue;
     if (
       maxDeltaMs !== undefined &&
       pair.deltaMs !== undefined &&
