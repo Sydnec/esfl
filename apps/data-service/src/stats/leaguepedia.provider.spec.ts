@@ -178,6 +178,19 @@ describe('mapLeaguepediaRows', () => {
     expect(caps.role).toBeNull();
   });
 
+  it('le canonique vient des lignes du match, pas du reste de la fenêtre (T1 vs T1.EA)', () => {
+    const windowRows: LeaguepediaRow[] = [
+      // Game de l'académie dans la même fenêtre : « T1 » y matche « T1.EA »
+      // par inclusion, mais elle ne doit pas fournir le canonique.
+      { Link: 'Acad', Team: 'T1.EA', Team1: 'T1.EA', Team2: 'BRO Challengers', GameId: 'a1' },
+      { Link: 'Faker', Team: 'T1', Team1: 'T1', Team2: 'Gen.G', GameId: 'g1', Kills: '3' },
+    ];
+    expect(leaguepediaTeamNames(windowRows, { name: 'T1' }, { name: 'Gen.G' })).toEqual({
+      A: 'T1',
+      B: 'Gen.G',
+    });
+  });
+
   it('expose la durée de chaque game (lengthSec) pour l’affichage', () => {
     const games = mapLeaguepediaGames(rows, { name: 'G2 Esports' }, { name: 'Fnatic' });
     expect(games.map((game) => game.lengthSec)).toEqual([1800, 1500, 2100]);

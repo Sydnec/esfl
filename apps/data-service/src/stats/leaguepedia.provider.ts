@@ -3,7 +3,13 @@ import { ConfigService } from '@nestjs/config';
 import type { MapStatsEntry } from '@esfl/contracts';
 import type { Match, Prisma } from '../../generated/client';
 import { countryToIso2 } from '../common/country-iso';
-import { opponentAliasCandidates, OpponentPair, teamMatches, TeamRef } from './matching';
+import {
+  normalizeName,
+  opponentAliasCandidates,
+  OpponentPair,
+  teamMatches,
+  TeamRef,
+} from './matching';
 import { politeFetch } from './polite-fetch';
 import type {
   GameStatsProvider,
@@ -333,18 +339,36 @@ export function leaguepediaPageUrl(
  * Nom canonique Leaguepedia de chaque équipe (celui des scoreboards / de la
  * table Players), par côté A/B — à persister comme id provider pour requêter le
  * roster sans ambiguïté.
+ *
+ * Cherché uniquement dans les lignes du match (les deux équipes reconnues),
+ * jamais dans le reste de la fenêtre : « T1 » matche « T1.EA » par inclusion,
+ * et une game de l'académie dans la fenêtre ferait apprendre le mauvais
+ * canonique (l'enrichissement renommerait ensuite l'équipe). L'égalité exacte
+ * l'emporte sur l'inclusion quand les deux existent.
  */
 export function leaguepediaTeamNames(
   rows: LeaguepediaRow[],
   teamA: TeamRef,
   teamB: TeamRef,
 ): { A?: string | null; B?: string | null } {
+  const matchRows = rows.filter((row) => {
+    const team1 = row.Team1 ?? '';
+    const team2 = row.Team2 ?? '';
+    return (
+      (teamMatches(team1, teamA) && teamMatches(team2, teamB)) ||
+      (teamMatches(team1, teamB) && teamMatches(team2, teamA))
+    );
+  });
   const canonical = (team: TeamRef): string | null => {
-    for (const row of rows) {
-      if (row.Team1 && teamMatches(row.Team1, team)) return row.Team1;
-      if (row.Team2 && teamMatches(row.Team2, team)) return row.Team2;
+    let fuzzy: string | null = null;
+    for (const row of matchRows) {
+      for (const name of [row.Team1, row.Team2]) {
+        if (!name || !teamMatches(name, team)) continue;
+        if (normalizeName(name) === normalizeName(team.name)) return name;
+        fuzzy = fuzzy ?? name;
+      }
     }
-    return null;
+    return fuzzy;
   };
   return { A: canonical(teamA), B: canonical(teamB) };
 }

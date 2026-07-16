@@ -1,7 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { imageSize } from 'image-size';
 import type { Team } from '../../generated/client';
 import { providerUpdate } from '../common/field-precedence';
-import { normalizeName, teamMatches } from '../stats/matching';
+import { politeFetch } from '../stats/polite-fetch';
+import { normalizeName } from '../stats/matching';
 import { LeaguepediaStatsProvider } from '../stats/leaguepedia.provider';
 import { VlrStatsProvider } from '../stats/vlr.provider';
 import type { GameStatsProvider } from '../stats/provider';
@@ -64,18 +66,37 @@ export class TeamEnrichmentService {
       return;
     }
 
+    // Logo au format atypique (bannière Leaguepedia type « logo profile ») :
+    // on ne le revendique pas, le logo Pandascore reste/redevient la référence.
+    let logoRejected = false;
+    let imageUrl = profile.imageUrl ?? null;
+    if (imageUrl && !(await this.logoUsable(imageUrl))) {
+      this.logger.log(
+        `Logo ${provider.source} de ${team.name} au format atypique : logo Pandascore conservé`,
+      );
+      imageUrl = null;
+      logoRejected = true;
+    }
+
     // Provider = source de vérité : chaque champ renseigné écrase et devient
     // possédé (Pandascore ne le ré-écrasera plus).
     const { data, fieldSources } = providerUpdate(
       {
         name: profile.name ?? null,
         acronym: profile.acronym ?? null,
-        imageUrl: profile.imageUrl ?? null,
+        imageUrl,
         location: profile.location ?? null,
       },
       provider.source,
       team.fieldSources,
     );
+    // Logo rejeté mais possédé par ce provider (enrichissement antérieur) :
+    // on libère le champ et on l'efface pour que Pandascore le re-remplisse
+    // au prochain sync.
+    if (logoRejected && fieldSources.imageUrl === provider.source) {
+      delete fieldSources.imageUrl;
+      (data as Record<string, unknown>).imageUrl = null;
+    }
     // Garde-fou anti-vol d'identité : si la fiche récupérée porte le nom d'une
     // AUTRE équipe connue, la résolution est suspecte (mauvaise page) — on
     // n'applique rien et on nettoie l'id appris par recherche.
@@ -112,12 +133,43 @@ export class TeamEnrichmentService {
     }
   }
 
-  /** Vrai si un autre nom d'équipe du même jeu correspond déjà (anti-vol d'identité). */
+  /**
+   * Vrai si le logo provider a un format exploitable dans l'UI (avatars
+   * carrés) : ratio largeur/hauteur borné. Les bannières Leaguepedia type
+   * « logo profile » (ratio 3-4) sont refusées — le logo Pandascore, cadré
+   * carré, reste alors la référence. En cas de doute (image illisible,
+   * réseau), on refuse aussi : mieux vaut le fallback qu'un logo cassé.
+   */
+  private async logoUsable(url: string): Promise<boolean> {
+    try {
+      const response = await politeFetch(url);
+      if (!response.ok) return false;
+      const { width, height } = imageSize(new Uint8Array(await response.arrayBuffer()));
+      if (!width || !height) return false;
+      const ratio = width / height;
+      return ratio >= 0.4 && ratio <= 2.5;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Vrai si le nom appartient déjà exactement à une autre équipe du même jeu
+   * (anti-vol d'identité). Égalité exacte uniquement : l'inclusion floue
+   * bloquerait des enrichissements légitimes — « T1 » « ressemble » à
+   * « T1 Academy » sans être elle, et le vrai T1 resterait figé sous un
+   * mauvais nom.
+   */
   private async isOtherKnownTeam(team: Team, name: string): Promise<boolean> {
+    const normalized = normalizeName(name);
     const teams = await this.prisma.team.findMany({
       where: { gameId: team.gameId, id: { not: team.id } },
       select: { name: true, aliases: true },
     });
-    return teams.some((other) => teamMatches(name, other));
+    return teams.some(
+      (other) =>
+        normalizeName(other.name) === normalized ||
+        (other.aliases ?? []).some((alias) => normalizeName(alias) === normalized),
+    );
   }
 }
