@@ -276,23 +276,42 @@ describe('searchTeam (recherche proactive stricte)', () => {
     });
   });
 
-  it('accepte un unique candidat flou (inclusion)', async () => {
+  it('nom proche sans tag pour confirmer → null', async () => {
     mockSearch([
       { id: '2', name: 'NAVI Junior' },
       { id: '9', name: 'Autre Structure' },
     ]);
-    expect(await provider.searchTeam('NAVI Junior BR', [])).toEqual({
+    expect(await provider.searchTeam('NAVI Junior BR', [])).toBeNull();
+  });
+
+  it('nom proche confirmé par un tag EXACTEMENT identique', async () => {
+    // 1er fetch : la recherche ; 2e : la page du candidat (tag NJR).
+    vi.mocked(politeFetch)
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => searchHtml([{ id: '2', name: 'NAVI Junior' }]),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => teamProfileHtml('NAVI Junior', 'NJR', '//owcdn.net/img/njr.png'),
+      } as Response);
+    expect(await provider.searchTeam('NAVI Junior BR', [], 'NJR')).toEqual({
       id: '2',
       name: 'NAVI Junior',
     });
   });
 
-  it('deux candidats flous non départagés → null (jamais de best guess)', async () => {
-    mockSearch([
-      { id: '1', name: 'NAVI' },
-      { id: '2', name: 'NAVI Junior' },
-    ]);
-    expect(await provider.searchTeam('NAVI Jun', [])).toBeNull();
+  it('nom proche avec tag différent → null (jamais de best guess)', async () => {
+    vi.mocked(politeFetch)
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => searchHtml([{ id: '2', name: 'NAVI Junior' }]),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => teamProfileHtml('NAVI Junior', 'NJR', '//owcdn.net/img/njr.png'),
+      } as Response);
+    expect(await provider.searchTeam('NAVI Junior BR', [], 'NAVI')).toBeNull();
   });
 
   it('aucun résultat → null', async () => {

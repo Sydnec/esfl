@@ -137,10 +137,16 @@ export interface GameStatsProvider {
   ): Promise<Array<{ side: 'A' | 'B'; name: string }>>;
   /**
    * Résolution proactive nom → identité provider, à la création d'une équipe.
-   * Contrat strict : null si introuvable OU ambigu — JAMAIS de best guess
-   * (l'apprentissage par match résolu prendra le relais plus tard).
+   * Contrat strict : nom EXACTEMENT identique, ou nom proche avec un tag
+   * EXACTEMENT identique (`acronym` Pandascore) ; null si introuvable ou
+   * ambigu — JAMAIS de best guess (l'apprentissage par match résolu prendra
+   * le relais plus tard).
    */
-  searchTeam?(name: string, aliases: string[]): Promise<TeamSearchResult | null>;
+  searchTeam?(
+    name: string,
+    aliases: string[],
+    acronym?: string | null,
+  ): Promise<TeamSearchResult | null>;
   /**
    * Fiche équipe chez la source, par identifiant provider connu. Sert à
    * l'enrichissement (provider = source de vérité sur les métadonnées équipe).

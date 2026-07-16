@@ -707,11 +707,15 @@ export class LeaguepediaStatsProvider implements GameStatsProvider {
 
   /**
    * Résolution proactive nom → nom canonique Leaguepedia (l'« id » provider).
-   * Stricte : uniquement la correspondance exacte de la table TeamRedirects
-   * (chaque AllName est une forme officielle de l'équipe) — pas de recherche
-   * floue, null si inconnu.
+   * Stricte : correspondance exacte de la table TeamRedirects (chaque AllName
+   * est une forme officielle de l'équipe), sinon équipe au tag (Short)
+   * EXACTEMENT identique dont le nom reste proche. Null si inconnu ou ambigu.
    */
-  async searchTeam(name: string, aliases: string[]): Promise<TeamSearchResult | null> {
+  async searchTeam(
+    name: string,
+    aliases: string[],
+    acronym?: string | null,
+  ): Promise<TeamSearchResult | null> {
     for (const query of [name, ...aliases]) {
       const input = query.trim();
       if (!input) continue;
@@ -719,7 +723,45 @@ export class LeaguepediaStatsProvider implements GameStatsProvider {
       const canonical = row?.canonical?.trim();
       if (canonical) return { id: canonical, name: canonical };
     }
+    if (acronym) {
+      const rows = await this.queryTeamsByShort(acronym);
+      const confirmed = rows.filter(
+        (row) => row.name && teamMatches(row.name, { name, aliases }),
+      );
+      if (confirmed.length === 1 && confirmed[0].page) {
+        return { id: confirmed[0].page, name: confirmed[0].name ?? confirmed[0].page };
+      }
+    }
     return null;
+  }
+
+  /** Équipes de la table Cargo Teams portant exactement ce tag (Short). */
+  private async queryTeamsByShort(
+    acronym: string,
+  ): Promise<Array<{ page?: string; name?: string }>> {
+    const url = new URL(API_URL);
+    url.searchParams.set('action', 'cargoquery');
+    url.searchParams.set('format', 'json');
+    url.searchParams.set('limit', '10');
+    url.searchParams.set('tables', 'Teams');
+    url.searchParams.set('fields', 'Teams._pageName=page,Teams.Name=name');
+    url.searchParams.set(
+      'where',
+      `Teams.Short="${acronym.replace(/"/g, '')}" AND Teams.IsDisbanded="0"`,
+    );
+    try {
+      const response = await this.fetchAuthed(url, CARGO_SPACING_MS);
+      if (!response.ok) return [];
+      const payload = (await response.json()) as {
+        cargoquery?: Array<{ title: { page?: string; name?: string } }>;
+        error?: { code?: string };
+      };
+      if (payload.error?.code === 'assertuserfailed') this.invalidateSession();
+      if (payload.error) return [];
+      return (payload.cargoquery ?? []).map((entry) => entry.title);
+    } catch {
+      return [];
+    }
   }
 
   /**

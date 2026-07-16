@@ -255,8 +255,11 @@ export class BallchasingStatsProvider implements GameStatsProvider {
       const pairs = (listing.list ?? []).map((replay) => ({
         nameA: replay.blue?.name ?? '',
         nameB: replay.orange?.name ?? '',
+        // Écart au coup d'envoi prévu : un replay d'un autre match plus tard
+        // dans la fenêtre ne doit pas servir de preuve (aligné sur Grid, ±2h).
+        deltaMs: replay.date ? Date.parse(replay.date) - reference.getTime() : null,
       }));
-      const inferred = inferOpponentAlias(pairs, context.teamA, context.teamB);
+      const inferred = inferOpponentAlias(pairs, context.teamA, context.teamB, 2 * 3600 * 1000);
       // Garde-fou : un nom déjà connu comme équipe est une vraie équipe tierce,
       // pas un alias de la nôtre — on ne l'apprend pas (cf. Grid).
       if (inferred && !(await this.isKnownTeam(inferred.alias))) {

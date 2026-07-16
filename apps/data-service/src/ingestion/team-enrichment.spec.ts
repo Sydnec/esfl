@@ -1,12 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { PrismaService } from '../prisma.service';
-
-// Logo provider : fetch + mesure mockés (carré par défaut, bannière sur demande).
-vi.mock('../stats/polite-fetch', () => ({
-  politeFetch: vi.fn(async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(8) })),
-}));
-const imageSizeMock = vi.fn(() => ({ width: 100, height: 100 }));
-vi.mock('image-size', () => ({ imageSize: () => imageSizeMock() }));
 import type { IngestionService } from './ingestion.service';
 import type { VlrStatsProvider } from '../stats/vlr.provider';
 import type { LeaguepediaStatsProvider } from '../stats/leaguepedia.provider';
@@ -76,14 +69,30 @@ describe('enrichTeam', () => {
     // 1er update : l'id provider appris par la recherche.
     expect(teamUpdates[0]).toEqual({ providerIds: { vlr: '1184' } });
     // 2e update : la fiche, possédée champ par champ, ancien nom en alias.
+    // Le logo provider n'est jamais revendiqué : Pandascore reste la référence.
     expect(teamUpdates[1]).toMatchObject({
       name: 'Gen.G Esports',
       acronym: 'GEN',
-      imageUrl: 'vlr.png',
       location: 'KR',
-      fieldSources: { name: 'vlr', acronym: 'vlr', imageUrl: 'vlr', location: 'vlr' },
+      fieldSources: { name: 'vlr', acronym: 'vlr', location: 'vlr' },
       aliases: ['Gen.G'],
     });
+    expect(teamUpdates[1]).not.toHaveProperty('imageUrl');
+  });
+
+  it('un logo revendiqué par un enrichissement antérieur est libéré (retour Pandascore)', async () => {
+    const { service, teamUpdates } = setup({
+      team: {
+        ...baseTeam,
+        providerIds: { vlr: '1184' },
+        imageUrl: 'https://banniere.png',
+        fieldSources: { imageUrl: 'vlr' },
+      },
+      profile: { acronym: 'GEN', imageUrl: 'https://banniere.png' },
+    });
+    await service.enrichTeam('team-a');
+    expect(teamUpdates[0]).toMatchObject({ acronym: 'GEN', imageUrl: null });
+    expect((teamUpdates[0].fieldSources as Record<string, string>).imageUrl).toBeUndefined();
   });
 
   it('id provider déjà connu : pas de recherche, fiche directement', async () => {
@@ -104,27 +113,6 @@ describe('enrichTeam', () => {
     });
     await service.enrichTeam('team-a');
     expect(teamUpdates).toHaveLength(0);
-  });
-
-  it('logo au format bannière → non revendiqué, possession libérée', async () => {
-    imageSizeMock.mockReturnValueOnce({ width: 400, height: 100 });
-    const { service, teamUpdates } = setup({
-      team: {
-        ...baseTeam,
-        providerIds: { vlr: '1184' },
-        imageUrl: 'https://banniere.png',
-        fieldSources: { imageUrl: 'vlr' },
-      },
-      profile: { acronym: 'GEN', imageUrl: 'https://banniere.png' },
-    });
-    await service.enrichTeam('team-a');
-    // Le logo n'est plus possédé et est effacé : Pandascore re-remplira.
-    expect(teamUpdates[0]).toMatchObject({
-      acronym: 'GEN',
-      imageUrl: null,
-      fieldSources: { acronym: 'vlr' },
-    });
-    expect((teamUpdates[0].fieldSources as Record<string, string>).imageUrl).toBeUndefined();
   });
 
   it('le garde anti-vol exige l’égalité exacte (« T1 » passe malgré « T1 Academy »)', async () => {

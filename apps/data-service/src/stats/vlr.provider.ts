@@ -664,11 +664,16 @@ export class VlrStatsProvider implements GameStatsProvider {
 
   /**
    * Résolution proactive nom → id VLR par la recherche. Stricte : nom exact
-   * unique, sinon unique candidat flou — deux candidats non départagés ou des
-   * homonymes = ambigu → null (jamais de best guess, l'apprentissage par match
+   * unique, sinon candidat au nom proche dont le tag d'équipe est EXACTEMENT
+   * l'acronym Pandascore (vérifié en ouvrant la page candidate). Ambigu ou
+   * sans confirmation → null (jamais de best guess, l'apprentissage par match
    * résolu prendra le relais).
    */
-  async searchTeam(name: string, aliases: string[]): Promise<TeamSearchResult | null> {
+  async searchTeam(
+    name: string,
+    aliases: string[],
+    acronym?: string | null,
+  ): Promise<TeamSearchResult | null> {
     const teamRef: TeamRef = { name, aliases };
     for (const query of [name, ...aliases]) {
       const response = await politeFetch(
@@ -681,8 +686,16 @@ export class VlrStatsProvider implements GameStatsProvider {
       );
       if (exact.length === 1) return exact[0];
       if (exact.length > 1) continue; // homonymes : indécidable sur le nom seul
-      const fuzzy = results.filter((result) => teamMatches(result.name, teamRef));
-      if (fuzzy.length === 1) return fuzzy[0];
+      if (!acronym) continue; // pas de tag pour confirmer un nom proche
+      const fuzzy = results.filter((result) => teamMatches(result.name, teamRef)).slice(0, 3);
+      const confirmed: TeamSearchResult[] = [];
+      for (const candidate of fuzzy) {
+        const profile = await this.fetchTeamProfile(candidate.id);
+        if (profile?.acronym && normalizeName(profile.acronym) === normalizeName(acronym)) {
+          confirmed.push(candidate);
+        }
+      }
+      if (confirmed.length === 1) return confirmed[0];
     }
     return null;
   }
