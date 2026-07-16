@@ -130,6 +130,12 @@ export class CatalogController {
     return this.catalog.statsForScoring(gameId ?? '');
   }
 
+  /** Complétude des stats d'une journée Paris (gel des scores, appel interne scoring). */
+  @Get('internal/days/:date/completeness')
+  dayCompleteness(@Param('date') date: string) {
+    return this.catalog.dayCompleteness(date);
+  }
+
   /** Déclenchement manuel d'un job d'ingestion (réservé à un usage admin/dev). */
   @Post('admin/sync/:job')
   @UseGuards(AdminGuard)

@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { parisDate } from '@esfl/contracts';
 import type { Job, Queue } from 'bullmq';
 import { normalizeName, teamNamesMatch } from '../stats/matching';
 import { PrismaService } from '../prisma.service';
@@ -278,6 +279,65 @@ export class CatalogService {
       normalized: row.normalized,
       maps: statMaps(row.match),
     }));
+  }
+
+  /**
+   * Complétude des stats d'une journée Paris (base du gel des scores côté
+   * scoring) : la journée est complète quand tous ses matchs sont terminés et
+   * que tous les finis récupérables (non-forfait, hors CS2 non couvert par
+   * Grid, compétitions visibles de tier autorisé) ont leurs stats.
+   */
+  async dayCompleteness(date: string) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      throw new BadRequestException('Date attendue au format YYYY-MM-DD');
+    }
+    // Fenêtre large ±12h autour du jour UTC, puis filtre exact sur le jour
+    // Paris (même convention que les journées fantasy).
+    const base = Date.parse(`${date}T00:00:00Z`);
+    const from = new Date(base - 12 * 3600 * 1000);
+    const to = new Date(base + 36 * 3600 * 1000);
+    const candidates = await this.prisma.match.findMany({
+      where: {
+        OR: [
+          { beginAt: { gte: from, lte: to } },
+          { beginAt: null, scheduledAt: { gte: from, lte: to } },
+        ],
+        competition: { hidden: false, OR: [{ tier: null }, { tier: { notIn: ['c', 'd'] } }] },
+      },
+      select: {
+        id: true,
+        gameId: true,
+        status: true,
+        forfeit: true,
+        beginAt: true,
+        scheduledAt: true,
+        gridCovered: true,
+        _count: { select: { stats: true } },
+      },
+    });
+    const dayMatches = candidates.filter((match) => {
+      const start = match.beginAt ?? match.scheduledAt;
+      return start && parisDate(start) === date;
+    });
+    const pending = dayMatches.filter(
+      (match) => match.status !== 'finished' && match.status !== 'canceled',
+    );
+    const finished = dayMatches.filter((match) => match.status === 'finished' && !match.forfeit);
+    const missing = finished.filter(
+      (match) =>
+        match._count.stats === 0 && !(match.gameId === 'cs2' && match.gridCovered === false),
+    );
+    return {
+      date,
+      totalMatches: dayMatches.length,
+      pendingCount: pending.length,
+      missingCount: missing.length,
+      complete: pending.length === 0 && missing.length === 0,
+      /** Matchs finis avec stats : à re-noter une dernière fois avant le gel. */
+      scoredMatchIds: finished
+        .filter((match) => match._count.stats > 0)
+        .map((match) => match.id),
+    };
   }
 
   /** Détail d'un match avec équipes résolues (page match). */

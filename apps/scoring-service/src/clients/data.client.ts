@@ -42,6 +42,17 @@ export interface DataPlayerMeta {
   team: { name: string; acronym: string | null } | null;
 }
 
+/** Complétude des stats d'une journée Paris (base du gel des scores). */
+export interface DayCompleteness {
+  date: string;
+  totalMatches: number;
+  pendingCount: number;
+  missingCount: number;
+  complete: boolean;
+  /** Matchs finis avec stats : à re-noter une dernière fois avant le gel. */
+  scoredMatchIds: string[];
+}
+
 /** Client REST interne vers le data-service. */
 @Injectable()
 export class DataClient {
@@ -96,5 +107,10 @@ export class DataClient {
   /** Toutes les stats d'un jeu (matchs finis) pour le calcul des distributions. */
   getScoringStats(gameId: string): Promise<DataScoringStat[]> {
     return this.get<DataScoringStat[]>('/data/internal/stats/all', { gameId });
+  }
+
+  /** Complétude des stats d'une journée Paris (gel des scores). */
+  dayCompleteness(date: string): Promise<DayCompleteness> {
+    return this.get<DayCompleteness>(`/data/internal/days/${date}/completeness`);
   }
 }

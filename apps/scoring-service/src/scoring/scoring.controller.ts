@@ -96,6 +96,29 @@ export class ScoringController {
     return this.scoring.resetAndRecompute();
   }
 
+  /** Journées gelées (scoreboard immuable) — admin. */
+  @Get('admin/frozen-days')
+  @UseGuards(AdminGuard)
+  frozenDays() {
+    return this.scoring.listFrozenDays();
+  }
+
+  /** Gel manuel d'une journée (dernier re-score puis pose du gel) — admin. */
+  @Post('admin/freeze/:date')
+  @UseGuards(AdminGuard)
+  async freezeDay(@Param('date') date: string) {
+    await this.scoring.freezeDay(date, 'manual');
+    return { frozen: date };
+  }
+
+  /** Dégel manuel : l'unique porte de sortie du gel absolu — admin. */
+  @Delete('admin/freeze/:date')
+  @UseGuards(AdminGuard)
+  async unfreezeDay(@Param('date') date: string) {
+    await this.scoring.unfreezeDay(date);
+    return { unfrozen: date };
+  }
+
   /** Nettoyage à la suppression d'un compte (appel interne). */
   @Delete('internal/users/:userId')
   async removeUser(@Param('userId') userId: string) {

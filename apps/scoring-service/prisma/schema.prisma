@@ -46,6 +46,21 @@ model StatDistribution {
   @@map("stat_distributions")
 }
 
+/**
+ * Journée (date Paris YYYY-MM-DD) gelée : ses notes joueurs et scores de
+ * roster ne bougent plus — ni stats.ingested tardif, ni recompute admin.
+ * Gel absolu : seule porte de sortie, le dégel manuel de la date
+ * (DELETE /scoring/admin/freeze/:date).
+ */
+model FrozenMatchDay {
+  date     String   @id
+  frozenAt DateTime @default(now()) @map("frozen_at")
+  /** 'complete' (toutes les stats attendues présentes) | 'deadline' (gel à J+3 malgré des trous) | 'manual'. */
+  reason   String
+
+  @@map("frozen_match_days")
+}
+
 /** Score total du roster d'un utilisateur sur une journée de ligue. */
 model RosterScore {
   id           String   @id @default(cuid())
