@@ -6,8 +6,18 @@ import { PandascoreClient } from '../pandascore/pandascore.client';
 import { PrismaService } from '../prisma.service';
 import { INGESTION_QUEUE } from './ingestion.constants';
 
-/** Date par défaut du backfill historique au premier démarrage (base vide). */
-const DEFAULT_BACKFILL_SINCE = '2026-01-01';
+/**
+ * Profondeur par défaut du backfill historique au premier démarrage (base
+ * vide) : 4 mois glissants. `HISTORY_BACKFILL_SINCE` (date fixe YYYY-MM-DD)
+ * reste prioritaire si présent.
+ */
+const DEFAULT_BACKFILL_MONTHS = 4;
+
+function defaultBackfillSince(): string {
+  const since = new Date();
+  since.setUTCMonth(since.getUTCMonth() - DEFAULT_BACKFILL_MONTHS);
+  return since.toISOString().slice(0, 10);
+}
 
 /**
  * Planifie les jobs répétables d'ingestion (uniquement si le token Pandascore
@@ -69,7 +79,7 @@ export class IngestionScheduler implements OnModuleInit {
     // 2026-01-01), au lieu du seul sync-series des séries actives.
     const competitions = await this.prisma.competition.count();
     if (competitions === 0) {
-      const since = this.config.get<string>('HISTORY_BACKFILL_SINCE') ?? DEFAULT_BACKFILL_SINCE;
+      const since = this.config.get<string>('HISTORY_BACKFILL_SINCE') ?? defaultBackfillSince();
       await this.queue.add(
         'backfill-history',
         { since },
