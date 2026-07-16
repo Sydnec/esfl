@@ -73,6 +73,81 @@ export function parseVlrMatchListing(html: string): VlrListingMatch[] {
   return out;
 }
 
+/** Entrée de l'historique de matchs d'une équipe VLR (/team/matches/<id>). */
+export interface VlrTeamMatchItem {
+  href: string;
+  /** [équipe de la page, adversaire]. */
+  names: string[];
+  /** Score de l'équipe de la page puis de l'adversaire. */
+  scores: Array<number | null>;
+  /** Jour du match (heure ignorée : la tolérance de date couvre les fuseaux). */
+  date: Date | null;
+}
+
+/**
+ * Parse l'historique de matchs d'une équipe (/team/matches/<id>/?group=completed) :
+ * anté-chronologique, ~50 affiches par page, chacune datée et scorée — le seul
+ * endroit où retrouver la page d'un match trop ancien pour les listings récents.
+ */
+export function parseVlrTeamMatches(html: string): VlrTeamMatchItem[] {
+  const $ = cheerio.load(html);
+  const out: VlrTeamMatchItem[] = [];
+  $('a.m-item')
+    .not('.m-item-games-item')
+    .each((_, element) => {
+      const item = $(element);
+      const href = item.attr('href');
+      if (!href) return;
+      const names = item
+        .find('.m-item-team-name')
+        .map((_i, name) => $(name).text().replace(/\s+/g, ' ').trim())
+        .get();
+      const result = item.find('.m-item-result').text().replace(/\s+/g, ' ').trim();
+      const scoreMatch = result.match(/(\d+)\s*:\s*(\d+)/);
+      const scores: Array<number | null> = scoreMatch
+        ? [Number(scoreMatch[1]), Number(scoreMatch[2])]
+        : [null, null];
+      // « 2026/05/31 2:00 am » → jour UTC (l'heure locale du site est ignorée).
+      const day = item
+        .find('.m-item-date')
+        .text()
+        .match(/(\d{4})\/(\d{2})\/(\d{2})/);
+      const date = day ? new Date(Date.UTC(Number(day[1]), Number(day[2]) - 1, Number(day[3]))) : null;
+      if (names.length >= 2) out.push({ href, names, scores, date });
+    });
+  return out;
+}
+
+/**
+ * Sélectionne dans l'historique d'une équipe l'affiche correspondant au match
+ * attendu : adversaire reconnu, jour dans la tolérance (obligatoire ici — les
+ * matchups se répètent dans un historique long) et score orienté quand connu.
+ */
+export function pickVlrTeamHistoryMatch(
+  items: VlrTeamMatchItem[],
+  opponent: TeamRef,
+  expected: { reference: Date; ownScore?: number | null; oppScore?: number | null },
+): string | null {
+  for (const item of items) {
+    if (!teamMatches(item.names[1] ?? '', opponent)) continue;
+    if (!item.date) continue;
+    if (Math.abs(item.date.getTime() - expected.reference.getTime()) > LISTING_DATE_SLACK_MS) {
+      continue;
+    }
+    if (
+      expected.ownScore != null &&
+      expected.oppScore != null &&
+      item.scores[0] != null &&
+      item.scores[1] != null &&
+      (item.scores[0] !== expected.ownScore || item.scores[1] !== expected.oppScore)
+    ) {
+      continue;
+    }
+    return item.href;
+  }
+  return null;
+}
+
 /** Critères de confirmation d'une affiche du listing (matchup répété). */
 export interface VlrMatchExpectation {
   /** Date du match chez nous (beginAt/scheduledAt). */
@@ -715,8 +790,8 @@ export class VlrStatsProvider implements GameStatsProvider {
    * rattacherait la même page à tous les matchs.
    */
   private async findMatchPath(
-    teamA: TeamRef,
-    teamB: TeamRef,
+    teamA: TeamRef & { providerIds?: unknown },
+    teamB: TeamRef & { providerIds?: unknown },
     listings: string[],
     expected?: VlrMatchExpectation,
   ): Promise<string | null> {
@@ -729,6 +804,55 @@ export class VlrStatsProvider implements GameStatsProvider {
           vlrListingEntryMatches(entry, teamA, teamB, expected),
         );
         if (found) return found.href;
+      }
+    }
+    // Match trop ancien pour les listings récents (backfill historique) :
+    // recherche dans l'historique de matchs d'une équipe dont l'id VLR est
+    // connu. Réservé aux matchs vraiment vieux : un match récent introuvable
+    // ci-dessus est un vrai trou de couverture.
+    const reference = expected?.reference;
+    if (reference && Date.now() - reference.getTime() > 3 * 24 * 3600 * 1000) {
+      const candidates: Array<[TeamRef & { providerIds?: unknown }, TeamRef, boolean]> = [
+        [teamA, teamB, true],
+        [teamB, teamA, false],
+      ];
+      for (const [team, opponent, teamIsA] of candidates) {
+        const vlrId = (team.providerIds as Record<string, string> | null)?.vlr;
+        if (!vlrId) continue;
+        const path = await this.searchTeamHistory(vlrId, opponent, {
+          reference,
+          ownScore: teamIsA ? expected?.scoreA : expected?.scoreB,
+          oppScore: teamIsA ? expected?.scoreB : expected?.scoreA,
+        });
+        if (path) return path;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Parcourt l'historique de matchs d'une équipe VLR (anté-chronologique) à la
+   * recherche de l'affiche attendue ; s'arrête dès qu'une page est entièrement
+   * plus ancienne que la date visée.
+   */
+  private async searchTeamHistory(
+    teamVlrId: string,
+    opponent: TeamRef,
+    expected: { reference: Date; ownScore?: number | null; oppScore?: number | null },
+  ): Promise<string | null> {
+    const HISTORY_PAGES_MAX = 8;
+    for (let page = 1; page <= HISTORY_PAGES_MAX; page += 1) {
+      const response = await politeFetch(
+        `${BASE_URL}/team/matches/${teamVlrId}/?group=completed&page=${page}`,
+      );
+      if (!response.ok) return null;
+      const items = parseVlrTeamMatches(await response.text());
+      if (items.length === 0) return null;
+      const found = pickVlrTeamHistoryMatch(items, opponent, expected);
+      if (found) return found;
+      const oldest = items[items.length - 1]?.date;
+      if (oldest && oldest.getTime() < expected.reference.getTime() - LISTING_DATE_SLACK_MS) {
+        return null;
       }
     }
     return null;

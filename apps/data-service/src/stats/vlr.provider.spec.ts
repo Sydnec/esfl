@@ -8,8 +8,10 @@ import {
   parseVlrPerformance,
   parseVlrPerformanceViews,
   parseVlrRoster,
+  parseVlrTeamMatches,
   parseVlrTeamProfile,
   parseVlrTeamSearch,
+  pickVlrTeamHistoryMatch,
   vlrListingEntryMatches,
   VlrStatsProvider,
 } from './vlr.provider';
@@ -181,6 +183,66 @@ describe('parseVlrMatchListing / vlrListingEntryMatches', () => {
         scoreB: 1,
       }),
     ).toBe(true);
+  });
+});
+
+const historyItem = (
+  href: string,
+  self: string,
+  opponent: string,
+  score: string,
+  date: string,
+) =>
+  `<a href="${href}" class="wf-card fc-flex m-item">` +
+  `<div class="m-item-team"><div class="m-item-team-name">${self}</div></div>` +
+  `<div class="m-item-result"><span>${score.split(':')[0]}</span>:<span>${score.split(':')[1]}</span></div>` +
+  `<div class="m-item-team mod-right"><div class="m-item-team-name">${opponent}</div></div>` +
+  `<div class="m-item-date">${date} 2:00 am</div>` +
+  `</a>` +
+  // Sous-carte par map : à ignorer (classe m-item-games-item).
+  `<a href="${href}/?game=1" class="wf-card m-item m-item-games-item"><div class="m-item-team-name">bruit</div></a>`;
+
+describe('historique de matchs d’équipe VLR (matchs anciens)', () => {
+  // NRG vs 100T joué deux fois : seule la date/le score départagent.
+  const html =
+    historyItem('/1001/nrg-vs-100t', 'NRG', '100 Thieves', '2:1', '2026/07/12') +
+    historyItem('/0900/nrg-vs-100t', 'NRG', '100 Thieves', '0:2', '2026/03/08') +
+    historyItem('/0800/nrg-vs-sen', 'NRG', 'Sentinels', '2:0', '2026/03/01');
+
+  it('parse href, noms, score orienté et jour (sous-cartes par map ignorées)', () => {
+    const items = parseVlrTeamMatches(html);
+    expect(items).toHaveLength(3);
+    expect(items[0]).toMatchObject({
+      href: '/1001/nrg-vs-100t',
+      names: ['NRG', '100 Thieves'],
+      scores: [2, 1],
+    });
+    expect(items[1].date?.toISOString().slice(0, 10)).toBe('2026-03-08');
+  });
+
+  it('retrouve le bon match d’un matchup répété par la date et le score', () => {
+    const items = parseVlrTeamMatches(html);
+    expect(
+      pickVlrTeamHistoryMatch(items, { name: '100 Thieves' }, {
+        reference: new Date('2026-03-08T18:00:00Z'),
+        ownScore: 0,
+        oppScore: 2,
+      }),
+    ).toBe('/0900/nrg-vs-100t');
+    // Score contradictoire → rien (pas de best guess).
+    expect(
+      pickVlrTeamHistoryMatch(items, { name: '100 Thieves' }, {
+        reference: new Date('2026-03-08T18:00:00Z'),
+        ownScore: 2,
+        oppScore: 0,
+      }),
+    ).toBeNull();
+    // Date hors tolérance → rien.
+    expect(
+      pickVlrTeamHistoryMatch(items, { name: 'Sentinels' }, {
+        reference: new Date('2026-06-01T18:00:00Z'),
+      }),
+    ).toBeNull();
   });
 });
 
