@@ -19,7 +19,6 @@ import {
   INGESTION_QUEUE,
   IngestionJobName,
 } from '../ingestion/ingestion.constants';
-import { PandascoreClient } from '../pandascore/pandascore.client';
 import { StatsIngestionService } from '../stats/stats-ingestion';
 import { CatalogService } from './catalog.service';
 
@@ -40,7 +39,6 @@ function parseDate(value: string | undefined, label: string): Date | undefined {
 export class CatalogController {
   constructor(
     private readonly catalog: CatalogService,
-    private readonly pandascore: PandascoreClient,
     private readonly fantasyClient: FantasyClient,
     private readonly statsIngestion: StatsIngestionService,
     @InjectQueue(INGESTION_QUEUE) private readonly ingestionQueue: Queue,
@@ -293,15 +291,10 @@ export class CatalogController {
     return this.catalog.removeTeamAlias(teamId, alias ?? '');
   }
 
-  /** Santé de l'ingestion : activité par jeu, catalogue, queue, quota — page admin du front. */
+  /** Santé de l'ingestion : activité par jeu, catalogue, queue — page admin du front. */
   @Get('admin/health')
   @UseGuards(AdminGuard)
-  async health() {
-    const followed = await this.fantasyClient.followedCompetitionIds();
-    return this.catalog.ingestionHealth(
-      this.ingestionQueue,
-      this.pandascore.requestsLastHour,
-      followed,
-    );
+  health() {
+    return this.catalog.ingestionHealth(this.ingestionQueue);
   }
 }

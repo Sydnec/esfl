@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { parisDate } from '@esfl/contracts';
 import type { Job, Queue } from 'bullmq';
+import { Prisma } from '../../generated/client';
 import { normalizeName, teamNamesMatch } from '../stats/matching';
 import { PrismaService } from '../prisma.service';
 
@@ -605,15 +606,11 @@ export class CatalogService {
   /**
    * Santé de l'ingestion pour la page admin, tous jeux confondus : activité
    * (en cours, à venir 24h, finis 48h et leur couverture stats), matchs en
-   * cours avec fraîcheur des stats live, catalogue (compétitions suivies,
-   * équipes, joueurs), état des sources de stats, couverture Grid CS2, queue
-   * BullMQ (échecs détaillés), alias appris et quota Pandascore.
+   * cours avec fraîcheur des stats live, catalogue (volumes + rapprochement
+   * des ids provider/Pandascore), état des sources de stats, queue BullMQ
+   * (échecs détaillés) et alias appris.
    */
-  async ingestionHealth(
-    queue: Queue,
-    pandascoreRequestsLastHour: number,
-    followedCompetitionIds: string[] | null,
-  ) {
+  async ingestionHealth(queue: Queue) {
     const now = Date.now();
     const since48h = new Date(now - 48 * 3600 * 1000);
     // Fenêtre large (7 j) pour la couverture par jeu ; le détail des matchs
@@ -706,26 +703,35 @@ export class CatalogService {
       statsMaj: runningStatsMaj.get(match.id)?.toISOString() ?? null,
     }));
 
-    // Catalogue par jeu : volumes + compétitions suivies par au moins une ligue.
+    // Catalogue par jeu : volumes + rapprochement des identités (combien
+    // d'équipes/joueurs ont leur id provider, combien de joueurs leur id
+    // Pandascore — les fiches naissent côté provider et sont adoptées ensuite).
     const countByGame = (rows: Array<{ gameId: string; _count: { _all: number } }>) =>
       new Map(rows.map((row) => [row.gameId, row._count._all]));
-    const [competitionsByGame, teamsByGame, playersByGame] = await Promise.all([
+    const notNullJson = { NOT: { providerIds: { equals: Prisma.DbNull } } } as const;
+    const [
+      competitionsByGame,
+      teamsByGame,
+      teamsWithProviderId,
+      playersByGame,
+      playersWithProviderId,
+      playersWithPandascoreId,
+    ] = await Promise.all([
       this.prisma.competition
         .groupBy({ by: ['gameId'], _count: { _all: true } })
         .then(countByGame),
       this.prisma.team.groupBy({ by: ['gameId'], _count: { _all: true } }).then(countByGame),
+      this.prisma.team
+        .groupBy({ by: ['gameId'], where: notNullJson, _count: { _all: true } })
+        .then(countByGame),
       this.prisma.player.groupBy({ by: ['gameId'], _count: { _all: true } }).then(countByGame),
+      this.prisma.player
+        .groupBy({ by: ['gameId'], where: notNullJson, _count: { _all: true } })
+        .then(countByGame),
+      this.prisma.player
+        .groupBy({ by: ['gameId'], where: { pandascoreId: { not: null } }, _count: { _all: true } })
+        .then(countByGame),
     ]);
-    const followed = followedCompetitionIds
-      ? await this.prisma.competition.findMany({
-          where: { id: { in: followedCompetitionIds } },
-          select: { gameId: true },
-        })
-      : null;
-    const followedByGame = new Map<string, number>();
-    for (const competition of followed ?? []) {
-      followedByGame.set(competition.gameId, (followedByGame.get(competition.gameId) ?? 0) + 1);
-    }
     const gameIds = new Set([
       ...competitionsByGame.keys(),
       ...teamsByGame.keys(),
@@ -736,9 +742,11 @@ export class CatalogService {
         gameId,
         {
           competitions: competitionsByGame.get(gameId) ?? 0,
-          suivies: followed ? (followedByGame.get(gameId) ?? 0) : null,
           equipes: teamsByGame.get(gameId) ?? 0,
+          equipesAvecIdProvider: teamsWithProviderId.get(gameId) ?? 0,
           joueurs: playersByGame.get(gameId) ?? 0,
+          joueursAvecIdProvider: playersWithProviderId.get(gameId) ?? 0,
+          joueursAvecIdPandascore: playersWithPandascoreId.get(gameId) ?? 0,
         },
       ]),
     );
@@ -755,12 +763,6 @@ export class CatalogService {
         live: false,
       },
     ];
-
-    const [gridTrue, gridFalse, gridNull] = await Promise.all([
-      this.prisma.match.count({ where: { gameId: 'cs2', gridCovered: true } }),
-      this.prisma.match.count({ where: { gameId: 'cs2', gridCovered: false } }),
-      this.prisma.match.count({ where: { gameId: 'cs2', gridCovered: null } }),
-    ]);
 
     const counts = await queue.getJobCounts('waiting', 'active', 'delayed', 'failed');
     const failedJobs = await queue.getFailed(0, 49);
@@ -823,10 +825,8 @@ export class CatalogService {
       catalogue,
       sources,
       sansStats,
-      couvertureGrid: { couverts: gridTrue, horsCouverture: gridFalse, aVerifier: gridNull },
       queue: { ...counts, echecs },
       aliases,
-      pandascore: { requetesDerniereHeure: pandascoreRequestsLastHour, quotaHoraire: 1000 },
     };
   }
 

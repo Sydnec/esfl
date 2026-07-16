@@ -83,11 +83,17 @@ interface IngestionHealth {
   enCours: RunningMatch[];
   catalogue: Record<
     string,
-    { competitions: number; suivies: number | null; equipes: number; joueurs: number }
+    {
+      competitions: number;
+      equipes: number;
+      equipesAvecIdProvider: number;
+      joueurs: number;
+      joueursAvecIdProvider: number;
+      joueursAvecIdPandascore: number;
+    }
   >;
   sources: Array<{ gameId: string; source: string; configuree: boolean; live: boolean }>;
   sansStats: HealthMatch[];
-  couvertureGrid: { couverts: number; horsCouverture: number; aVerifier: number };
   queue: {
     waiting: number;
     active: number;
@@ -96,7 +102,6 @@ interface IngestionHealth {
     echecs: JobFailure[];
   };
   aliases: Array<{ gameId: string; name: string; aliases: string[] }>;
-  pandascore: { requetesDerniereHeure: number; quotaHoraire: number };
 }
 
 type Tab = 'dashboard' | 'gestion' | 'queue';
@@ -110,12 +115,10 @@ function coverage(row: { finis: number; avecStats: number } | undefined): string
   return `${row.avecStats}/${row.finis} (${Math.round((row.avecStats / row.finis) * 100)} %)`;
 }
 
-/** Total finis / avec stats sur la fenêtre 48h, tous jeux confondus. */
-function totalCoverage(parJeu: IngestionHealth['parJeu']): { finis: number; avecStats: number } {
-  return Object.values(parJeu).reduce(
-    (acc, row) => ({ finis: acc.finis + row.finis, avecStats: acc.avecStats + row.avecStats }),
-    { finis: 0, avecStats: 0 },
-  );
+/** « 45/50 » : rapprochés / total (rapprochement des ids provider/Pandascore). */
+function matched(withId: number, total: number): string {
+  if (total === 0) return '·';
+  return `${withId}/${total}`;
 }
 
 export default function AdminPage() {
@@ -288,9 +291,6 @@ export default function AdminPage() {
     );
   }
 
-  const totals = health ? totalCoverage(health.parJeu) : { finis: 0, avecStats: 0 };
-  const enCoursTotal = health ? Object.values(health.parJeu).reduce((n, r) => n + r.enCours, 0) : 0;
-
   return (
     <main className={styles.main}>
       <div className={styles.headerRow}>
@@ -332,41 +332,6 @@ export default function AdminPage() {
 
       {health && tab === 'dashboard' && (
         <>
-          <section className={styles.tiles}>
-            <div className={styles.tile}>
-              <span className={styles.tileLabel}>Couverture stats (48 h)</span>
-              <span
-                className={
-                  totals.avecStats < totals.finis ? styles.tileAlert : styles.tileValue
-                }
-              >
-                {coverage(totals)}
-              </span>
-            </div>
-            <div className={styles.tile}>
-              <span className={styles.tileLabel}>Matchs en cours</span>
-              <span className={styles.tileValue}>{enCoursTotal}</span>
-            </div>
-            <div className={styles.tile}>
-              <span className={styles.tileLabel}>Queue : en cours / retry</span>
-              <span className={styles.tileValue}>
-                {health.queue.waiting + health.queue.active} / {health.queue.delayed}
-              </span>
-            </div>
-            <div className={styles.tile}>
-              <span className={styles.tileLabel}>Jobs en échec</span>
-              <span className={health.queue.failed > 0 ? styles.tileAlert : styles.tileValue}>
-                {health.queue.failed}
-              </span>
-            </div>
-            <div className={styles.tile}>
-              <span className={styles.tileLabel}>Quota Pandascore (1 h)</span>
-              <span className={styles.tileValue}>
-                {health.pandascore.requetesDerniereHeure} / {health.pandascore.quotaHoraire}
-              </span>
-            </div>
-          </section>
-
           <section className={styles.section}>
             <h2 className={styles.sectionTitle}>Activité par jeu</h2>
             <div className={styles.tableWrap}>
@@ -408,14 +373,6 @@ export default function AdminPage() {
                             <span className={styles.ok}>configurée</span>
                           ) : (
                             <span className={styles.warn}>clé manquante</span>
-                          )}
-                          {source.gameId === 'cs2' && (
-                            <span className={styles.gridDetail}>
-                              {' '}
-                              · Grid : {health.couvertureGrid.couverts} ✓,{' '}
-                              {health.couvertureGrid.horsCouverture} ✗,{' '}
-                              {health.couvertureGrid.aVerifier} ?
-                            </span>
                           )}
                         </td>
                       </tr>
@@ -470,15 +427,27 @@ export default function AdminPage() {
 
           <section className={styles.section}>
             <h2 className={styles.sectionTitle}>Catalogue</h2>
+            <p className={styles.hint}>
+              « x/y » = fiches rapprochées / total : id provider appris (équipes, joueurs) et
+              id Pandascore posé par adoption (joueurs, nés côté provider).
+            </p>
             <div className={styles.tableWrap}>
               <table className={styles.table}>
                 <thead>
                   <tr>
                     <th>Jeu</th>
                     <th>Compétitions</th>
-                    <th>Suivies</th>
                     <th>Équipes</th>
+                    <th title="Équipes dont l'identifiant provider est connu">
+                      dont id provider
+                    </th>
                     <th>Joueurs</th>
+                    <th title="Joueurs dont l'identifiant provider est connu">
+                      dont id provider
+                    </th>
+                    <th title="Joueurs adoptés par Pandascore (photo, nationalité...)">
+                      dont id Pandascore
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -490,9 +459,11 @@ export default function AdminPage() {
                         </span>
                       </td>
                       <td>{row.competitions}</td>
-                      <td>{row.suivies ?? ''}</td>
                       <td>{row.equipes}</td>
+                      <td>{matched(row.equipesAvecIdProvider, row.equipes)}</td>
                       <td>{row.joueurs}</td>
+                      <td>{matched(row.joueursAvecIdProvider, row.joueurs)}</td>
+                      <td>{matched(row.joueursAvecIdPandascore, row.joueurs)}</td>
                     </tr>
                   ))}
                 </tbody>
