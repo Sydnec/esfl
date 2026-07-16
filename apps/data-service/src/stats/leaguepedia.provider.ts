@@ -11,6 +11,8 @@ import type {
   ProviderResult,
   ProviderStatLine,
   StarterRef,
+  TeamProfile,
+  TeamSearchResult,
 } from './provider';
 
 const API_URL = 'https://lol.fandom.com/api.php';
@@ -69,6 +71,8 @@ const WINDOW_CACHE_TTL_MS = 2 * 60 * 1000;
 /** Ligne brute cargoquery (join ScoreboardGames + ScoreboardPlayers). */
 export interface LeaguepediaRow {
   Link?: string;
+  /** Rôle joué sur la game (Top|Jungle|Mid|Bot|Support) : snapshot par match. */
+  Role?: string;
   Champion?: string;
   Kills?: string;
   Deaths?: string;
@@ -81,6 +85,8 @@ export interface LeaguepediaRow {
   Gamelength?: string;
   GameId?: string;
   GameNumber?: string;
+  /** Page wiki du tournoi (lien vers la page de stats originale). */
+  OverviewPage?: string;
   /** Dégâts aux champions (part d'équipe → damageShare). */
   DamageToChampions?: string;
   /** Score de vision (agrégé sur les games). */
@@ -174,6 +180,7 @@ export function mapLeaguepediaRows(
     shareSum: number;
     goldShareSum: number;
     team: string | null;
+    role: string | null;
     raw: LeaguepediaRow[];
     perMap: MapStatsEntry[];
   }
@@ -194,10 +201,13 @@ export function mapLeaguepediaRows(
       shareSum: 0,
       goldShareSum: 0,
       team: null,
+      role: null,
       raw: [],
       perMap: [],
     };
     aggregate.team = aggregate.team ?? row.Team ?? null;
+    // Rôle du match : dernier non-vide (un swap en cours de série = dernier état).
+    aggregate.role = row.Role?.trim() || aggregate.role;
     const kills = Number(row.Kills ?? 0);
     const assists = Number(row.Assists ?? 0);
     const damage = Number(row.DamageToChampions ?? 0);
@@ -216,8 +226,11 @@ export function mapLeaguepediaRows(
     aggregate.shareSum += team && team.damage > 0 ? damage / team.damage : 0;
     aggregate.goldShareSum += team && team.gold > 0 ? gold / team.gold : 0;
     aggregate.raw.push(row);
-    // Détail de la game : champion + stats (pas de map en LoL).
+    // Détail de la game : champion + stats (pas de map en LoL), ratios
+    // d'équipe inclus pour la vue « Avancé » d'une game précise.
     const gameMinutes = Number(row.Gamelength ?? 0);
+    const ratio = (value: number, total: number | undefined) =>
+      total && total > 0 ? Math.round((value / total) * 1000) / 1000 : null;
     aggregate.perMap.push({
       position: Number(row.GameNumber ?? 0) || aggregate.games,
       map: null,
@@ -229,6 +242,10 @@ export function mapLeaguepediaRows(
       csPerMin:
         gameMinutes > 0 ? Math.round((Number(row.CS ?? 0) / gameMinutes) * 100) / 100 : null,
       win: row.PlayerWin === 'Yes',
+      killParticipation: ratio(kills + assists, team?.kills),
+      damageShare: ratio(damage, team?.damage),
+      goldShare: ratio(gold, team?.gold),
+      visionScore: Number(row.VisionScore ?? 0),
     });
     byPlayer.set(name, aggregate);
   }
@@ -244,25 +261,59 @@ export function mapLeaguepediaRows(
       externalName: name,
       side,
       teamName: aggregate.team ?? null,
+      role: aggregate.role,
       raw: aggregate.raw as unknown as Prisma.InputJsonValue,
-      normalized: {
-        kills: aggregate.kills,
-        deaths: aggregate.deaths,
-        assists: aggregate.assists,
-        csPerMin: aggregate.minutes > 0 ? Math.round((aggregate.cs / aggregate.minutes) * 100) / 100 : null,
-        win: aggregate.wins * 2 > aggregate.games,
-        killParticipation:
-          aggregate.games > 0 ? Math.round((aggregate.kpSum / aggregate.games) * 1000) / 1000 : null,
-        damageShare:
-          aggregate.games > 0 ? Math.round((aggregate.shareSum / aggregate.games) * 1000) / 1000 : null,
-        visionScore: aggregate.vision,
-        goldShare:
-          aggregate.games > 0 ? Math.round((aggregate.goldShareSum / aggregate.games) * 1000) / 1000 : null,
-      },
+      normalized: (() => {
+        // Une game longue gonfle mécaniquement les compteurs : les variantes
+        // par minute nuancent K/D/A et vision pour le scoring.
+        const perMin = (value: number) =>
+          aggregate.minutes > 0 ? Math.round((value / aggregate.minutes) * 100) / 100 : null;
+        return {
+          kills: aggregate.kills,
+          deaths: aggregate.deaths,
+          assists: aggregate.assists,
+          csPerMin: perMin(aggregate.cs),
+          win: aggregate.wins * 2 > aggregate.games,
+          killParticipation:
+            aggregate.games > 0 ? Math.round((aggregate.kpSum / aggregate.games) * 1000) / 1000 : null,
+          damageShare:
+            aggregate.games > 0 ? Math.round((aggregate.shareSum / aggregate.games) * 1000) / 1000 : null,
+          visionScore: aggregate.vision,
+          goldShare:
+            aggregate.games > 0 ? Math.round((aggregate.goldShareSum / aggregate.games) * 1000) / 1000 : null,
+          killsPerMin: perMin(aggregate.kills),
+          deathsPerMin: perMin(aggregate.deaths),
+          assistsPerMin: perMin(aggregate.assists),
+          visionPerMin: perMin(aggregate.vision),
+          durationMinutes: aggregate.minutes > 0 ? Math.round(aggregate.minutes) : null,
+        };
+      })(),
       perMap: aggregate.perMap.sort((a, b) => a.position - b.position) as unknown as Prisma.InputJsonValue,
     });
   }
   return lines;
+}
+
+/**
+ * URL de la page wiki du tournoi où vivent les scoreboards du match : le lien
+ * « page de stats originale » affiché sur le front. Null si la fenêtre ne
+ * porte pas l'OverviewPage.
+ */
+export function leaguepediaPageUrl(
+  rows: LeaguepediaRow[],
+  teamA: TeamRef,
+  teamB: TeamRef,
+): string | null {
+  const row = rows.find((candidate) => {
+    const team1 = candidate.Team1 ?? '';
+    const team2 = candidate.Team2 ?? '';
+    return (
+      (teamMatches(team1, teamA) && teamMatches(team2, teamB)) ||
+      (teamMatches(team1, teamB) && teamMatches(team2, teamA))
+    );
+  });
+  const page = row?.OverviewPage?.trim();
+  return page ? `https://lol.fandom.com/wiki/${encodeURI(page.replace(/ /g, '_'))}` : null;
 }
 
 /**
@@ -312,9 +363,13 @@ export function mapLeaguepediaGames(
       gameRows
         .filter((row) => teamMatches(row.Team ?? '', team))
         .reduce((sum, row) => sum + Number(row.Kills ?? 0), 0);
+    const minutes = Number(gameRows[0].Gamelength ?? 0);
     games.push({
       position: Number(gameRows[0].GameNumber ?? fallbackPosition) || fallbackPosition,
       map: null,
+      // Une game LoL a une durée variable : affichée sur le front et utile pour
+      // relativiser les compteurs.
+      lengthSec: minutes > 0 ? Math.round(minutes * 60) : null,
       scoreA: killsFor(teamA),
       scoreB: killsFor(teamB),
     });
@@ -437,6 +492,7 @@ export class LeaguepediaStatsProvider implements GameStatsProvider {
       lines,
       games: mapLeaguepediaGames(rows, context.teamA, context.teamB),
       teamIds: leaguepediaTeamNames(rows, context.teamA, context.teamB),
+      pageUrl: leaguepediaPageUrl(rows, context.teamA, context.teamB),
     };
   }
 
@@ -496,7 +552,7 @@ export class LeaguepediaStatsProvider implements GameStatsProvider {
     // → Gamelength_Number) ; un espace provoque une MWException côté Fandom.
     url.searchParams.set(
       'fields',
-      'SP.Link,SP.Champion,SP.Kills,SP.Deaths,SP.Assists,SP.CS,SP.PlayerWin,SP.Team,SP.DamageToChampions,SP.VisionScore,SP.Gold,SG.Team1,SG.Team2,SG.Gamelength_Number=Gamelength,SG.GameId=GameId,SG.N_GameInMatch=GameNumber',
+      'SP.Link,SP.Role,SP.Champion,SP.Kills,SP.Deaths,SP.Assists,SP.CS,SP.PlayerWin,SP.Team,SP.DamageToChampions,SP.VisionScore,SP.Gold,SG.Team1,SG.Team2,SG.Gamelength_Number=Gamelength,SG.GameId=GameId,SG.N_GameInMatch=GameNumber,SG.OverviewPage=OverviewPage',
     );
     url.searchParams.set('where', `SG.DateTime_UTC >= '${from}' AND SG.DateTime_UTC <= '${to}'`);
 
@@ -584,6 +640,65 @@ export class LeaguepediaStatsProvider implements GameStatsProvider {
       return null;
     }
     return (payload.cargoquery ?? []).map((entry) => entry.title);
+  }
+
+  /**
+   * Résolution proactive nom → nom canonique Leaguepedia (l'« id » provider).
+   * Stricte : uniquement la correspondance exacte de la table TeamRedirects
+   * (chaque AllName est une forme officielle de l'équipe) — pas de recherche
+   * floue, null si inconnu.
+   */
+  async searchTeam(name: string, aliases: string[]): Promise<TeamSearchResult | null> {
+    for (const query of [name, ...aliases]) {
+      const input = query.trim();
+      if (!input) continue;
+      const row = (await this.queryTeamRedirects('AllName', input))[0];
+      const canonical = row?.canonical?.trim();
+      if (canonical) return { id: canonical, name: canonical };
+    }
+    return null;
+  }
+
+  /**
+   * Fiche équipe Leaguepedia (table Cargo `Teams`, par page d'overview) : nom,
+   * tag court, logo (via Special:Filepath) et roster courant. La localisation
+   * Leaguepedia est un nom de pays/région (pas un code ISO2) : on ne la
+   * revendique pas, le fallback Pandascore reste en place.
+   */
+  async fetchTeamProfile(providerTeamId: string): Promise<TeamProfile | null> {
+    const url = new URL(API_URL);
+    url.searchParams.set('action', 'cargoquery');
+    url.searchParams.set('format', 'json');
+    url.searchParams.set('limit', '1');
+    url.searchParams.set('tables', 'Teams');
+    url.searchParams.set('fields', 'Teams.Name=name,Teams.Short=short,Teams.Image=image');
+    url.searchParams.set('where', `Teams._pageName="${providerTeamId.replace(/"/g, '')}"`);
+    const response = await this.fetchAuthed(url, CARGO_SPACING_MS);
+    if (!response.ok) {
+      this.logger.warn(`Leaguepedia team ${providerTeamId} → ${response.status}`);
+      return null;
+    }
+    const payload = (await response.json()) as {
+      cargoquery?: Array<{ title: { name?: string; short?: string; image?: string } }>;
+      error?: { code?: string };
+    };
+    if (payload.error) {
+      if (payload.error.code === 'assertuserfailed') this.invalidateSession();
+      this.logger.warn(`Leaguepedia team en erreur : ${JSON.stringify(payload.error)}`);
+      return null;
+    }
+    const row = payload.cargoquery?.[0]?.title;
+    if (!row) return null;
+    const image = row.image?.trim();
+    const roster = parseLeaguepediaRoster((await this.queryRoster([providerTeamId])) ?? []);
+    return {
+      name: row.name?.trim() || providerTeamId,
+      acronym: row.short?.trim() || null,
+      imageUrl: image
+        ? `https://lol.fandom.com/wiki/Special:Filepath/${encodeURIComponent(image)}`
+        : null,
+      roster: roster.length > 0 ? roster : null,
+    };
   }
 
   /**

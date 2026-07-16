@@ -4,7 +4,9 @@ import { GameId, QUEUES, StatsIngestedEvent } from '@esfl/contracts';
 import { Queue } from 'bullmq';
 import { Prisma } from '../../generated/client';
 import type { Match, Player } from '../../generated/client';
+import { providerUpdate } from '../common/field-precedence';
 import { mergeGamesSummary } from '../common/games-summary';
+import { enqueueEnrichTeam, INGESTION_QUEUE } from '../ingestion/ingestion.constants';
 import { LiveEventsService } from '../live/live-events.service';
 import { PrismaService } from '../prisma.service';
 import { buildPlayerIndex, matchPlayer, normalizeName, teamMatches } from './matching';
@@ -35,6 +37,7 @@ export class StatsIngestionService {
   constructor(
     private readonly prisma: PrismaService,
     @InjectQueue(QUEUES.STATS_INGESTED) private readonly statsIngestedQueue: Queue,
+    @InjectQueue(INGESTION_QUEUE) private readonly ingestionQueue: Queue,
     private readonly liveEvents: LiveEventsService,
     private readonly grid: GridStatsProvider,
     vlr: VlrStatsProvider,
@@ -198,6 +201,8 @@ export class StatsIngestionService {
     // Index par id provider (VLR) : rapprochement fiable au-delà du pseudo.
     const byProviderId = new Map<string, NamedPlayer>();
     const providerIdsByPlayer = new Map<string, Record<string, string>>();
+    // Fiches complètes par id : rôle/fieldSources accessibles après résolution.
+    const playersById = new Map<string, Player>(context.players.map((p) => [p.id, p]));
     for (const player of context.players) {
       const ids = (player.providerIds as Record<string, string> | null) ?? {};
       providerIdsByPlayer.set(player.id, ids);
@@ -216,6 +221,12 @@ export class StatsIngestionService {
     const sideByTeam = this.sourceTeamSides(resolved, context);
 
     let persisted = 0;
+    // Lineup résolu par côté : devient le roster courant de l'équipe (le lien
+    // joueur-équipe suit le dernier match connu).
+    const lineupBySide = new Map<'A' | 'B', Set<string>>([
+      ['A', new Set()],
+      ['B', new Set()],
+    ]);
     for (const { line, local: existing } of resolved) {
       const side =
         line.side ?? (line.teamName ? sideByTeam.get(line.teamName.trim()) ?? null : null);
@@ -228,17 +239,23 @@ export class StatsIngestionService {
           );
           continue;
         }
-        local = await this.prisma.player.create({
+        const created = await this.prisma.player.create({
           data: {
             gameId: match.gameId,
             name: line.externalName,
             teamId: team.id,
+            role: line.role ?? null,
             source,
             providerIds: line.externalId ? { [source]: line.externalId } : undefined,
+            // Champs posés par le provider : possédés d'entrée (Pandascore ne
+            // fera que compléter les manquants à l'adoption).
+            fieldSources: { name: source, ...(line.role ? { role: source } : {}) },
           },
         });
-        index.set(normalizeName(local.name), local);
-        if (line.externalId) providerIdsByPlayer.set(local.id, { [source]: line.externalId });
+        local = created;
+        playersById.set(created.id, created);
+        index.set(normalizeName(created.name), created);
+        if (line.externalId) providerIdsByPlayer.set(created.id, { [source]: line.externalId });
         this.logger.log(`Fiche joueur créée depuis ${source} : ${line.externalName} (${team.name})`);
       }
       // Apprend l'id provider du joueur résolu (fiabilise les prochains matchings).
@@ -250,6 +267,22 @@ export class StatsIngestionService {
           providerIdsByPlayer.set(local.id, next);
         }
       }
+      // « Dernier rôle connu » : le rôle réellement joué sur ce match met à
+      // jour la fiche (un mid passé ADC est reflété dès le match suivant).
+      const full = playersById.get(local.id);
+      if (line.role && full && full.role !== line.role) {
+        const { data, fieldSources } = providerUpdate(
+          { role: line.role },
+          source,
+          full.fieldSources,
+        );
+        await this.prisma.player.update({
+          where: { id: local.id },
+          data: { ...data, fieldSources },
+        });
+        full.role = line.role;
+        full.fieldSources = fieldSources;
+      }
       await this.prisma.playerMatchStats.upsert({
         where: { matchId_playerId: { matchId: match.id, playerId: local.id } },
         create: {
@@ -260,24 +293,44 @@ export class StatsIngestionService {
           raw: line.raw,
           normalized: line.normalized,
           perMap: line.perMap ?? Prisma.JsonNull,
+          // Snapshot au moment T : pseudo publié, rôle joué, côté — copies,
+          // pas des liens (un renommage/transfert ne réécrit pas l'histoire).
+          playerName: line.externalName,
+          role: line.role ?? null,
+          teamSide: side,
         },
         update: {
           raw: line.raw,
           normalized: line.normalized,
           source,
           perMap: line.perMap ?? Prisma.JsonNull,
+          playerName: line.externalName,
+          // Un provider muet sur le rôle n'efface pas un snapshot déjà posé.
+          ...(line.role ? { role: line.role } : {}),
+          teamSide: side,
         },
       });
+      if (side) lineupBySide.get(side)?.add(local.id);
       persisted += 1;
     }
     if (result.games?.length) {
       await this.mergeProviderGames(match, result.games, sideByTeam);
     }
+    // Snapshot des équipes au moment de l'ingestion ({ name, acronym }, pas de
+    // logo — trop lourd dans le temps) : rafraîchi à chaque ingestion, la
+    // dernière est la vérité du moment T.
+    const matchUpdate: Prisma.MatchUpdateInput = {};
+    if (context.teamA) {
+      matchUpdate.teamASnapshot = { name: context.teamA.name, acronym: context.teamA.acronym };
+    }
+    if (context.teamB) {
+      matchUpdate.teamBSnapshot = { name: context.teamB.name, acronym: context.teamB.acronym };
+    }
     if (result.pageUrl && result.pageUrl !== match.statsPageUrl) {
-      await this.prisma.match.update({
-        where: { id: match.id },
-        data: { statsPageUrl: result.pageUrl },
-      });
+      matchUpdate.statsPageUrl = result.pageUrl;
+    }
+    if (Object.keys(matchUpdate).length > 0) {
+      await this.prisma.match.update({ where: { id: match.id }, data: matchUpdate });
     }
     await this.learnSourceAliases(match, context, source, sideByTeam);
     // Id de l'équipe chez la source, appris depuis ce match résolu : persistant
@@ -287,7 +340,45 @@ export class StatsIngestionService {
       await this.saveProviderTeamId(context.teamA, source, result.teamIds.A);
       await this.saveProviderTeamId(context.teamB, source, result.teamIds.B);
     }
+    await this.applyMatchRoster(match, context, lineupBySide);
     return persisted;
+  }
+
+  /**
+   * Le lineup de ce match devient le roster courant de chaque équipe résolue :
+   * teamId déplacé (un transfert se règle au match suivant), alignés actifs,
+   * autres joueurs de l'équipe désactivés. Garde-fous : au moins 3 joueurs
+   * résolus (page partielle ignorée) et date du match ≥ dernier roster appliqué
+   * (un backfill de vieux match ne régresse pas le roster courant). S'applique
+   * aussi aux stats live (le lineup du soir est par définition le plus récent).
+   */
+  private async applyMatchRoster(
+    match: Match,
+    context: MatchContext,
+    lineupBySide: Map<'A' | 'B', Set<string>>,
+  ): Promise<void> {
+    const reference = match.beginAt ?? match.scheduledAt;
+    if (!reference) return;
+    for (const side of ['A', 'B'] as const) {
+      const team = side === 'A' ? context.teamA : context.teamB;
+      const lineup = lineupBySide.get(side) ?? new Set<string>();
+      if (!team || lineup.size < 3) continue;
+      if (team.rosterSyncedAt && reference < team.rosterSyncedAt) continue;
+      const ids = [...lineup];
+      await this.prisma.player.updateMany({
+        where: { id: { in: ids } },
+        data: { teamId: team.id, active: true },
+      });
+      await this.prisma.player.updateMany({
+        where: { teamId: team.id, id: { notIn: ids } },
+        data: { active: false },
+      });
+      await this.prisma.team.update({
+        where: { id: team.id },
+        data: { rosterSyncedAt: reference },
+      });
+      team.rosterSyncedAt = reference;
+    }
   }
 
   /** Écrit `Team.providerIds[source]` (fusion), en mémoire et en base. */
@@ -302,6 +393,11 @@ export class StatsIngestionService {
     const next = { ...current, [source]: id };
     await this.prisma.team.update({ where: { id: team.id }, data: { providerIds: next } });
     team.providerIds = next;
+    // Identité provider fraîchement apprise : l'enrichissement (nom, tag,
+    // logo… — provider source de vérité) peut maintenant se déclencher.
+    await enqueueEnrichTeam(this.ingestionQueue, team.id).catch((error) =>
+      this.logger.warn(`enqueue enrich-team ${team.id} : ${String(error)}`),
+    );
   }
 
   /**
@@ -440,12 +536,13 @@ export class StatsIngestionService {
     // Scores par côté : soit fournis directement (Grid), soit rattachés depuis
     // les scores bruts par nom d'équipe via le mapping joueurs (VLR).
     const resolved = providerGames.map((game) => {
+      const base = { position: game.position, map: game.map, lengthSec: game.lengthSec };
       if (game.teams?.length) {
         const scoreOf = (side: 'A' | 'B') =>
           game.teams!.find((team) => sideByTeam.get(team.name.trim()) === side)?.score ?? null;
-        return { position: game.position, map: game.map, scoreA: scoreOf('A'), scoreB: scoreOf('B') };
+        return { ...base, scoreA: scoreOf('A'), scoreB: scoreOf('B') };
       }
-      return { position: game.position, map: game.map, scoreA: game.scoreA, scoreB: game.scoreB };
+      return { ...base, scoreA: game.scoreA, scoreB: game.scoreB };
     });
     const merged = mergeGamesSummary(match.gamesSummary, resolved);
     await this.prisma.match.update({

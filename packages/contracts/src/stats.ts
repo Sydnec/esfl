@@ -66,6 +66,16 @@ export const lolStatsSchema = z.object({
   visionScore: z.number().nullable().optional(),
   /** Part de l'or de l'équipe (gold joueur / gold équipe), moyenne sur les games. */
   goldShare: z.number().nullable().optional(),
+  /**
+   * Variantes par minute : une game longue gonfle mécaniquement les compteurs,
+   * le scoring utilise ces taux plutôt que les totaux bruts.
+   */
+  killsPerMin: z.number().nullable().optional(),
+  deathsPerMin: z.number().nullable().optional(),
+  assistsPerMin: z.number().nullable().optional(),
+  visionPerMin: z.number().nullable().optional(),
+  /** Durée totale jouée sur le match (minutes, sommée sur les games). */
+  durationMinutes: z.number().nullable().optional(),
 });
 export type LolStats = z.infer<typeof lolStatsSchema>;
 
@@ -108,6 +118,23 @@ export const mapStatsEntrySchema = z.object({
   firstKills: z.number().nullable().optional(),
   csPerMin: z.number().nullable().optional(),
   win: z.boolean().nullable().optional(),
+  /** Détail avancé par manche (VLR) : la vue « Avancé » d'une map précise. */
+  adr: z.number().nullable().optional(),
+  rating: z.number().nullable().optional(),
+  kast: z.number().nullable().optional(),
+  hsPercent: z.number().nullable().optional(),
+  firstDeaths: z.number().nullable().optional(),
+  /** Onglet Performance VLR, table de la map. */
+  multiKills: z.number().nullable().optional(),
+  clutches: z.number().nullable().optional(),
+  plants: z.number().nullable().optional(),
+  defuses: z.number().nullable().optional(),
+  econRating: z.number().nullable().optional(),
+  /** Détail avancé par game (Leaguepedia) : ratios d'équipe et vision. */
+  killParticipation: z.number().nullable().optional(),
+  damageShare: z.number().nullable().optional(),
+  goldShare: z.number().nullable().optional(),
+  visionScore: z.number().nullable().optional(),
 });
 export type MapStatsEntry = z.infer<typeof mapStatsEntrySchema>;
 

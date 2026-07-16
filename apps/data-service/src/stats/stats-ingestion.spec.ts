@@ -21,6 +21,8 @@ function fakePrisma() {
   const upserts: Upsert[] = [];
   const matchUpdates: Array<Record<string, unknown>> = [];
   const teamUpdates: Array<{ id: string; data: Record<string, unknown> }> = [];
+  const playerUpdates: Array<{ id: string; data: Record<string, unknown> }> = [];
+  const playerUpdateManys: Array<{ where: Record<string, unknown>; data: Record<string, unknown> }> = [];
   let nextId = 1;
   const prisma = {
     player: {
@@ -28,6 +30,16 @@ function fakePrisma() {
         created.push(data);
         return { id: `nouveau-${nextId++}`, ...data };
       }),
+      update: vi.fn(async (args: { where: { id: string }; data: Record<string, unknown> }) => {
+        playerUpdates.push({ id: args.where.id, data: args.data });
+        return args.data;
+      }),
+      updateMany: vi.fn(
+        async (args: { where: Record<string, unknown>; data: Record<string, unknown> }) => {
+          playerUpdateManys.push(args);
+          return { count: 0 };
+        },
+      ),
     },
     playerMatchStats: {
       upsert: vi.fn(async (args: Upsert) => {
@@ -50,15 +62,25 @@ function fakePrisma() {
       }),
     },
   };
-  return { prisma: prisma as unknown as PrismaService, created, upserts, matchUpdates, teamUpdates };
+  return {
+    prisma: prisma as unknown as PrismaService,
+    created,
+    upserts,
+    matchUpdates,
+    teamUpdates,
+    playerUpdates,
+    playerUpdateManys,
+  };
 }
 
 function service(prisma: PrismaService) {
   const queue = { add: vi.fn() };
+  const ingestionQueue = { add: vi.fn(), getJob: vi.fn(async () => undefined) };
   const liveEvents = { emitMatchUpdated: vi.fn() };
   return new StatsIngestionService(
     prisma,
     queue as never,
+    ingestionQueue as never,
     liveEvents as never,
     { gameId: 'cs2' } as GridStatsProvider,
     { gameId: 'valorant' } as VlrStatsProvider,
@@ -128,9 +150,15 @@ describe('persistResult', () => {
       lines: [line('NewComer', 'A'), line('Fantôme', null)],
     });
     expect(persisted).toBe(1);
-    expect(created).toEqual([
-      { gameId: 'cs2', name: 'NewComer', teamId: 'team-a', source: 'grid' },
-    ]);
+    expect(created).toHaveLength(1);
+    expect(created[0]).toMatchObject({
+      gameId: 'cs2',
+      name: 'NewComer',
+      teamId: 'team-a',
+      source: 'grid',
+      // Le pseudo posé par le provider est possédé d'entrée.
+      fieldSources: { name: 'grid' },
+    });
     expect(upserts).toHaveLength(1);
   });
 
@@ -215,5 +243,117 @@ describe('persistResult', () => {
     const summary = matchUpdates.find((data) => 'gamesSummary' in data);
     expect(summary?.gamesSummary).toEqual([{ position: 1, map: 'Ascent', scoreA: 13, scoreB: 7 }]);
     expect(teamUpdates.map((u) => u.id).sort()).toEqual(['team-a', 'team-b']);
+  });
+
+  it('snapshotte pseudo/rôle/côté sur la ligne et les équipes sur le match', async () => {
+    const { prisma, upserts, matchUpdates } = fakePrisma();
+    const ingestion = service(prisma);
+    const lolMatch = { ...match, gameId: 'lol' } as Match;
+    const ctx = context([{ id: 'p1', name: 'Faker', teamId: 'team-a', role: 'Mid' } as never]);
+    await ingestion['persistResult'](lolMatch, ctx, 'leaguepedia', {
+      lines: [{ ...line('Faker', 'A'), role: 'Mid' }],
+    });
+    expect(upserts[0].create).toMatchObject({
+      playerName: 'Faker',
+      role: 'Mid',
+      teamSide: 'A',
+    });
+    // Update aussi (ré-ingestion) : le snapshot est rafraîchi.
+    expect(upserts[0].update).toMatchObject({ playerName: 'Faker', role: 'Mid', teamSide: 'A' });
+    const snapshot = matchUpdates.find((data) => 'teamASnapshot' in data);
+    expect(snapshot?.teamASnapshot).toEqual({ name: 'Vitality', acronym: undefined });
+    expect(snapshot?.teamBSnapshot).toEqual({ name: 'NAVI', acronym: undefined });
+  });
+
+  it('met à jour le dernier rôle connu quand le rôle joué change', async () => {
+    const { prisma, playerUpdates } = fakePrisma();
+    const ingestion = service(prisma);
+    const lolMatch = { ...match, gameId: 'lol' } as Match;
+    const ctx = context([{ id: 'p1', name: 'Player', teamId: 'team-a', role: 'Mid' } as never]);
+    await ingestion['persistResult'](lolMatch, ctx, 'leaguepedia', {
+      lines: [{ ...line('Player', 'A'), role: 'Bot' }],
+    });
+    const roleUpdate = playerUpdates.find((u) => u.id === 'p1' && 'role' in u.data);
+    expect(roleUpdate?.data).toMatchObject({
+      role: 'Bot',
+      fieldSources: { role: 'leaguepedia' },
+    });
+  });
+
+  it('ne touche pas au rôle de la fiche quand le rôle joué est inchangé', async () => {
+    const { prisma, playerUpdates } = fakePrisma();
+    const ingestion = service(prisma);
+    const lolMatch = { ...match, gameId: 'lol' } as Match;
+    const ctx = context([{ id: 'p1', name: 'Player', teamId: 'team-a', role: 'Mid' } as never]);
+    await ingestion['persistResult'](lolMatch, ctx, 'leaguepedia', {
+      lines: [{ ...line('Player', 'A'), role: 'Mid' }],
+    });
+    expect(playerUpdates.filter((u) => 'role' in u.data)).toHaveLength(0);
+  });
+});
+
+describe('applyMatchRoster', () => {
+  const playedAt = new Date('2026-07-10T18:00:00Z');
+  const datedMatch = { ...match, beginAt: playedAt } as Match;
+  const lineup = (names: string[], side: 'A' | 'B') =>
+    names.map((name) => line(name, side));
+
+  it('le lineup du match devient le roster courant (teamId + active)', async () => {
+    const { prisma, playerUpdateManys, teamUpdates } = fakePrisma();
+    const ingestion = service(prisma);
+    // p-transfert appartient encore à team-b : le match le rapatrie côté A.
+    const ctx = context([
+      { id: 'p1', name: 'Alpha', teamId: 'team-a' },
+      { id: 'p2', name: 'Bravo', teamId: 'team-a' },
+      { id: 'p3', name: 'Charlie', teamId: 'team-b' },
+    ]);
+    await ingestion['persistResult'](datedMatch, ctx, 'grid', {
+      lines: lineup(['Alpha', 'Bravo', 'Charlie'], 'A'),
+    });
+    const activation = playerUpdateManys.find(
+      (u) => (u.data as { teamId?: string }).teamId === 'team-a',
+    );
+    expect(activation?.where).toEqual({ id: { in: ['p1', 'p2', 'p3'] } });
+    expect(activation?.data).toEqual({ teamId: 'team-a', active: true });
+    const deactivation = playerUpdateManys.find((u) => u.data.active === false);
+    expect(deactivation?.where).toMatchObject({ teamId: 'team-a' });
+    expect(
+      teamUpdates.find((u) => u.id === 'team-a' && 'rosterSyncedAt' in u.data)?.data
+        .rosterSyncedAt,
+    ).toEqual(playedAt);
+  });
+
+  it('ignore une page partielle (moins de 3 joueurs résolus)', async () => {
+    const { prisma, playerUpdateManys } = fakePrisma();
+    const ingestion = service(prisma);
+    const ctx = context([
+      { id: 'p1', name: 'Alpha', teamId: 'team-a' },
+      { id: 'p2', name: 'Bravo', teamId: 'team-a' },
+    ]);
+    await ingestion['persistResult'](datedMatch, ctx, 'grid', {
+      lines: lineup(['Alpha', 'Bravo'], 'A'),
+    });
+    expect(playerUpdateManys).toHaveLength(0);
+  });
+
+  it('un backfill de vieux match ne régresse pas un roster plus récent', async () => {
+    const { prisma, playerUpdateManys } = fakePrisma();
+    const ingestion = service(prisma);
+    const teams = {
+      teamA: { id: 'team-a', name: 'Vitality', rosterSyncedAt: new Date('2026-07-12') } as Team,
+      teamB: { id: 'team-b', name: 'NAVI' } as Team,
+    };
+    const ctx = context(
+      [
+        { id: 'p1', name: 'Alpha', teamId: 'team-a' },
+        { id: 'p2', name: 'Bravo', teamId: 'team-a' },
+        { id: 'p3', name: 'Charlie', teamId: 'team-a' },
+      ],
+      teams,
+    );
+    await ingestion['persistResult'](datedMatch, ctx, 'grid', {
+      lines: lineup(['Alpha', 'Bravo', 'Charlie'], 'A'),
+    });
+    expect(playerUpdateManys).toHaveLength(0);
   });
 });

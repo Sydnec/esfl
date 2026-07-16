@@ -61,6 +61,33 @@ export async function enqueueIngestStats(
   );
 }
 
+/**
+ * Enqueue l'enrichissement provider d'une équipe (rapprochement proactif +
+ * fiche provider), dédupliqué par équipe. Une chaîne encore vivante n'est pas
+ * doublée ; un job terminé/échoué est purgé pour que le re-déclenchement
+ * (nouvel id provider appris, relance admin) reparte réellement.
+ */
+export async function enqueueEnrichTeam(queue: Queue, teamId: string): Promise<void> {
+  const jobId = `enrich-team-${teamId}`;
+  const existing = await queue.getJob(jobId);
+  if (existing) {
+    const state = await existing.getState();
+    if (state === 'completed' || state === 'failed') await existing.remove();
+    else return;
+  }
+  await queue.add(
+    'enrich-team',
+    { teamId },
+    {
+      jobId,
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 10 * 60 * 1000 },
+      removeOnComplete: true,
+      removeOnFail: 100,
+    },
+  );
+}
+
 export type IngestionJobName =
   | 'sync-series'
   | 'sync-matches'
@@ -71,4 +98,6 @@ export type IngestionJobName =
   | 'check-grid-coverage'
   | 'sync-live-stats'
   | 'retry-stats-backfill'
-  | 'backfill-history';
+  | 'backfill-history'
+  | 'enrich-team'
+  | 'backfill-team-players';

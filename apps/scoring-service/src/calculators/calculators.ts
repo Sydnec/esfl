@@ -17,8 +17,13 @@ import { GameId } from '@esfl/contracts';
  *
  * v2 : Valorant enrichi (kills/deaths/multikills/clutchs/objectifs/éco), LoL
  * goldShare (part d'or), RL shooting%/bcpm/démolitions subies.
+ * v3 : le rôle LoL servi par le data-service est désormais le rôle joué AU
+ * match (snapshot PlayerMatchStats.role), plus le rôle courant de la fiche —
+ * les distributions et pondérations par rôle suivent le poste réellement tenu.
+ * LoL toujours : vision/assists/deaths passent en taux par minute (une game
+ * longue gonfle mécaniquement les compteurs, la durée ne doit pas noter).
  */
-export const SCORING_VERSION = 'v2';
+export const SCORING_VERSION = 'v3';
 
 /** Taille d'échantillon minimale d'une distribution pour l'utiliser (sinon Z=0). */
 export const MIN_DISTRIBUTION_SAMPLE = 30;
@@ -118,10 +123,12 @@ const METRIC_SPECS: Record<GameId, MetricSpec[]> = {
   lol: [
     { key: 'killParticipation', kind: 'rate', get: (n) => num(n, 'killParticipation') },
     { key: 'damageShare', kind: 'rate', get: (n) => num(n, 'damageShare') },
-    { key: 'visionScore', kind: 'counter', get: (n) => num(n, 'visionScore') },
+    // Taux par minute plutôt que totaux : une game longue a mécaniquement plus
+    // de kills/morts/vision, la durée ne doit pas fausser la note.
+    { key: 'visionPerMin', kind: 'rate', get: (n) => num(n, 'visionPerMin') },
     { key: 'goldShare', kind: 'rate', get: (n) => num(n, 'goldShare') },
-    { key: 'assists', kind: 'counter', get: (n) => num(n, 'assists') },
-    { key: 'deaths', kind: 'counter', get: (n) => num(n, 'deaths') },
+    { key: 'assistsPerMin', kind: 'rate', get: (n) => num(n, 'assistsPerMin') },
+    { key: 'deathsPerMin', kind: 'rate', get: (n) => num(n, 'deathsPerMin') },
   ],
   rl: [
     { key: 'shots', kind: 'counter', get: (n) => num(n, 'shots') },
@@ -162,8 +169,8 @@ const PILLARS: Record<GameId, (z: Record<string, number>) => Pillars> = {
     impact: z.killParticipation ?? 0,
     // Carry = dégâts + part de ressources (or) de l'équipe.
     lethality: ((z.damageShare ?? 0) + (z.goldShare ?? 0)) / 2,
-    support: ((z.visionScore ?? 0) + (z.assists ?? 0)) / 2,
-    consistency: -(z.deaths ?? 0),
+    support: ((z.visionPerMin ?? 0) + (z.assistsPerMin ?? 0)) / 2,
+    consistency: -(z.deathsPerMin ?? 0),
   }),
   rl: (z) => ({
     impact: ((z.shots ?? 0) + (z.demosInflicted ?? 0)) / 2,

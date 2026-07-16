@@ -30,8 +30,12 @@ const GRID_MIN_SPACING_MS = 3_500;
 const ALIAS_MAX_DELTA_MS = 2 * 3600 * 1000;
 
 export interface GridSeriesStateTeam {
+  /** Id d'équipe Grid (stable) : appris sur Team.providerIds.grid. */
+  id?: string;
   name?: string;
   players?: Array<{
+    /** Id de joueur Grid (stable) : appris sur Player.providerIds.grid. */
+    id?: string;
     name?: string;
     kills?: number;
     deaths?: number;
@@ -168,6 +172,7 @@ export function mapGridSeriesState(
       const playerPerMap = perMap.get(key);
       lines.push({
         externalName: entry.name,
+        externalId: entry.id ?? null,
         side,
         teamName: team.name ?? null,
         raw: entry as unknown as Prisma.InputJsonValue,
@@ -252,8 +257,9 @@ export class GridStatsProvider implements GameStatsProvider {
         seriesState(id: $id) {
           finished
           teams {
+            id
             name
-            players { name kills deaths killAssistsGiven objectives { type completionCount } }
+            players { id name kills deaths killAssistsGiven objectives { type completionCount } }
           }
           games {
             sequenceNumber started finished map { name }
@@ -279,12 +285,21 @@ export class GridStatsProvider implements GameStatsProvider {
       if (!silent) this.logger.warn(`Grid : aucune ligne de stats pour ${match.name}`);
       return null;
     }
+    // Id d'équipe Grid par côté résolu (nom qui matche) : appris sur
+    // Team.providerIds.grid comme chez VLR/Leaguepedia.
+    const gridTeamId = (team: Team): string | null => {
+      const found = (seriesState.teams ?? []).find((entry) =>
+        teamMatches(entry.name ?? '', team),
+      );
+      return found?.id ?? null;
+    };
     return {
       lines,
       games: mapGridGames(seriesState, context.teamA, context.teamB),
       // Mémorisé dans match.statsPageUrl : les fetchs suivants (live 3 min,
       // retries post-match) sautent la recherche Central Data.
       pageUrl: seriesId,
+      teamIds: { A: gridTeamId(context.teamA), B: gridTeamId(context.teamB) },
     };
   }
 

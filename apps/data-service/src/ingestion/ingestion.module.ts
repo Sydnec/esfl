@@ -14,6 +14,7 @@ import { INGESTION_QUEUE } from './ingestion.constants';
 import { IngestionProcessor } from './ingestion.processor';
 import { IngestionScheduler } from './ingestion.scheduler';
 import { IngestionService } from './ingestion.service';
+import { TeamEnrichmentService } from './team-enrichment.service';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { IngestionService } from './ingestion.service';
     IngestionService,
     IngestionProcessor,
     IngestionScheduler,
+    TeamEnrichmentService,
     StatsIngestionService,
     GridStatsProvider,
     VlrStatsProvider,

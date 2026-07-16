@@ -13,7 +13,12 @@ import { GAME_IDS, GAME_LABELS } from '@esfl/contracts';
 import { Queue } from 'bullmq';
 import { AdminGuard } from '../common/admin.guard';
 import { FantasyClient } from '../fantasy-client/fantasy.client';
-import { enqueueIngestStats, INGESTION_QUEUE, IngestionJobName } from '../ingestion/ingestion.constants';
+import {
+  enqueueEnrichTeam,
+  enqueueIngestStats,
+  INGESTION_QUEUE,
+  IngestionJobName,
+} from '../ingestion/ingestion.constants';
 import { PandascoreClient } from '../pandascore/pandascore.client';
 import { StatsIngestionService } from '../stats/stats-ingestion';
 import { CatalogService } from './catalog.service';
@@ -151,6 +156,14 @@ export class CatalogController {
   async triggerCompetitionSync(@Param('id') competitionId: string) {
     await this.ingestionQueue.add('sync-competition', { competitionId });
     return { enqueued: 'sync-competition', competitionId };
+  }
+
+  /** Relance manuelle de l'enrichissement provider d'une équipe. */
+  @Post('admin/enrich-team/:teamId')
+  @UseGuards(AdminGuard)
+  async triggerEnrichTeam(@Param('teamId') teamId: string) {
+    await enqueueEnrichTeam(this.ingestionQueue, teamId);
+    return { enqueued: 'enrich-team', teamId };
   }
 
   /**

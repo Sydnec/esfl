@@ -11,10 +11,113 @@ import type {
   ProviderResult,
   ProviderStatLine,
   StarterRef,
+  TeamProfile,
+  TeamSearchResult,
 } from './provider';
 
 const BASE_URL = 'https://www.vlr.gg';
 const RESULT_PAGES_TO_SCAN = 3;
+/**
+ * Tolérance entre la date du listing VLR (jour local du site) et notre date de
+ * match (UTC Pandascore) : 36h couvrent fuseaux et matchs à cheval sur minuit,
+ * tout en écartant les rediffusions d'un même matchup à plusieurs jours d'écart.
+ */
+const LISTING_DATE_SLACK_MS = 36 * 3600 * 1000;
+
+/** Entrée d'un listing de matchs VLR (résultats ou planning). */
+export interface VlrListingMatch {
+  href: string;
+  names: string[];
+  scores: Array<number | null>;
+  /** Jour du groupe de listing (en-tête wf-label au-dessus des cartes). */
+  date: Date | null;
+}
+
+/**
+ * Parse un listing VLR (/matches, /matches/results) en gardant le jour de
+ * chaque affiche : les cartes sont groupées sous des en-têtes de date. Sans ce
+ * jour, deux rencontres d'un même matchup (NRG vs 100T joué 5 fois) sont
+ * indistinguables par les noms seuls.
+ */
+export function parseVlrMatchListing(html: string): VlrListingMatch[] {
+  const $ = cheerio.load(html);
+  const out: VlrListingMatch[] = [];
+  let currentDate: Date | null = null;
+  $('.wf-label.mod-large, a.match-item').each((_, element) => {
+    const node = $(element);
+    if (node.hasClass('wf-label')) {
+      // « Sat, July 12, 2026 (Today) » → date parseable, mentions relatives retirées.
+      const text = node
+        .text()
+        .replace(/today|yesterday|tomorrow/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      const parsed = Date.parse(text);
+      currentDate = Number.isNaN(parsed) ? null : new Date(parsed);
+      return;
+    }
+    const names = node
+      .find('.match-item-vs-team-name')
+      .map((_i, name) => $(name).text().trim())
+      .get();
+    const scores = node
+      .find('.match-item-vs-team-score')
+      .map((_i, score) => {
+        const value = Number($(score).text().trim());
+        return Number.isFinite(value) ? value : null;
+      })
+      .get();
+    const href = node.attr('href');
+    if (href && names.length >= 2) out.push({ href, names, scores, date: currentDate });
+  });
+  return out;
+}
+
+/** Critères de confirmation d'une affiche du listing (matchup répété). */
+export interface VlrMatchExpectation {
+  /** Date du match chez nous (beginAt/scheduledAt). */
+  reference?: Date | null;
+  /** Score global attendu (matchs finis uniquement). */
+  scoreA?: number | null;
+  scoreB?: number | null;
+}
+
+/**
+ * Vrai si une entrée de listing correspond au match attendu : les deux noms
+ * matchent, le jour du listing colle à notre date (± tolérance) et, quand le
+ * score global est connu des deux côtés, il coïncide dans la bonne orientation.
+ * Les critères indisponibles (date de groupe illisible, score absent) ne
+ * bloquent pas : on dégrade vers le comportement historique.
+ */
+export function vlrListingEntryMatches(
+  entry: VlrListingMatch,
+  teamA: TeamRef,
+  teamB: TeamRef,
+  expected?: VlrMatchExpectation,
+): boolean {
+  const forward = teamMatches(entry.names[0], teamA) && teamMatches(entry.names[1], teamB);
+  const reverse = teamMatches(entry.names[0], teamB) && teamMatches(entry.names[1], teamA);
+  if (!forward && !reverse) return false;
+  if (expected?.reference && entry.date) {
+    if (Math.abs(entry.date.getTime() - expected.reference.getTime()) > LISTING_DATE_SLACK_MS) {
+      return false;
+    }
+  }
+  if (
+    expected &&
+    expected.scoreA != null &&
+    expected.scoreB != null &&
+    entry.scores.length >= 2 &&
+    entry.scores[0] != null &&
+    entry.scores[1] != null
+  ) {
+    const [left, right] = forward
+      ? [expected.scoreA, expected.scoreB]
+      : [expected.scoreB, expected.scoreA];
+    if (entry.scores[0] !== left || entry.scores[1] !== right) return false;
+  }
+  return true;
+}
 
 /** Résultats équipe d'une page de recherche VLR : id + nom affiché. */
 export function parseVlrTeamSearch(html: string): Array<{ id: string; name: string }> {
@@ -53,6 +156,34 @@ export function parseVlrMatchTeamIds(
   if (teamMatches(names[0], teamA)) return { A: ids[0], B: ids[1] };
   if (teamMatches(names[0], teamB)) return { B: ids[0], A: ids[1] };
   return undefined;
+}
+
+/** URL absolue d'une image VLR (`//owcdn.net/...` ou chemin relatif). */
+function vlrImageUrl(src: string | null | undefined): string | null {
+  if (!src) return null;
+  // Placeholder VLR (pas de vrai logo) : ne rien revendiquer.
+  if (src.includes('/img/vlr/tmp/')) return null;
+  if (src.startsWith('//')) return `https:${src}`;
+  if (src.startsWith('/')) return `${BASE_URL}${src}`;
+  return src;
+}
+
+/**
+ * Fiche équipe depuis une page /team/<id> VLR : nom, tag, logo, pays (code du
+ * drapeau) et roster des titulaires. Null si la page n'a pas d'en-tête équipe.
+ */
+export function parseVlrTeamProfile(html: string): TeamProfile | null {
+  const $ = cheerio.load(html);
+  const name = $('.team-header-name h1').first().text().trim() || null;
+  if (!name) return null;
+  const acronym = $('.team-header-tag').first().text().trim() || null;
+  const imageUrl = vlrImageUrl($('.team-header-logo img').first().attr('src'));
+  // Le pays vit dans la classe du drapeau (`flag mod-us`) — plus fiable que le
+  // libellé texte. Codes non-pays possibles (eu, un) : flagEmoji sait les rendre.
+  const flagClass = $('.team-header-country .flag').first().attr('class') ?? '';
+  const location = flagClass.match(/mod-(\w{2})(?:\s|$)/)?.[1]?.toUpperCase() ?? null;
+  const roster = parseVlrRoster(html);
+  return { name, acronym, imageUrl, location, roster: roster.length > 0 ? roster : null };
 }
 
 /**
@@ -104,18 +235,12 @@ export interface VlrPerfStats {
   defuses: number;
 }
 
-/**
- * Parse l'onglet Performance d'un match VLR (`?game=all&tab=performance`) : une
- * table `wf-table-inset mod-adv` par vue (all maps + par map) ; on ne garde que
- * la première (agrégat all-maps). Colonnes : [équipe][agent] 2K 3K 4K 5K 1v1..1v5
- * ECON PL DE. Clé = pseudo normalisé (aligné sur mapVlrMatchHtml). Cellules
- * vides (`mod-egg`) = 0.
- */
-export function parseVlrPerformance(html: string): Map<string, VlrPerfStats> {
-  const $ = cheerio.load(html);
+/** Une table Performance VLR → stats par pseudo normalisé. */
+function parseVlrPerformanceTable(
+  $: cheerio.CheerioAPI,
+  table: cheerio.Cheerio<never>,
+): Map<string, VlrPerfStats> {
   const out = new Map<string, VlrPerfStats>();
-  const table = $('table.wf-table-inset.mod-adv').first();
-  if (table.length === 0) return out;
   table.find('tr').each((_i, tr) => {
     const cells = $(tr).find('td');
     if (cells.length < 14) return; // en-tête (th) ou ligne incomplète
@@ -124,8 +249,11 @@ export function parseVlrPerformance(html: string): Map<string, VlrPerfStats> {
     const name = nameNode.text().trim();
     if (!name) return;
     const val = (index: number): number => {
-      const text = $(cells[index]).find('.stats-sq').first().text().trim();
-      const value = Number(text.replace(/[^\d.-]/g, ''));
+      // Texte direct de la cellule seulement : les tables par map ont des
+      // tooltips (« Round 5… ») dont les chiffres pollueraient l'extraction.
+      const sq = $(cells[index]).find('.stats-sq').first().clone();
+      sq.children().remove();
+      const value = Number(sq.text().trim().replace(/[^\d.-]/g, ''));
       return Number.isFinite(value) ? value : 0;
     };
     out.set(normalizeName(name), {
@@ -137,6 +265,33 @@ export function parseVlrPerformance(html: string): Map<string, VlrPerfStats> {
     });
   });
   return out;
+}
+
+/**
+ * Parse l'onglet Performance d'un match VLR (`?game=all&tab=performance`) : une
+ * table `wf-table-inset mod-adv` par vue — la première est l'agrégat all-maps,
+ * les suivantes le détail de chaque manche (même ordre que les blocs de la page
+ * overview). Colonnes : [équipe][agent] 2K 3K 4K 5K 1v1..1v5 ECON PL DE.
+ * Clé = pseudo normalisé (aligné sur mapVlrMatchHtml). Cellules vides
+ * (`mod-egg`) = 0.
+ */
+export function parseVlrPerformanceViews(html: string): {
+  all: Map<string, VlrPerfStats>;
+  perGame: Array<Map<string, VlrPerfStats>>;
+} {
+  const $ = cheerio.load(html);
+  // `mod-adv-stats` depuis le re-design VLR (anciennement `mod-adv`) — les
+  // tables `mod-matrix` (duels) ne doivent pas matcher.
+  const tables = $('table.wf-table-inset.mod-adv-stats, table.wf-table-inset.mod-adv')
+    .toArray()
+    .map((table) => parseVlrPerformanceTable($, $(table) as cheerio.Cheerio<never>));
+  const [all, ...perGame] = tables;
+  return { all: all ?? new Map(), perGame };
+}
+
+/** Agrégat all-maps de l'onglet Performance (rétro-compatibilité specs). */
+export function parseVlrPerformance(html: string): Map<string, VlrPerfStats> {
+  return parseVlrPerformanceViews(html).all;
 }
 
 /** Nom de map d'un en-tête de manche VLR (« Ascent PICK » → « Ascent »). */
@@ -291,6 +446,12 @@ export function mapVlrMatchHtml(
           assists: stats.assists,
           acs: stats.acs,
           firstKills: stats.firstKills,
+          // Détail avancé par map (vue « Avancé » du front).
+          adr: stats.adr,
+          rating: stats.rating,
+          kast: stats.kast,
+          hsPercent: stats.hsPercent,
+          firstDeaths: stats.firstDeaths,
         });
         perMapByPlayer.set(nameKey, entries);
       }
@@ -362,6 +523,9 @@ export function mapVlrGames(html: string): ProviderGameInfo[] {
     if (names.length < 2 || scores.length < 2) return;
     // Manche non jouée / score absent (non numérique) : on ne l'émet pas.
     if (!Number.isFinite(scores[0]) || !Number.isFinite(scores[1])) return;
+    // Map jamais jouée d'un BO plié (VLR l'affiche 0-0) : rien à montrer — une
+    // map de Valorant réellement jouée ne peut pas finir 0-0.
+    if (scores[0] === 0 && scores[1] === 0) return;
     // Scores bruts par nom d'équipe : l'ingestion les rattache aux côtés via les joueurs.
     games.push({
       position: index + 1,
@@ -386,7 +550,11 @@ export class VlrStatsProvider implements GameStatsProvider {
 
     const matchPath =
       match.statsPageUrl ??
-      (await this.findMatchPath(context.teamA, context.teamB, ['/matches/results']));
+      (await this.findMatchPath(context.teamA, context.teamB, ['/matches/results'], {
+        reference: match.beginAt ?? match.scheduledAt,
+        scoreA: match.scoreA,
+        scoreB: match.scoreB,
+      }));
     if (!matchPath) {
       this.logger.warn(
         `VLR : match ${context.teamA.name} vs ${context.teamB.name} introuvable dans les résultats récents`,
@@ -409,8 +577,8 @@ export class VlrStatsProvider implements GameStatsProvider {
     providerTeamId?: string | null,
   ): Promise<StarterRef[] | null> {
     // Id VLR appris depuis un match résolu : on tape directement la bonne page
-    // équipe (fiable). Sinon, repli sur la recherche par nom (faillible).
-    const teamId = providerTeamId ?? (await this.searchTeamId(teamName, aliases));
+    // équipe (fiable). Sinon, repli sur la recherche par nom (stricte).
+    const teamId = providerTeamId ?? (await this.searchTeam(teamName, aliases))?.id;
     if (!teamId) return null;
 
     const page = await politeFetch(`${BASE_URL}/team/${teamId}`);
@@ -419,23 +587,39 @@ export class VlrStatsProvider implements GameStatsProvider {
     return starters.length > 0 ? starters : null;
   }
 
-  /** Résolution de secours nom → id VLR par la recherche (peut se tromper d'équipe). */
-  private async searchTeamId(teamName: string, aliases: string[]): Promise<string | null> {
-    const teamRef: TeamRef = { name: teamName, aliases };
-    for (const query of [teamName, ...aliases]) {
+  /**
+   * Résolution proactive nom → id VLR par la recherche. Stricte : nom exact
+   * unique, sinon unique candidat flou — deux candidats non départagés ou des
+   * homonymes = ambigu → null (jamais de best guess, l'apprentissage par match
+   * résolu prendra le relais).
+   */
+  async searchTeam(name: string, aliases: string[]): Promise<TeamSearchResult | null> {
+    const teamRef: TeamRef = { name, aliases };
+    for (const query of [name, ...aliases]) {
       const response = await politeFetch(
         `${BASE_URL}/search/?q=${encodeURIComponent(query)}&type=teams`,
       );
       if (!response.ok) continue;
-      const results = parseVlrTeamSearch(await response.text()).filter((result) =>
-        teamMatches(result.name, teamRef),
+      const results = parseVlrTeamSearch(await response.text());
+      const exact = results.filter(
+        (result) => normalizeName(result.name) === normalizeName(query),
       );
-      if (results.length === 0) continue;
-      // Égalité exacte de nom préférée à une inclusion (« NAVI » vs « NAVI Junior »).
-      const exact = results.find((result) => normalizeName(result.name) === normalizeName(query));
-      return (exact ?? results[0]).id;
+      if (exact.length === 1) return exact[0];
+      if (exact.length > 1) continue; // homonymes : indécidable sur le nom seul
+      const fuzzy = results.filter((result) => teamMatches(result.name, teamRef));
+      if (fuzzy.length === 1) return fuzzy[0];
     }
     return null;
+  }
+
+  /** Fiche équipe VLR (nom, tag, logo, pays, roster) par id connu. */
+  async fetchTeamProfile(providerTeamId: string): Promise<TeamProfile | null> {
+    const response = await politeFetch(`${BASE_URL}/team/${providerTeamId}`);
+    if (!response.ok) {
+      this.logger.warn(`VLR team ${providerTeamId} → ${response.status}`);
+      return null;
+    }
+    return parseVlrTeamProfile(await response.text());
   }
 
   /**
@@ -448,7 +632,10 @@ export class VlrStatsProvider implements GameStatsProvider {
 
     const matchPath =
       match.statsPageUrl ??
-      (await this.findMatchPath(context.teamA, context.teamB, ['/matches', '/matches/results']));
+      (await this.findMatchPath(context.teamA, context.teamB, ['/matches', '/matches/results'], {
+        // Match en cours : la date discrimine, pas le score (il évolue).
+        reference: match.beginAt ?? match.scheduledAt,
+      }));
     if (!matchPath) return null;
     return this.fetchFromPath(matchPath, context, false);
   }
@@ -484,6 +671,8 @@ export class VlrStatsProvider implements GameStatsProvider {
    * Enrichit les lignes agrégées avec l'onglet Performance (multikills, clutchs,
    * ECON, plants/defuses) : une requête VLR de plus, best-effort (un échec
    * laisse les stats de base intactes). Rapprochement par pseudo normalisé.
+   * Le détail par manche est enrichi de la même façon depuis la table de
+   * chaque map (vue « Avancé » d'une map précise côté front).
    */
   private async mergePerformance(matchPath: string, lines: ProviderStatLine[]): Promise<void> {
     const response = await politeFetch(`${BASE_URL}${matchPath}/?game=all&tab=performance`);
@@ -491,49 +680,55 @@ export class VlrStatsProvider implements GameStatsProvider {
       this.logger.warn(`VLR performance ${matchPath} -> ${response.status}`);
       return;
     }
-    const perf = parseVlrPerformance(await response.text());
-    if (perf.size === 0) return;
+    const views = parseVlrPerformanceViews(await response.text());
+    if (views.all.size === 0) return;
     for (const line of lines) {
-      const stats = perf.get(normalizeName(line.externalName));
-      if (!stats) continue;
-      Object.assign(line.normalized as Record<string, unknown>, {
-        multiKills: stats.multiKills,
-        clutches: stats.clutches,
-        econRating: stats.econRating,
-        plants: stats.plants,
-        defuses: stats.defuses,
-      });
+      const key = normalizeName(line.externalName);
+      const stats = views.all.get(key);
+      if (stats) {
+        Object.assign(line.normalized as Record<string, unknown>, {
+          multiKills: stats.multiKills,
+          clutches: stats.clutches,
+          econRating: stats.econRating,
+          plants: stats.plants,
+          defuses: stats.defuses,
+        });
+      }
+      // Table de la manche : même ordre que les blocs overview (position 1..N).
+      const perMap = line.perMap as unknown as MapStatsEntry[] | null;
+      for (const entry of perMap ?? []) {
+        const gameStats = views.perGame[entry.position - 1]?.get(key);
+        if (!gameStats) continue;
+        entry.multiKills = gameStats.multiKills;
+        entry.clutches = gameStats.clutches;
+        entry.econRating = gameStats.econRating;
+        entry.plants = gameStats.plants;
+        entry.defuses = gameStats.defuses;
+      }
     }
   }
 
-  /** Scanne des listes de matchs VLR et retrouve le lien par noms d'équipes (alias inclus). */
+  /**
+   * Scanne des listes de matchs VLR et retrouve le lien par noms d'équipes
+   * (alias inclus), confirmé par la date du listing et le score global quand
+   * ils sont connus — sans quoi un matchup répété (NRG vs 100T joué 5 fois)
+   * rattacherait la même page à tous les matchs.
+   */
   private async findMatchPath(
     teamA: TeamRef,
     teamB: TeamRef,
     listings: string[],
+    expected?: VlrMatchExpectation,
   ): Promise<string | null> {
     for (const listing of listings) {
       const pages = listing === '/matches/results' ? RESULT_PAGES_TO_SCAN : 1;
       for (let page = 1; page <= pages; page += 1) {
         const response = await politeFetch(`${BASE_URL}${listing}?page=${page}`);
         if (!response.ok) return null;
-        const $ = cheerio.load(await response.text());
-        const found = $('a.match-item')
-          .toArray()
-          .find((element) => {
-            const names = $(element)
-              .find('.match-item-vs-team-name')
-              .map((_i, name) => $(name).text().trim())
-              .get();
-            if (names.length < 2) return false;
-            return (
-              (teamMatches(names[0], teamA) && teamMatches(names[1], teamB)) ||
-              (teamMatches(names[0], teamB) && teamMatches(names[1], teamA))
-            );
-          });
-        if (found) {
-          return $(found).attr('href') ?? null;
-        }
+        const found = parseVlrMatchListing(await response.text()).find((entry) =>
+          vlrListingEntryMatches(entry, teamA, teamB, expected),
+        );
+        if (found) return found.href;
       }
     }
     return null;

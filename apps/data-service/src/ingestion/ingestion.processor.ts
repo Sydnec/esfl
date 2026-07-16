@@ -4,6 +4,7 @@ import { Job } from 'bullmq';
 import { StatsIngestionService } from '../stats/stats-ingestion';
 import { INGESTION_QUEUE, IngestionJobName } from './ingestion.constants';
 import { IngestionService } from './ingestion.service';
+import { TeamEnrichmentService } from './team-enrichment.service';
 
 export { INGESTION_QUEUE };
 export type { IngestionJobName };
@@ -15,6 +16,7 @@ export class IngestionProcessor extends WorkerHost {
   constructor(
     private readonly ingestion: IngestionService,
     private readonly statsIngestion: StatsIngestionService,
+    private readonly teamEnrichment: TeamEnrichmentService,
   ) {
     super();
   }
@@ -61,6 +63,14 @@ export class IngestionProcessor extends WorkerHost {
         await this.statsIngestion.ingestForMatchId(data.matchId, data.force ?? false);
         break;
       }
+      case 'enrich-team':
+        await this.teamEnrichment.enrichTeam((job.data as { teamId: string }).teamId);
+        break;
+      case 'backfill-team-players':
+        await this.ingestion.backfillTeamPlayers(
+          (job.data as { competitionId: string }).competitionId,
+        );
+        break;
       default:
         this.logger.warn(`Job inconnu : ${job.name}`);
     }

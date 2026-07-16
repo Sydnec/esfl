@@ -24,6 +24,9 @@ export interface ProviderStatLine {
   /** Nom d'équipe brut de la source pour ce joueur : sert à résoudre le côté et
    * apprendre l'alias via les joueurs quand le nom ne matche pas le nôtre. */
   teamName?: string | null;
+  /** Rôle joué sur CE match quand la source le publie (Leaguepedia : SP.Role).
+   * Snapshoté sur la ligne de stats et reporté sur le « dernier rôle connu ». */
+  role?: string | null;
   raw: Prisma.InputJsonValue;
   normalized: Prisma.InputJsonValue;
   /** Détail par manche (MapStatsEntry[]) quand la source le fournit. */
@@ -34,6 +37,8 @@ export interface ProviderStatLine {
 export interface ProviderGameInfo {
   position: number;
   map?: string | null;
+  /** Durée de la manche en secondes (LoL : Gamelength Leaguepedia). */
+  lengthSec?: number | null;
   /** Scores résolus par côté (providers dont les noms d'équipe matchent). */
   scoreA?: number | null;
   scoreB?: number | null;
@@ -62,6 +67,31 @@ export interface StarterRef {
   role?: string | null;
   /** Id du joueur chez la source (VLR : id numérique) : matching par id si connu. */
   externalId?: string | null;
+}
+
+/** Équipe trouvée par la recherche proactive chez la source. */
+export interface TeamSearchResult {
+  /** Identifiant provider (id numérique VLR, nom canonique Leaguepedia). */
+  id: string;
+  /** Nom affiché par la source (candidate alias). */
+  name: string;
+}
+
+/**
+ * Fiche équipe chez la source — le provider est source de vérité : chaque champ
+ * non-null écrase la donnée Pandascore (précédence par champ). Null/absent =
+ * la source ne sait pas → le fallback Pandascore reste en place.
+ */
+export interface TeamProfile {
+  name?: string | null;
+  /** Tag court (VLR team-header-tag, Leaguepedia Short). */
+  acronym?: string | null;
+  /** Logo. */
+  imageUrl?: string | null;
+  /** Code pays ISO2 quand la source l'expose. */
+  location?: string | null;
+  /** Roster courant lu au passage (peuple les joueurs avant le premier match). */
+  roster?: StarterRef[] | null;
 }
 
 /**
@@ -101,4 +131,15 @@ export interface GameStatsProvider {
     match: Match,
     context: MatchContext,
   ): Promise<Array<{ side: 'A' | 'B'; name: string }>>;
+  /**
+   * Résolution proactive nom → identité provider, à la création d'une équipe.
+   * Contrat strict : null si introuvable OU ambigu — JAMAIS de best guess
+   * (l'apprentissage par match résolu prendra le relais plus tard).
+   */
+  searchTeam?(name: string, aliases: string[]): Promise<TeamSearchResult | null>;
+  /**
+   * Fiche équipe chez la source, par identifiant provider connu. Sert à
+   * l'enrichissement (provider = source de vérité sur les métadonnées équipe).
+   */
+  fetchTeamProfile?(providerTeamId: string): Promise<TeamProfile | null>;
 }

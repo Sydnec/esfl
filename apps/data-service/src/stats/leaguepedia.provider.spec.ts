@@ -8,6 +8,7 @@ import {
   LeaguepediaRow,
   LeaguepediaStatsProvider,
   leaguepediaTeamNames,
+  mapLeaguepediaGames,
   mapLeaguepediaRows,
   parseLeaguepediaRoster,
 } from './leaguepedia.provider';
@@ -135,6 +136,38 @@ describe('mapLeaguepediaRows', () => {
     });
     // 845 CS sur 90 minutes → 9.39
     expect((caps.normalized as { csPerMin: number }).csPerMin).toBeCloseTo(9.39, 2);
+    // Variantes par minute (une game longue gonfle les compteurs bruts) :
+    // 15 kills / 90 min = 0.17, 7 morts / 90 min = 0.08.
+    const normalized = caps.normalized as Record<string, number>;
+    expect(normalized.killsPerMin).toBeCloseTo(0.17, 2);
+    expect(normalized.deathsPerMin).toBeCloseTo(0.08, 2);
+    expect(normalized.durationMinutes).toBe(90);
+  });
+
+  it('remonte le rôle joué sur le match (SP.Role)', () => {
+    const withRoles = rows.map((row) => ({ ...row, Role: 'Mid' }));
+    const [caps] = mapLeaguepediaRows(withRoles, { name: 'G2 Esports' }, { name: 'Fnatic' });
+    expect(caps.role).toBe('Mid');
+  });
+
+  it('rôles divergents entre games : le dernier non-vide gagne (swap en cours de série)', () => {
+    const swapped: LeaguepediaRow[] = [
+      { ...rows[0], Role: 'Mid' },
+      { ...rows[1], Role: '' },
+      { ...rows[2], Role: 'Bot' },
+    ];
+    const [caps] = mapLeaguepediaRows(swapped, { name: 'G2 Esports' }, { name: 'Fnatic' });
+    expect(caps.role).toBe('Bot');
+  });
+
+  it('rôle absent des lignes : role null', () => {
+    const [caps] = mapLeaguepediaRows(rows, { name: 'G2 Esports' }, { name: 'Fnatic' });
+    expect(caps.role).toBeNull();
+  });
+
+  it('expose la durée de chaque game (lengthSec) pour l’affichage', () => {
+    const games = mapLeaguepediaGames(rows, { name: 'G2 Esports' }, { name: 'Fnatic' });
+    expect(games.map((game) => game.lengthSec)).toEqual([1800, 1500, 2100]);
   });
 
   it('détaille chaque game : champion, KDA, cs/min et résultat', () => {
@@ -153,6 +186,23 @@ describe('mapLeaguepediaRows', () => {
     });
     expect(perMap[0].csPerMin).toBeCloseTo(9.33, 2);
     expect(perMap[1]).toMatchObject({ position: 2, agent: 'Wukong', win: false });
+  });
+
+  it('détaille les ratios d’équipe par game (vue avancée d’une game précise)', () => {
+    const game: LeaguepediaRow[] = [
+      { Link: 'Caps', Kills: '5', Assists: '7', Team: 'G2 Esports', Team1: 'G2 Esports', Team2: 'Fnatic', GameId: 'g1', GameNumber: '1', DamageToChampions: '20000', VisionScore: '30', Gold: '12000' },
+      { Link: 'Jankos', Kills: '3', Assists: '10', Team: 'G2 Esports', Team1: 'G2 Esports', Team2: 'Fnatic', GameId: 'g1', GameNumber: '1', DamageToChampions: '10000', VisionScore: '50', Gold: '8000' },
+    ];
+    const caps = mapLeaguepediaRows(game, { name: 'G2 Esports' }, { name: 'Fnatic' }).find(
+      (line) => line.externalName === 'Caps',
+    );
+    const entry = (caps?.perMap as MapStatsEntry[])[0];
+    expect(entry).toMatchObject({
+      killParticipation: 1.5,
+      damageShare: 0.667,
+      goldShare: 0.6,
+      visionScore: 30,
+    });
   });
 
   it('traduit les noms de champions en ids Data Dragon', () => {

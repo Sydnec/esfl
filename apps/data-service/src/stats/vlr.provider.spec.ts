@@ -1,12 +1,21 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MapStatsEntry } from '@esfl/contracts';
 import {
+  mapVlrGames,
   mapVlrMatchHtml,
+  parseVlrMatchListing,
   parseVlrMatchTeamIds,
   parseVlrPerformance,
+  parseVlrPerformanceViews,
   parseVlrRoster,
+  parseVlrTeamProfile,
   parseVlrTeamSearch,
+  vlrListingEntryMatches,
+  VlrStatsProvider,
 } from './vlr.provider';
+import { politeFetch } from './polite-fetch';
+
+vi.mock('./polite-fetch', () => ({ politeFetch: vi.fn() }));
 
 describe('parseVlrMatchTeamIds', () => {
   const html =
@@ -72,6 +81,161 @@ describe('parseVlrTeamSearch', () => {
       { id: '20697', name: 'FUT Esports' },
       { id: '1184', name: 'FUT Academy' },
     ]);
+  });
+});
+
+const teamProfileHtml = (name: string, tag: string, logo: string) =>
+  `<div class="team-header">` +
+  `<div class="wf-avatar team-header-logo"><img src="${logo}"></div>` +
+  `<div class="team-header-desc"><div class="team-header-name">` +
+  `<h1 class="wf-title">${name}</h1><h2 class="wf-title team-header-tag">${tag}</h2></div>` +
+  `<div class="team-header-country"><i class="flag mod-br"></i> Brazil</div></div></div>` +
+  rosterItem('aspas', '', '10646');
+
+describe('parseVlrTeamProfile', () => {
+  it('extrait nom, tag, logo, pays (code drapeau) et roster', () => {
+    const profile = parseVlrTeamProfile(
+      teamProfileHtml('LOUD', 'LLL', '//owcdn.net/img/loud.png'),
+    );
+    expect(profile).toEqual({
+      name: 'LOUD',
+      acronym: 'LLL',
+      imageUrl: 'https://owcdn.net/img/loud.png',
+      location: 'BR',
+      roster: [{ name: 'aspas', externalId: '10646' }],
+    });
+  });
+
+  it('logo placeholder VLR → pas de logo revendiqué ; page sans en-tête → null', () => {
+    const profile = parseVlrTeamProfile(teamProfileHtml('LOUD', 'LLL', '/img/vlr/tmp/vlr.png'));
+    expect(profile?.imageUrl).toBeNull();
+    expect(parseVlrTeamProfile('<div>rien</div>')).toBeNull();
+  });
+});
+
+describe('mapVlrGames', () => {
+  const header = (map: string, scoreA: number | string, scoreB: number | string) =>
+    `<div class="vm-stats-game-header"><div class="map">${map}</div>` +
+    `<div class="team-name">NRG</div><div class="score">${scoreA}</div>` +
+    `<div class="team-name">100 Thieves</div><div class="score">${scoreB}</div></div>`;
+
+  it('ignore les maps 0-0 jamais jouées (game 3 d’un BO3 plié en 2-0)', () => {
+    const games = mapVlrGames(header('Ascent', 13, 9) + header('Bind', 13, 11) + header('Haven', 0, 0));
+    expect(games.map((game) => game.map)).toEqual(['Ascent', 'Bind']);
+  });
+});
+
+const listingCard = (href: string, names: [string, string], scores?: [number, number]) =>
+  `<a href="${href}" class="wf-module-item match-item">` +
+  names
+    .map(
+      (name, index) =>
+        `<div class="match-item-vs-team"><div class="match-item-vs-team-name">${name}</div>` +
+        (scores ? `<div class="match-item-vs-team-score">${scores[index]}</div>` : '') +
+        `</div>`,
+    )
+    .join('') +
+  `</a>`;
+
+// Même matchup joué deux jours différents avec des scores différents : le cas
+// NRG vs 100T répété qui polluait l'ingestion historique.
+const listingHtml =
+  `<div class="wf-label mod-large">Sat, July 12, 2026 <span>Today</span></div>` +
+  `<div class="wf-card">${listingCard('/1001/nrg-vs-100t', ['NRG', '100 Thieves'], [2, 1])}</div>` +
+  `<div class="wf-label mod-large">Tue, July 8, 2026</div>` +
+  `<div class="wf-card">${listingCard('/0900/nrg-vs-100t', ['NRG', '100 Thieves'], [0, 2])}</div>`;
+
+describe('parseVlrMatchListing / vlrListingEntryMatches', () => {
+  const teamA = { name: 'NRG' };
+  const teamB = { name: '100 Thieves' };
+
+  it('associe chaque affiche au jour de son groupe et à ses scores', () => {
+    const entries = parseVlrMatchListing(listingHtml);
+    expect(entries).toHaveLength(2);
+    expect(entries[0]).toMatchObject({ href: '/1001/nrg-vs-100t', scores: [2, 1] });
+    expect(entries[0].date?.toDateString()).toBe(new Date('2026-07-12').toDateString());
+    expect(entries[1].date?.toDateString()).toBe(new Date('2026-07-08').toDateString());
+  });
+
+  it('discrimine un matchup répété par la date', () => {
+    const entries = parseVlrMatchListing(listingHtml);
+    const old = { reference: new Date('2026-07-08T18:00:00Z') };
+    expect(vlrListingEntryMatches(entries[0], teamA, teamB, old)).toBe(false);
+    expect(vlrListingEntryMatches(entries[1], teamA, teamB, old)).toBe(true);
+  });
+
+  it('discrimine par le score global (orientation respectée)', () => {
+    const entries = parseVlrMatchListing(listingHtml);
+    expect(vlrListingEntryMatches(entries[0], teamA, teamB, { scoreA: 2, scoreB: 1 })).toBe(true);
+    expect(vlrListingEntryMatches(entries[0], teamA, teamB, { scoreA: 0, scoreB: 2 })).toBe(false);
+    // Équipes inversées chez nous : 100T=A, NRG=B → score attendu retourné.
+    expect(vlrListingEntryMatches(entries[0], teamB, teamA, { scoreA: 1, scoreB: 2 })).toBe(true);
+  });
+
+  it('sans critère exploitable, dégrade vers le matching par noms', () => {
+    const noDate = parseVlrMatchListing(listingCard('/1/x-vs-y', ['NRG', '100 Thieves']));
+    expect(
+      vlrListingEntryMatches(noDate[0], teamA, teamB, {
+        reference: new Date('2026-01-01'),
+        scoreA: 2,
+        scoreB: 1,
+      }),
+    ).toBe(true);
+  });
+});
+
+describe('searchTeam (recherche proactive stricte)', () => {
+  const searchHtml = (teams: Array<{ id: string; name: string }>) =>
+    teams
+      .map(
+        (team) =>
+          `<a href="/search/r/team/${team.id}/idx" class="search-item">` +
+          `<div class="search-item-title">${team.name}</div></a>`,
+      )
+      .join('');
+  const provider = new VlrStatsProvider();
+  const mockSearch = (teams: Array<{ id: string; name: string }>) => {
+    vi.mocked(politeFetch).mockResolvedValue({
+      ok: true,
+      text: async () => searchHtml(teams),
+    } as Response);
+  };
+
+  beforeEach(() => vi.mocked(politeFetch).mockReset());
+
+  it('accepte la correspondance exacte unique', async () => {
+    mockSearch([
+      { id: '20697', name: 'FUT Esports' },
+      { id: '1184', name: 'FUT Academy' },
+    ]);
+    expect(await provider.searchTeam('FUT Esports', [])).toEqual({
+      id: '20697',
+      name: 'FUT Esports',
+    });
+  });
+
+  it('accepte un unique candidat flou (inclusion)', async () => {
+    mockSearch([
+      { id: '2', name: 'NAVI Junior' },
+      { id: '9', name: 'Autre Structure' },
+    ]);
+    expect(await provider.searchTeam('NAVI Junior BR', [])).toEqual({
+      id: '2',
+      name: 'NAVI Junior',
+    });
+  });
+
+  it('deux candidats flous non départagés → null (jamais de best guess)', async () => {
+    mockSearch([
+      { id: '1', name: 'NAVI' },
+      { id: '2', name: 'NAVI Junior' },
+    ]);
+    expect(await provider.searchTeam('NAVI Jun', [])).toBeNull();
+  });
+
+  it('aucun résultat → null', async () => {
+    mockSearch([]);
+    expect(await provider.searchTeam('Équipe Fantôme', [])).toBeNull();
   });
 });
 
@@ -183,6 +347,12 @@ describe('mapVlrMatchHtml', () => {
       assists: 3,
       acs: 270,
       firstKills: 4,
+      // Détail avancé par map (vue « Avancé »).
+      rating: 1.4,
+      kast: 78,
+      adr: 170,
+      hsPercent: 30,
+      firstDeaths: 1,
     });
     expect(perMap[1].position).toBe(2);
     expect(perMap[1].map).toBe('Bind');
@@ -245,18 +415,29 @@ describe('parseVlrPerformance', () => {
       )
       .join('') +
     '</tr>';
+  // Classe `mod-adv-stats` (re-design VLR) ; les tables `mod-matrix` (duels)
+  // ne doivent pas matcher.
   const html =
-    '<table class="wf-table-inset mod-adv"><tbody>' +
+    '<table class="wf-table-inset mod-matrix mod-normal"><tbody>' +
+    row('daiki', ['8', '8', '8', '8', '8', '8', '8', '8', '8', '88', '8', '8']) +
+    '</tbody></table>' +
+    '<table class="wf-table-inset mod-adv-stats"><tbody>' +
     '<tr><th></th><th></th><th>2K</th><th>3K</th><th>4K</th><th>5K</th><th>1v1</th><th>1v2</th><th>1v3</th><th>1v4</th><th>1v5</th><th>ECON</th><th>PL</th><th>DE</th></tr>' +
     // daiki : 5×2K, 1×3K, 1×(1v1), ECON 62, 6 plants, 0 defuses.
     row('daiki', ['5', '1', '', '', '1', '', '', '', '', '62', '6', '0']) +
     '</tbody></table>' +
-    // Deuxième table (par map) : ignorée.
-    '<table class="wf-table-inset mod-adv"><tbody>' +
-    row('daiki', ['9', '9', '9', '9', '9', '9', '9', '9', '9', '99', '9', '9']) +
+    // Deuxième table mod-adv-stats : détail de la map 1, avec un tooltip
+    // « Round N » dont les chiffres ne doivent pas polluer la valeur.
+    '<table class="wf-table-inset mod-adv-stats"><tbody>' +
+    row('daiki', [
+      '3 <div class="wf-popable-contents">Round 5 Xdll Round 13</div>',
+      '1',
+      '', '', '1', '', '', '', '',
+      '70', '4', '0',
+    ]) +
     '</tbody></table>';
 
-  it('agrège multikills/clutchs/éco/objectifs de la 1re table (all maps)', () => {
+  it('agrège multikills/clutchs/éco/objectifs de la 1re table (all maps), matrices exclues', () => {
     const perf = parseVlrPerformance(html);
     expect(perf.get('daiki')).toEqual({
       multiKills: 6, // 5 + 1
@@ -265,6 +446,21 @@ describe('parseVlrPerformance', () => {
       plants: 6,
       defuses: 0,
     });
+  });
+
+  it('expose aussi les tables par map, tooltips « Round N » ignorés', () => {
+    const views = parseVlrPerformanceViews(html);
+    expect(views.perGame).toHaveLength(1);
+    expect(views.perGame[0].get('daiki')).toMatchObject({
+      multiKills: 4, // 3×2K + 1×3K, sans les chiffres du tooltip
+      econRating: 70,
+      plants: 4,
+    });
+  });
+
+  it('supporte l’ancienne classe mod-adv (pages archivées)', () => {
+    const legacy = html.replace(/mod-adv-stats/g, 'mod-adv');
+    expect(parseVlrPerformance(legacy).get('daiki')?.econRating).toBe(62);
   });
 
   it('renvoie une map vide sans table de performance', () => {

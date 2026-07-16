@@ -55,6 +55,18 @@ model Team {
    * la bonne page équipe pour les rosters, sans recherche par nom (fragile).
    */
   providerIds  Json?   @map("provider_ids")
+  /**
+   * Champs possédés par un provider ({ name: "vlr", acronym: "vlr" }) :
+   * le provider est source de vérité, Pandascore ne ré-écrase jamais un champ
+   * listé ici (fallback uniquement). Null = tout appartient à Pandascore.
+   */
+  fieldSources Json?   @map("field_sources")
+  /**
+   * Date de référence du dernier roster appliqué (lineup d'un match ingéré ou
+   * fetchStarters). Un backfill d'un vieux match n'écrase pas un roster plus
+   * récent.
+   */
+  rosterSyncedAt DateTime? @map("roster_synced_at")
   players      Player[]
   competitions CompetitionTeam[]
 
@@ -102,6 +114,8 @@ model Player {
    * lignes de stats et des titulaires (au-delà du rapprochement par pseudo).
    */
   providerIds  Json?   @map("provider_ids")
+  /** Champs possédés par un provider (cf. Team.fieldSources). */
+  fieldSources Json?   @map("field_sources")
   team         Team?   @relation(fields: [teamId], references: [id], onDelete: SetNull)
   stats        PlayerMatchStats[]
 
@@ -152,6 +166,13 @@ model Match {
   statsFailureKind String? @map("stats_failure_kind")
   /** Noms candidats vus par la source (name-mismatch) : [{side, name}], pré-remplissage admin. */
   statsSuggestion  Json?   @map("stats_suggestion")
+  /**
+   * Snapshot des équipes au moment de l'ingestion des stats ({ name, acronym }) :
+   * valeurs copiées (pas un lien), figées par match — un renommage ultérieur de
+   * l'équipe ne réécrit pas l'histoire. Pas de logo (trop lourd dans le temps).
+   */
+  teamASnapshot Json?     @map("team_a_snapshot")
+  teamBSnapshot Json?     @map("team_b_snapshot")
   stats         PlayerMatchStats[]
 
   @@index([competitionId])
@@ -171,6 +192,12 @@ model PlayerMatchStats {
   normalized Json
   /** Détail par manche (MapStatsEntry[]) quand la source le fournit. */
   perMap     Json?    @map("per_map")
+  /** Pseudo du joueur au moment du match (snapshot, la fiche peut être renommée). */
+  playerName String?  @map("player_name")
+  /** Rôle joué sur CE match (LoL : Top|Jungle|Mid|Bot|Support), pas le rôle courant. */
+  role       String?
+  /** Côté du joueur dans le match : 'A' | 'B' (snapshot, survit aux transferts). */
+  teamSide   String?  @map("team_side")
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
   match      Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)

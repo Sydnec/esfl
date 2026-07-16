@@ -248,8 +248,9 @@ export class CatalogService {
       where: { matchId: { in: matchIds } },
       include: { player: { select: { role: true } } },
     });
-    // Rôle aplati (nécessaire au scoring LoL) ; le reste des champs est conservé.
-    return rows.map(({ player, ...rest }) => ({ ...rest, role: player?.role ?? null }));
+    // Rôle du snapshot au match d'abord (vérité du moment T), repli sur le rôle
+    // courant de la fiche pour les lignes historiques sans snapshot.
+    return rows.map(({ player, ...rest }) => ({ ...rest, role: rest.role ?? player?.role ?? null }));
   }
 
   /**
@@ -264,6 +265,7 @@ export class CatalogService {
         playerId: true,
         matchId: true,
         normalized: true,
+        role: true,
         player: { select: { role: true } },
         match: { select: { scoreA: true, scoreB: true, gamesSummary: true } },
       },
@@ -271,7 +273,8 @@ export class CatalogService {
     return rows.map((row) => ({
       playerId: row.playerId,
       matchId: row.matchId,
-      role: row.player?.role ?? null,
+      // Rôle joué sur CE match (snapshot), repli sur le rôle courant.
+      role: row.role ?? row.player?.role ?? null,
       normalized: row.normalized,
       maps: statMaps(row.match),
     }));

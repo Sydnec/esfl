@@ -27,6 +27,8 @@ export interface BallchasingReplaySummary {
 
 export interface BallchasingPlayer {
   name?: string;
+  /** Id de plateforme (steam/epic…) : identifiant stable au-delà du pseudo. */
+  id?: { platform?: string; id?: string };
   stats?: {
     core?: {
       goals?: number;
@@ -116,6 +118,7 @@ export function mapBallchasingReplays(
     string,
     {
       externalName: string;
+      externalId: string | null;
       side: 'A' | 'B' | null;
       teamName: string | null;
       core: Record<string, number>;
@@ -140,6 +143,9 @@ export function mapBallchasingReplays(
         const core = entry.stats?.core ?? {};
         const acc = byPlayer.get(key) ?? {
           externalName: entry.name,
+          // « steam:76561198… » : stable malgré les pseudos bruités des replays.
+          externalId:
+            entry.id?.platform && entry.id.id ? `${entry.id.platform}:${entry.id.id}` : null,
           side,
           teamName: teamSide?.name ?? null,
           core: { goals: 0, assists: 0, saves: 0, shots: 0, score: 0 },
@@ -171,6 +177,7 @@ export function mapBallchasingReplays(
     .filter((acc) => acc.core.score > 0 || acc.core.shots > 0 || acc.core.saves > 0)
     .map((acc) => ({
       externalName: acc.externalName,
+      externalId: acc.externalId,
       side: acc.side,
       teamName: acc.teamName,
       raw: { games: acc.games, demos: acc.demos, ...acc.core } as unknown as Prisma.InputJsonValue,

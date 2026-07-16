@@ -4,6 +4,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { GAME_IDS, GameId } from '@esfl/contracts';
 import type { Competition, Prisma, Team } from '../../generated/client';
 import { Queue } from 'bullmq';
+import { pandascoreUpdate } from '../common/field-precedence';
 import { mergeGamesSummary } from '../common/games-summary';
 import { buildPlayerIndex, matchPlayer, normalizeName } from '../stats/matching';
 import type { StarterRef } from '../stats/provider';
@@ -13,7 +14,12 @@ import { PandascoreClient } from '../pandascore/pandascore.client';
 import type { PSMatch, PSSerie, PSStream, PSTeamRef } from '../pandascore/pandascore.types';
 import { PrismaService } from '../prisma.service';
 import { LiveEventsService } from '../live/live-events.service';
-import { enqueueIngestStats, INGESTION_QUEUE, STATS_BACKFILL_DAYS } from './ingestion.constants';
+import {
+  enqueueEnrichTeam,
+  enqueueIngestStats,
+  INGESTION_QUEUE,
+  STATS_BACKFILL_DAYS,
+} from './ingestion.constants';
 
 /** Durée de cache des rosters spécialisés (une équipe apparaît dans N compétitions). */
 const STARTER_CACHE_TTL_MS = 6 * 3600 * 1000;
@@ -222,6 +228,10 @@ export class IngestionService {
       });
       const orphanIndex = buildPlayerIndex(orphans);
 
+      // Les joueurs ne sont plus créés depuis Pandascore : les fiches naissent
+      // côté provider (match ingéré, fetchStarters). Ici on ne fait que
+      // rapprocher (pose du pandascoreId) et compléter les champs manquants —
+      // jamais écraser une donnée provider.
       for (const player of team.players) {
         const enrichment = {
           name: player.name,
@@ -230,29 +240,37 @@ export class IngestionService {
           imageUrl: player.image_url,
           role: player.role,
           nationality: player.nationality,
-          teamId: localTeam.id,
         };
         const existing = await this.prisma.player.findUnique({
           where: { pandascoreId: player.id },
         });
         if (existing) {
-          await this.prisma.player.update({ where: { id: existing.id }, data: enrichment });
+          const fallback = pandascoreUpdate(enrichment, existing.fieldSources);
+          await this.prisma.player.update({
+            where: { id: existing.id },
+            // Le roster courant appartient aux matchs/starters : Pandascore ne
+            // rattache une équipe qu'aux fiches qui n'en ont plus.
+            data: existing.teamId ? fallback : { ...fallback, teamId: localTeam.id },
+          });
           continue;
         }
         const orphan = matchPlayer(orphanIndex, player.name);
         if (orphan) {
-          // Adoption : la fiche provider devient la fiche Pandascore.
+          // Adoption : la fiche provider gagne son pandascoreId (la source
+          // reste provider, les champs provider restent maîtres).
+          const orphanFull = orphans.find((candidate) => candidate.id === orphan.id);
           await this.prisma.player.update({
             where: { id: orphan.id },
-            data: { ...enrichment, pandascoreId: player.id, source: 'pandascore' },
+            data: {
+              ...pandascoreUpdate(enrichment, orphanFull?.fieldSources),
+              pandascoreId: player.id,
+            },
           });
           orphanIndex.delete(normalizeName(orphan.name));
           this.logger.log(`Fiche ${orphan.name} adoptée par Pandascore #${player.id}`);
-          continue;
         }
-        await this.prisma.player.create({
-          data: { ...enrichment, pandascoreId: player.id, gameId: game },
-        });
+        // Joueur inconnu côté provider : on attend qu'il y apparaisse (pas de
+        // fiche 100 % Pandascore).
       }
 
       // Réconciliation « titulaires actuels » : source spécialisée (Leaguepedia
@@ -273,8 +291,11 @@ export class IngestionService {
       return;
     }
     if (pandascoreIds.length > 0) {
+      // Fallback Pandascore : ne juge que les fiches qu'il connaît
+      // (pandascoreId posé) — les fiches provider non adoptées gardent leur
+      // statut, décidé par les matchs ingérés / fetchStarters.
       await this.prisma.player.updateMany({
-        where: { teamId: team.id },
+        where: { teamId: team.id, pandascoreId: { not: null } },
         data: { active: false },
       });
       await this.prisma.player.updateMany({
@@ -309,9 +330,10 @@ export class IngestionService {
   /**
    * Applique un roster de titulaires : résout chaque nom vers un joueur local
    * (crée les recrues absentes de Pandascore), active ceux-là et désactive le
-   * reste de l'équipe.
+   * reste de l'équipe. Publique : aussi utilisée par l'enrichissement d'équipe
+   * (roster lu sur la fiche provider).
    */
-  private async applyStarterRoster(team: Team, starters: StarterRef[]): Promise<void> {
+  async applyStarterRoster(team: Team, starters: StarterRef[]): Promise<void> {
     const source = team.gameId === 'lol' ? 'leaguepedia' : 'vlr';
     const teamPlayers = await this.prisma.player.findMany({ where: { teamId: team.id } });
     const index = buildPlayerIndex(teamPlayers);
@@ -336,6 +358,8 @@ export class IngestionService {
             role: starter.role ?? null,
             source,
             providerIds: starter.externalId ? { [source]: starter.externalId } : undefined,
+            // Champs posés par le provider : possédés d'entrée.
+            fieldSources: { name: source, ...(starter.role ? { role: source } : {}) },
           },
         });
         local = { id: created.id, name: created.name };
@@ -348,6 +372,11 @@ export class IngestionService {
     await this.prisma.player.updateMany({
       where: { teamId: team.id, id: { in: [...activeIds] } },
       data: { active: true },
+    });
+    // Roster « au présent » : un backfill de vieux match ne doit pas le régresser.
+    await this.prisma.team.update({
+      where: { id: team.id },
+      data: { rosterSyncedAt: new Date() },
     });
   }
 
@@ -372,6 +401,64 @@ export class IngestionService {
   async syncCompetition(competitionId: string): Promise<void> {
     await this.syncMatchesForCompetition(competitionId, true);
     await this.syncRostersForCompetition(competitionId);
+    // CS2/RL n'ont pas de source de roster pré-match (pas de fetchStarters) :
+    // les joueurs naissent à l'ingestion d'un match. On amorce donc les boards
+    // en ingérant les derniers matchs finis des équipes de la compétition.
+    const competition = await this.prisma.competition.findUnique({ where: { id: competitionId } });
+    if (competition && ['cs2', 'rl'].includes(competition.gameId)) {
+      await this.ingestionQueue
+        .add(
+          'backfill-team-players',
+          { competitionId },
+          { jobId: `backfill-team-players-${competitionId}`, removeOnComplete: true, removeOnFail: 20 },
+        )
+        .catch((error) =>
+          this.logger.warn(`enqueue backfill-team-players ${competitionId} : ${String(error)}`),
+        );
+    }
+  }
+
+  /**
+   * Amorçage des joueurs CS2/RL d'une compétition fraîchement suivie : enqueue
+   * l'ingestion des derniers matchs finis (déjà au catalogue, non-forfait, sans
+   * stats) impliquant ses équipes — tous tournois confondus, bornés par équipe.
+   * Les matchs qui ont déjà des stats ont déjà créé leurs joueurs.
+   */
+  async backfillTeamPlayers(competitionId: string): Promise<number> {
+    const competition = await this.prisma.competition.findUnique({
+      where: { id: competitionId },
+      include: { teams: true },
+    });
+    if (!competition) return 0;
+    const teamIds = competition.teams.map((entry) => entry.teamId);
+    if (teamIds.length === 0) return 0;
+    const since = new Date(Date.now() - STATS_BACKFILL_DAYS * 2 * 24 * 3600 * 1000);
+    const matchIds = new Set<string>();
+    for (const teamId of teamIds) {
+      const recent = await this.prisma.match.findMany({
+        where: {
+          gameId: competition.gameId,
+          status: 'finished',
+          forfeit: false,
+          endAt: { gte: since },
+          stats: { none: {} },
+          OR: [{ teamAId: teamId }, { teamBId: teamId }],
+        },
+        orderBy: { endAt: 'desc' },
+        take: 5,
+        select: { id: true },
+      });
+      for (const match of recent) matchIds.add(match.id);
+    }
+    for (const matchId of matchIds) {
+      await enqueueIngestStats(this.ingestionQueue, matchId);
+    }
+    if (matchIds.size > 0) {
+      this.logger.log(
+        `Backfill joueurs ${competition.name} : ${matchIds.size} match(s) ré-ingéré(s)`,
+      );
+    }
+    return matchIds.size;
   }
 
   /**
@@ -430,23 +517,29 @@ export class IngestionService {
   }
 
   private async upsertTeam(game: GameId, competitionId: string, ref: PSTeamRef): Promise<string> {
-    const team = await this.prisma.team.upsert({
-      where: { pandascoreId: ref.id },
-      create: {
-        pandascoreId: ref.id,
-        gameId: game,
-        name: ref.name,
-        acronym: ref.acronym,
-        imageUrl: ref.image_url,
-        location: ref.location,
-      },
-      update: {
-        name: ref.name,
-        acronym: ref.acronym,
-        imageUrl: ref.image_url,
-        location: ref.location,
-      },
-    });
+    const data = {
+      name: ref.name,
+      acronym: ref.acronym,
+      imageUrl: ref.image_url,
+      location: ref.location,
+    };
+    const existing = await this.prisma.team.findUnique({ where: { pandascoreId: ref.id } });
+    let team: Team;
+    if (existing) {
+      // Fallback Pandascore : ne ré-écrase jamais un champ possédé par un provider.
+      team = await this.prisma.team.update({
+        where: { id: existing.id },
+        data: pandascoreUpdate(data, existing.fieldSources),
+      });
+    } else {
+      team = await this.prisma.team.create({
+        data: { pandascoreId: ref.id, gameId: game, ...data },
+      });
+      // Nouvelle équipe : rapprochement provider proactif + enrichissement.
+      await enqueueEnrichTeam(this.ingestionQueue, team.id).catch((error) =>
+        this.logger.warn(`enqueue enrich-team ${team.id} : ${String(error)}`),
+      );
+    }
     await this.prisma.competitionTeam.upsert({
       where: { competitionId_teamId: { competitionId, teamId: team.id } },
       create: { competitionId, teamId: team.id },
