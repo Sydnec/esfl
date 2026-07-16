@@ -11,7 +11,6 @@ import { LiveEventsService } from '../live/live-events.service';
 import { PrismaService } from '../prisma.service';
 import { buildPlayerIndex, matchPlayer, normalizeName, teamMatches } from './matching';
 import type { NamedPlayer } from './matching';
-import { BallchasingStatsProvider } from './ballchasing.provider';
 import { GridStatsProvider } from './grid.provider';
 import { LeaguepediaStatsProvider } from './leaguepedia.provider';
 import type { GameStatsProvider, MatchContext, ProviderGameInfo, ProviderResult } from './provider';
@@ -42,9 +41,8 @@ export class StatsIngestionService {
     private readonly grid: GridStatsProvider,
     vlr: VlrStatsProvider,
     private readonly leaguepedia: LeaguepediaStatsProvider,
-    ballchasing: BallchasingStatsProvider,
   ) {
-    this.providers = [grid, vlr, leaguepedia, ballchasing];
+    this.providers = [grid, vlr, leaguepedia];
   }
 
   /**

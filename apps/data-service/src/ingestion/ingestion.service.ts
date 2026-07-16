@@ -443,11 +443,11 @@ export class IngestionService {
   async syncCompetition(competitionId: string): Promise<void> {
     await this.syncMatchesForCompetition(competitionId, true);
     await this.syncRostersForCompetition(competitionId);
-    // CS2/RL n'ont pas de source de roster pré-match (pas de fetchStarters) :
+    // CS2 n'a pas de source de roster pré-match (pas de fetchStarters) :
     // les joueurs naissent à l'ingestion d'un match. On amorce donc les boards
     // en ingérant les derniers matchs finis des équipes de la compétition.
     const competition = await this.prisma.competition.findUnique({ where: { id: competitionId } });
-    if (competition && ['cs2', 'rl'].includes(competition.gameId)) {
+    if (competition && competition.gameId === 'cs2') {
       await this.ingestionQueue
         .add(
           'backfill-team-players',

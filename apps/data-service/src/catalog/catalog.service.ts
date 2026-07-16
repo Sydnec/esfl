@@ -756,12 +756,6 @@ export class CatalogService {
       { gameId: 'cs2', source: 'Grid', configuree: Boolean(process.env.GRID_API_KEY), live: true },
       { gameId: 'valorant', source: 'VLR.gg', configuree: true, live: true },
       { gameId: 'lol', source: 'Leaguepedia', configuree: true, live: false },
-      {
-        gameId: 'rl',
-        source: 'ballchasing.com',
-        configuree: Boolean(process.env.BALLCHASING_API_KEY),
-        live: false,
-      },
     ];
 
     const counts = await queue.getJobCounts('waiting', 'active', 'delayed', 'failed');

@@ -5,7 +5,7 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: 'ESFL · Esport Fantasy League',
-  description: 'Fantasy league esport multigaming : CS2, Valorant, LoL, Rocket League.',
+  description: 'Fantasy league esport multigaming : CS2, Valorant, LoL.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -68,22 +68,6 @@ export const STAT_COLUMNS: Record<GameId, StatColumnGroup> = {
       { key: 'visionScore', label: 'Vision', title: 'Score de vision' },
     ],
   },
-  rl: {
-    base: [
-      { key: 'goals', label: 'Buts', title: 'Buts' },
-      { key: 'assists', label: 'Passes', title: 'Passes décisives' },
-      { key: 'saves', label: 'Arrêts', title: 'Arrêts' },
-      { key: 'shots', label: 'Tirs', title: 'Tirs' },
-      { key: 'score', label: 'Score', title: 'Score in-game' },
-    ],
-    advanced: [
-      { key: 'shootingPct', label: 'Préc.', title: 'Précision de tir (buts / tirs)', pct: true },
-      { key: 'demosInflicted', label: 'Démos', title: 'Démolitions infligées' },
-      { key: 'demosTaken', label: 'Subies', title: 'Démolitions subies' },
-      { key: 'boostBpm', label: 'BPM', title: 'Boost collecté par minute' },
-      { key: 'bcpm', label: 'BCPM', title: 'Boost consommé par minute' },
-    ],
-  },
 };
 
 /** Clés disponibles dans le détail par manche (perMap) : les autres colonnes

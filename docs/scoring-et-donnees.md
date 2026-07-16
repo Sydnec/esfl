@@ -30,7 +30,7 @@ Le scoring compare des joueurs **entre jeux** en gommant les asymétries d'éche
 
 3. **Pondération** (`Z_total`, somme des poids = 1) — matrice **éditable**
    (`DEFAULT_WEIGHTS` + `LOL_ROLE_WEIGHTS` dans `calculators.ts`) :
-   - Jeux unifiés (CS2, Valorant, RL) : `0.35·I + 0.30·L + 0.20·S + 0.15·C`.
+   - Jeux unifiés (CS2, Valorant) : `0.35·I + 0.30·L + 0.20·S + 0.15·C`.
    - LoL : pondération **par rôle** (le rôle dicte l'objectif).
 
 4. **Note joueur 0-100** : `Score = clamp(50 + 15·Z_total, 0, 100)`.
@@ -46,7 +46,6 @@ Le scoring compare des joueurs **entre jeux** en gommant les asymétries d'éche
 | **CS2** | (Z(firstKills)+Z(objectifs))/2 | Z(kills) | Z(assists) | −Z(deaths) |
 | **Valorant** | (Z(firstKills)−Z(firstDeaths)+Z(clutchs))/2 | (Z(adr)+Z(kills)+Z(multikills))/3 | (Z(assists)+Z(objectifs))/2 | (Z(kast)−Z(deaths)+Z(éco))/3 |
 | **LoL** | Z(killParticipation) | (Z(damageShare)+Z(goldShare))/2 | (Z(visionScore)+Z(assists))/2 | −Z(deaths) |
-| **RL** | (Z(shots)+Z(demosInflicted))/2 | (Z(goals)+Z(shooting%))/2 | (Z(saves)+Z(assists))/2 | (Z(boostBpm)+Z(bcpm)−Z(démos subies))/3 |
 
 `objectifs` = plants + defuses (CS2 : Grid ; Valorant : onglet Performance VLR).
 `clutchs` Valorant = 1v1..1v5 gagnés ; `multikills` = 2K..5K ; `éco` = note ECON VLR.
@@ -69,7 +68,7 @@ Le scoring compare des joueurs **entre jeux** en gommant les asymétries d'éche
   normalisés + first kills + objectifs.
 - **Baiter vs clutcher** : partiellement adressé en **Valorant** — l'onglet
   Performance VLR fournit les clutchs (1v1..1v5), intégrés à l'Impact : un
-  clutcher se distingue désormais d'un simple survivant. CS2/LoL/RL restent sans
+  clutcher se distingue désormais d'un simple survivant. CS2/LoL restent sans
   contexte de round (`−Z(deaths)` et KAST récompensent la survie quelle qu'en
   soit l'utilité).
 
@@ -100,11 +99,10 @@ Schéma normalisé par jeu : `packages/contracts/src/stats.ts`.
   les totaux d'équipe par game.
 - Rate limit Fandom agressif (authentifié via bot password ; cache de fenêtre).
 
-### RL — ballchasing.com (`BALLCHASING_API_KEY`)
-- **Disponible** : goals, assists, saves, shots, score, **boost.bpm**,
-  **boost.bcpm** (boost consommé/min), **demo.inflicted**, **demo.taken**.
-  `shootingPct` (buts/tirs) est **calculé** à l'agrégation. Couverture dépendante
-  des replays uploadés (RLCS bien couvert).
+### RL — retiré pour l’instant
+
+Rocket League est sorti du périmètre (couverture ballchasing trop aléatoire) ; le provider a été supprimé, réintroduire `rl` dans `GAME_IDS` fera remonter tous les points à recâbler.
+
 
 ## Matching des équipes/joueurs
 

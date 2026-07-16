@@ -130,7 +130,7 @@ export default function MatchPage() {
   const running = match.status === 'running';
   const finished = match.status === 'finished';
   // Lien vers la page de stats originale : chemin VLR à préfixer, URL complète
-  // (Leaguepedia, ballchasing) telle quelle ; le seriesId Grid n'est pas un lien.
+  // (Leaguepedia) telle quelle ; le seriesId Grid n'est pas un lien.
   const sourceUrl = match.statsPageUrl
     ? match.statsPageUrl.startsWith('http')
       ? match.statsPageUrl
@@ -138,8 +138,7 @@ export default function MatchPage() {
         ? `https://www.vlr.gg${match.statsPageUrl}`
         : null
     : null;
-  const sourceLabel =
-    match.gameId === 'valorant' ? 'VLR.gg' : match.gameId === 'lol' ? 'Leaguepedia' : 'ballchasing';
+  const sourceLabel = match.gameId === 'valorant' ? 'VLR.gg' : 'Leaguepedia';
   const forfeit = match.forfeit ?? match.status === 'canceled';
   const winnerName =
     match.winnerTeamId === match.teamA?.id

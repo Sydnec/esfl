@@ -3,7 +3,6 @@ import type { Match, Team } from '../../generated/client';
 import type { PrismaService } from '../prisma.service';
 import type { GridStatsProvider } from './grid.provider';
 import type { LeaguepediaStatsProvider } from './leaguepedia.provider';
-import type { BallchasingStatsProvider } from './ballchasing.provider';
 import type { VlrStatsProvider } from './vlr.provider';
 import type { MatchContext, ProviderResult } from './provider';
 import { StatsIngestionService } from './stats-ingestion';
@@ -85,7 +84,6 @@ function service(prisma: PrismaService) {
     { gameId: 'cs2' } as GridStatsProvider,
     { gameId: 'valorant' } as VlrStatsProvider,
     { gameId: 'lol' } as LeaguepediaStatsProvider,
-    { gameId: 'rl' } as BallchasingStatsProvider,
   );
 }
 

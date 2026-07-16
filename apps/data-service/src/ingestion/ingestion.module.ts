@@ -5,7 +5,6 @@ import { FantasyClient } from '../fantasy-client/fantasy.client';
 import { LiveModule } from '../live/live.module';
 import { PandascoreClient } from '../pandascore/pandascore.client';
 import { PrismaService } from '../prisma.service';
-import { BallchasingStatsProvider } from '../stats/ballchasing.provider';
 import { GridStatsProvider } from '../stats/grid.provider';
 import { LeaguepediaStatsProvider } from '../stats/leaguepedia.provider';
 import { StatsIngestionService } from '../stats/stats-ingestion';
@@ -34,7 +33,6 @@ import { TeamEnrichmentService } from './team-enrichment.service';
     GridStatsProvider,
     VlrStatsProvider,
     LeaguepediaStatsProvider,
-    BallchasingStatsProvider,
   ],
   exports: [IngestionService, StatsIngestionService, PandascoreClient, FantasyClient, BullModule],
 })

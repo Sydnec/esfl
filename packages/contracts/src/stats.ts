@@ -79,26 +79,6 @@ export const lolStatsSchema = z.object({
 });
 export type LolStats = z.infer<typeof lolStatsSchema>;
 
-export const rlStatsSchema = z.object({
-  goals: z.number(),
-  assists: z.number(),
-  saves: z.number(),
-  shots: z.number(),
-  /** Score in-game Rocket League. */
-  score: z.number().nullable(),
-  /** Démolitions infligées (somme sur les manches). */
-  demosInflicted: z.number().nullable().optional(),
-  /** Boost par minute (moyenne sur les manches). */
-  boostBpm: z.number().nullable().optional(),
-  /** Précision de tir = buts / tirs (agrégé sur la série). */
-  shootingPct: z.number().nullable().optional(),
-  /** Boost consommé par minute (bcpm, moyenne sur les manches) — agressivité. */
-  bcpm: z.number().nullable().optional(),
-  /** Démolitions subies (somme sur les manches). */
-  demosTaken: z.number().nullable().optional(),
-});
-export type RlStats = z.infer<typeof rlStatsSchema>;
-
 /**
  * Détail d'un joueur sur une manche (player_match_stats.perMap, hors
  * scoring). Valorant : agent + stats de la map ; LoL : champion + stats de
@@ -142,7 +122,6 @@ export const statsSchemasByGame = {
   cs2: cs2StatsSchema,
   valorant: valorantStatsSchema,
   lol: lolStatsSchema,
-  rl: rlStatsSchema,
 } satisfies Record<GameId, z.ZodType>;
 
-export type NormalizedStats = Cs2Stats | ValorantStats | LolStats | RlStats;
+export type NormalizedStats = Cs2Stats | ValorantStats | LolStats;

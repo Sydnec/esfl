@@ -130,17 +130,6 @@ const METRIC_SPECS: Record<GameId, MetricSpec[]> = {
     { key: 'assistsPerMin', kind: 'rate', get: (n) => num(n, 'assistsPerMin') },
     { key: 'deathsPerMin', kind: 'rate', get: (n) => num(n, 'deathsPerMin') },
   ],
-  rl: [
-    { key: 'shots', kind: 'counter', get: (n) => num(n, 'shots') },
-    { key: 'demosInflicted', kind: 'counter', get: (n) => num(n, 'demosInflicted') },
-    { key: 'goals', kind: 'counter', get: (n) => num(n, 'goals') },
-    { key: 'shootingPct', kind: 'rate', get: (n) => num(n, 'shootingPct') },
-    { key: 'saves', kind: 'counter', get: (n) => num(n, 'saves') },
-    { key: 'assists', kind: 'counter', get: (n) => num(n, 'assists') },
-    { key: 'boostBpm', kind: 'rate', get: (n) => num(n, 'boostBpm') },
-    { key: 'bcpm', kind: 'rate', get: (n) => num(n, 'bcpm') },
-    { key: 'demosTaken', kind: 'counter', get: (n) => num(n, 'demosTaken') },
-  ],
 };
 
 interface Pillars {
@@ -171,14 +160,6 @@ const PILLARS: Record<GameId, (z: Record<string, number>) => Pillars> = {
     lethality: ((z.damageShare ?? 0) + (z.goldShare ?? 0)) / 2,
     support: ((z.visionPerMin ?? 0) + (z.assistsPerMin ?? 0)) / 2,
     consistency: -(z.deathsPerMin ?? 0),
-  }),
-  rl: (z) => ({
-    impact: ((z.shots ?? 0) + (z.demosInflicted ?? 0)) / 2,
-    // Efficacité offensive : buts + précision de tir.
-    lethality: ((z.goals ?? 0) + (z.shootingPct ?? 0)) / 2,
-    support: ((z.saves ?? 0) + (z.assists ?? 0)) / 2,
-    // Gestion du boost (bpm + bcpm) et résistance aux démolitions subies.
-    consistency: ((z.boostBpm ?? 0) + (z.bcpm ?? 0) - (z.demosTaken ?? 0)) / 3,
   }),
 };
 
