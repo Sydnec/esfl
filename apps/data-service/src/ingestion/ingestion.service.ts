@@ -175,10 +175,22 @@ export class IngestionService {
         competition: { hidden: false, AND: [TIER_ALLOWED] },
         OR: [{ gameId: { not: 'cs2' } }, { gridCovered: true }, { gridCovered: null }],
       },
-      select: { id: true },
+      select: { id: true, gameId: true },
     });
+    // Entrelacement round-robin par jeu : la file mélange les hôtes (VLR,
+    // Cargo, Grid, ballchasing) et le worker concurrent recouvre leurs
+    // attentes — une file groupée par jeu avancerait au rythme d'une seule
+    // source.
+    const byGame = new Map<string, Array<{ id: string }>>();
     for (const match of finished) {
-      await enqueueIngestStats(this.ingestionQueue, match.id);
+      byGame.set(match.gameId, [...(byGame.get(match.gameId) ?? []), match]);
+    }
+    const buckets = [...byGame.values()];
+    for (let index = 0; buckets.some((bucket) => index < bucket.length); index += 1) {
+      for (const bucket of buckets) {
+        const match = bucket[index];
+        if (match) await enqueueIngestStats(this.ingestionQueue, match.id);
+      }
     }
     // Les stats vont créer des joueurs côté provider : le sync des rosters
     // Pandascore les adoptera (photos, nationalités…) sans attendre le cycle
