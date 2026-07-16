@@ -277,6 +277,61 @@ describe('syncRostersForCompetition (repurposé : adoption + fallback, zéro cr�
   });
 });
 
+describe('applyStarterRoster (enrichissement provider des joueurs)', () => {
+  function starterSetup(players: Array<Record<string, unknown>>) {
+    const playerUpdates: Array<{ id: string; data: Record<string, unknown> }> = [];
+    const prisma = {
+      player: {
+        findMany: vi.fn(async () => players),
+        update: vi.fn(async (args: { where: { id: string }; data: Record<string, unknown> }) => {
+          playerUpdates.push({ id: args.where.id, data: args.data });
+          return args.data;
+        }),
+        create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ id: 'created', ...data })),
+        updateMany: vi.fn(async () => ({ count: 0 })),
+      },
+      team: { update: vi.fn(async () => ({})) },
+    } as unknown as PrismaService;
+    const service = new IngestionService(
+      prisma,
+      {} as never,
+      {} as never,
+      { get: vi.fn() } as unknown as ConfigService,
+      {} as never,
+      {} as never,
+      { add: vi.fn(), getJob: vi.fn() } as unknown as Queue,
+    );
+    return { service, playerUpdates };
+  }
+  const team = { id: 'team-a', gameId: 'lol', name: 'T1' } as never;
+
+  it('complète photo/pays/rôle d’un joueur existant (Leaguepedia source de vérité)', async () => {
+    const { service, playerUpdates } = starterSetup([
+      { id: 'p1', name: 'Canna', teamId: 'team-a', role: 'Top', imageUrl: null, nationality: null, fieldSources: null, providerIds: null },
+    ]);
+    await service.applyStarterRoster(team, [
+      { name: 'Canna', role: 'Top', imageUrl: 'https://lol.fandom.com/photo.png', nationality: 'KR' },
+    ]);
+    const update = playerUpdates.find((u) => u.id === 'p1');
+    expect(update?.data).toMatchObject({
+      imageUrl: 'https://lol.fandom.com/photo.png',
+      nationality: 'KR',
+      fieldSources: { imageUrl: 'leaguepedia', nationality: 'leaguepedia', role: 'leaguepedia' },
+    });
+    expect(update?.data).not.toHaveProperty('name');
+  });
+
+  it('pas d’update quand rien ne change', async () => {
+    const { service, playerUpdates } = starterSetup([
+      { id: 'p1', name: 'Canna', teamId: 'team-a', role: 'Top', imageUrl: 'https://x.png', nationality: 'KR', fieldSources: { role: 'leaguepedia' }, providerIds: null },
+    ]);
+    await service.applyStarterRoster(team, [
+      { name: 'Canna', role: 'Top', imageUrl: 'https://x.png', nationality: 'KR' },
+    ]);
+    expect(playerUpdates).toHaveLength(0);
+  });
+});
+
 describe('upsertTeam (précédence des champs)', () => {
   function teamSetup(existing: Record<string, unknown> | null) {
     const teamUpdates: Array<Record<string, unknown>> = [];

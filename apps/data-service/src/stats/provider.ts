@@ -67,6 +67,10 @@ export interface StarterRef {
   role?: string | null;
   /** Id du joueur chez la source (VLR : id numérique) : matching par id si connu. */
   externalId?: string | null;
+  /** Photo du joueur quand la source l'expose (Leaguepedia). */
+  imageUrl?: string | null;
+  /** Code pays ISO2 quand la source l'expose (Leaguepedia Country converti). */
+  nationality?: string | null;
 }
 
 /** Équipe trouvée par la recherche proactive chez la source. */

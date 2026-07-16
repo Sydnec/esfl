@@ -38,6 +38,19 @@ describe('parseLeaguepediaRoster', () => {
     ]);
     expect(starters.map((s) => s.name)).toEqual(['Doran', 'Oner', 'Faker', 'Gumayusi', 'Keria']);
   });
+
+  it('remonte photo (Special:Filepath) et pays (ISO2) quand la page les a', () => {
+    const [canna] = parseLeaguepediaRoster([
+      { ID: 'Canna', Role: 'Top', Image: 'Canna 2026.png', Country: 'South Korea' },
+    ]);
+    expect(canna).toMatchObject({
+      name: 'Canna',
+      imageUrl: 'https://lol.fandom.com/wiki/Special:Filepath/Canna%202026.png',
+      nationality: 'KR',
+    });
+    const [inconnu] = parseLeaguepediaRoster([{ ID: 'Mystery', Role: 'Mid' }]);
+    expect(inconnu).toMatchObject({ imageUrl: null, nationality: null });
+  });
 });
 
 vi.mock('./polite-fetch', () => ({ politeFetch: vi.fn() }));

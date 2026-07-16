@@ -4,7 +4,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { GAME_IDS, GameId } from '@esfl/contracts';
 import type { Competition, Prisma, Team } from '../../generated/client';
 import { Queue } from 'bullmq';
-import { pandascoreUpdate } from '../common/field-precedence';
+import { pandascoreUpdate, providerUpdate } from '../common/field-precedence';
 import { mergeGamesSummary } from '../common/games-summary';
 import { buildPlayerIndex, matchPlayer, normalizeName } from '../stats/matching';
 import type { StarterRef } from '../stats/provider';
@@ -180,6 +180,12 @@ export class IngestionService {
     for (const match of finished) {
       await enqueueIngestStats(this.ingestionQueue, match.id);
     }
+    // Les stats vont créer des joueurs côté provider : le sync des rosters
+    // Pandascore les adoptera (photos, nationalités…) sans attendre le cycle
+    // 24h. Enfilé après les stats : la file est FIFO, il passera à la fin.
+    await this.ingestionQueue
+      .add('sync-rosters', {}, { removeOnComplete: true, removeOnFail: 5 })
+      .catch((error) => this.logger.warn(`enqueue sync-rosters post-backfill : ${String(error)}`));
     this.logger.log(
       `Backfill historique : ${competitions} compétitions, ${finished.length} matchs finis mis en file pour les stats`,
     );
@@ -337,6 +343,7 @@ export class IngestionService {
     const source = team.gameId === 'lol' ? 'leaguepedia' : 'vlr';
     const teamPlayers = await this.prisma.player.findMany({ where: { teamId: team.id } });
     const index = buildPlayerIndex(teamPlayers);
+    const byId = new Map(teamPlayers.map((player) => [player.id, player]));
     // Index par id provider : un titulaire dont l'id est déjà connu est rattaché
     // sans ambiguïté (fiable après une première ingestion de match).
     const byProviderId = new Map<string, { id: string; name: string }>();
@@ -346,25 +353,48 @@ export class IngestionService {
     }
     const activeIds = new Set<string>();
     for (const starter of starters) {
+      // Métadonnées publiées par la source (rôle, photo, pays Leaguepedia) :
+      // provider = source de vérité, appliquées à la création comme aux fiches
+      // existantes (complète Canna/Busio dès le passage rosters).
+      const profile = {
+        role: starter.role ?? null,
+        imageUrl: starter.imageUrl ?? null,
+        nationality: starter.nationality ?? null,
+      };
       let local =
         (starter.externalId ? byProviderId.get(starter.externalId) : undefined) ??
         matchPlayer(index, starter.name);
       if (!local) {
+        const seed = providerUpdate(profile, source, { name: source });
         const created = await this.prisma.player.create({
           data: {
             name: starter.name,
             gameId: team.gameId,
             teamId: team.id,
-            role: starter.role ?? null,
             source,
             providerIds: starter.externalId ? { [source]: starter.externalId } : undefined,
+            ...seed.data,
             // Champs posés par le provider : possédés d'entrée.
-            fieldSources: { name: source, ...(starter.role ? { role: source } : {}) },
+            fieldSources: seed.fieldSources,
           },
         });
         local = { id: created.id, name: created.name };
         index.set(normalizeName(created.name), local);
         if (starter.externalId) byProviderId.set(starter.externalId, local);
+      } else {
+        const full = byId.get(local.id);
+        if (full) {
+          const { data, fieldSources } = providerUpdate(profile, source, full.fieldSources);
+          const changed = Object.entries(data).some(
+            ([key, value]) => (full as unknown as Record<string, unknown>)[key] !== value,
+          );
+          if (changed) {
+            await this.prisma.player.update({
+              where: { id: local.id },
+              data: { ...data, fieldSources },
+            });
+          }
+        }
       }
       activeIds.add(local.id);
     }

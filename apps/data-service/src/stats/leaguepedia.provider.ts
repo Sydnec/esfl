@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { MapStatsEntry } from '@esfl/contracts';
 import type { Match, Prisma } from '../../generated/client';
+import { countryToIso2 } from '../common/country-iso';
 import { opponentAliasCandidates, OpponentPair, teamMatches, TeamRef } from './matching';
 import { politeFetch } from './polite-fetch';
 import type {
@@ -35,6 +36,10 @@ export interface LeaguepediaRosterRow {
   Role?: string;
   IsRetired?: string;
   IsSubstitute?: string;
+  /** Nom de fichier de la photo (→ Special:Filepath). */
+  Image?: string;
+  /** Pays en toutes lettres (« South Korea ») → ISO2 via countryToIso2. */
+  Country?: string;
 }
 
 function isTruthyFlag(value?: string): boolean {
@@ -53,7 +58,15 @@ export function parseLeaguepediaRoster(rows: LeaguepediaRosterRow[]): StarterRef
     const key = name.toLowerCase();
     if (!name || seen.has(key)) continue;
     seen.add(key);
-    starters.push({ name, role: row.Role ?? null });
+    const image = row.Image?.trim();
+    starters.push({
+      name,
+      role: row.Role ?? null,
+      imageUrl: image
+        ? `https://lol.fandom.com/wiki/Special:Filepath/${encodeURIComponent(image)}`
+        : null,
+      nationality: countryToIso2(row.Country),
+    });
   }
   return starters;
 }
@@ -382,8 +395,16 @@ export class LeaguepediaStatsProvider implements GameStatsProvider {
   readonly source = 'leaguepedia';
   readonly gameId = 'lol' as const;
   private readonly logger = new Logger(LeaguepediaStatsProvider.name);
-  /** bucketStart (ms) → lignes de la fenêtre + horodatage (TTL court). */
-  private readonly windowCache = new Map<number, { rows: LeaguepediaRow[]; at: number }>();
+  /**
+   * bucketStart (ms) → promesse des lignes de la fenêtre + horodatage (TTL
+   * court). Une promesse (et non le résultat) : avec le worker concurrent,
+   * plusieurs matchs LoL du même bucket partagent la même requête en vol au
+   * lieu de la dupliquer.
+   */
+  private readonly windowCache = new Map<
+    number,
+    { promise: Promise<LeaguepediaRow[] | null>; at: number }
+  >();
   /** En-tête Cookie de la session Leaguepedia authentifiée (null = anonyme). */
   private sessionCookie: string | null = null;
   /** Login en cours, pour ne pas se connecter plusieurs fois en parallèle. */
@@ -536,8 +557,27 @@ export class LeaguepediaStatsProvider implements GameStatsProvider {
       if (now - entry.at >= WINDOW_CACHE_TTL_MS) this.windowCache.delete(key);
     }
     const cached = this.windowCache.get(bucketStart);
-    if (cached) return cached.rows;
+    if (cached) return cached.promise;
 
+    // Promesse posée avant le premier await : les appels concurrents du même
+    // bucket la partagent. Un échec (null/rejet) est retiré du cache pour que
+    // le retry suivant refasse vraiment la requête.
+    const promise = this.fetchWindowRowsRemote(bucketStart)
+      .then((rows) => {
+        if (rows === null) this.windowCache.delete(bucketStart);
+        return rows;
+      })
+      .catch((error) => {
+        this.windowCache.delete(bucketStart);
+        this.logger.warn(`Leaguepedia fenêtre : ${String(error)}`);
+        return null;
+      });
+    this.windowCache.set(bucketStart, { promise, at: now });
+    return promise;
+  }
+
+  /** Requête Cargo réelle d'une fenêtre (pagination incluse), sans cache. */
+  private async fetchWindowRowsRemote(bucketStart: number): Promise<LeaguepediaRow[] | null> {
     const fmt = (ms: number) => new Date(ms).toISOString().replace('T', ' ').slice(0, 19);
     const from = fmt(bucketStart - WINDOW_MARGIN_MS);
     const to = fmt(bucketStart + WINDOW_BUCKET_MS + WINDOW_MARGIN_MS);
@@ -582,7 +622,6 @@ export class LeaguepediaStatsProvider implements GameStatsProvider {
       if (page.length < 500) break;
     }
 
-    this.windowCache.set(bucketStart, { rows, at: now });
     return rows;
   }
 
@@ -622,7 +661,7 @@ export class LeaguepediaStatsProvider implements GameStatsProvider {
     url.searchParams.set('tables', 'Players');
     url.searchParams.set(
       'fields',
-      'Players.ID=ID,Players.Role=Role,Players.IsRetired=IsRetired,Players.IsSubstitute=IsSubstitute',
+      'Players.ID=ID,Players.Role=Role,Players.IsRetired=IsRetired,Players.IsSubstitute=IsSubstitute,Players.Image=Image,Players.Country=Country',
     );
     url.searchParams.set('where', `Players.Team IN (${inList})`);
     const response = await this.fetchAuthed(url, CARGO_SPACING_MS);
