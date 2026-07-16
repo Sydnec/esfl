@@ -27,16 +27,28 @@ const state: GridSeriesState = {
     },
   ],
   // firstKill par manche : ZywOo ouvre 2 des 2 games → firstKills = 2.
+  // (kills/deaths présents : une game sans aucun compteur est traitée comme
+  // non enregistrée par Grid et ignorée.)
   games: [
     {
       sequenceNumber: 1,
       finished: true,
-      teams: [{ name: 'Vitality', players: [{ name: 'ZywOo', firstKill: true }] }],
+      teams: [
+        { name: 'Vitality', players: [{ name: 'ZywOo', firstKill: true, kills: 30, deaths: 18 }] },
+      ],
     },
     {
       sequenceNumber: 2,
       finished: true,
-      teams: [{ name: 'Vitality', players: [{ name: 'ZywOo', firstKill: true }, { name: 'apEX', firstKill: false }] }],
+      teams: [
+        {
+          name: 'Vitality',
+          players: [
+            { name: 'ZywOo', firstKill: true, kills: 25, deaths: 20 },
+            { name: 'apEX', firstKill: false, kills: 15, deaths: 21 },
+          ],
+        },
+      ],
     },
   ],
 };
@@ -63,6 +75,60 @@ describe('mapGridSeriesState', () => {
 
   it('retourne vide sans équipes', () => {
     expect(mapGridSeriesState({ finished: true }, { name: 'Vitality' }, { name: 'NAVI' })).toHaveLength(0);
+  });
+
+  it('ignore les joueurs à agrégat nul (observateurs d’une game vide) et la game vide', () => {
+    // Cas réel B8 vs BB : la game 3 Grid est intégralement à zéro et son
+    // lineup contient des noms parasites absents des vraies games.
+    const withGhosts: GridSeriesState = {
+      finished: true,
+      teams: [
+        {
+          name: 'Vitality',
+          players: [
+            { name: 'ZywOo', kills: 40, deaths: 30, killAssistsGiven: 10 },
+            { name: 'Observateur1', kills: 0, deaths: 0, killAssistsGiven: 0 },
+          ],
+        },
+        {
+          name: 'NAVI',
+          players: [{ name: 'Aleksib', kills: 25, deaths: 35, killAssistsGiven: 8 }],
+        },
+      ],
+      games: [
+        {
+          sequenceNumber: 1,
+          finished: true,
+          map: { name: 'mirage' },
+          teams: [
+            { name: 'Vitality', players: [{ name: 'ZywOo', kills: 21, deaths: 16, firstKill: true }] },
+            { name: 'NAVI', players: [{ name: 'Aleksib', kills: 12, deaths: 15 }] },
+          ],
+        },
+        {
+          // Game vide : personne n'a de kills/morts → non enregistrée.
+          sequenceNumber: 2,
+          finished: true,
+          map: { name: 'dust2' },
+          teams: [
+            {
+              name: 'Vitality',
+              players: [
+                { name: 'ZywOo', kills: 0, deaths: 0, firstKill: true },
+                { name: 'Observateur1', kills: 0, deaths: 0 },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const lines = mapGridSeriesState(withGhosts, { name: 'Vitality' }, { name: 'NAVI' });
+    expect(lines.map((line) => line.externalName).sort()).toEqual(['Aleksib', 'ZywOo']);
+    const zywoo = lines.find((line) => line.externalName === 'ZywOo');
+    // firstKill de la game vide non compté ; perMap sans la game vide.
+    expect((zywoo?.normalized as { firstKills: number }).firstKills).toBe(1);
+    const perMap = zywoo?.perMap as Array<{ position: number }>;
+    expect(perMap.map((entry) => entry.position)).toEqual([1]);
   });
 });
 

@@ -106,10 +106,26 @@ export function mapGridGames(
     });
 }
 
+/**
+ * Vrai si Grid a réellement enregistré la game : au moins un joueur y a un
+ * kill ou une mort (une map de CS2 jouée ne peut pas être à 0 partout). Grid
+ * publie parfois une game vide (tous compteurs à zéro, parfois avec un lineup
+ * parasite type observateurs) qu'il ne faut ni compter ni afficher.
+ */
+export function isGridGameRecorded(game: GridSeriesStateGame): boolean {
+  for (const team of game.teams ?? []) {
+    for (const player of team.players ?? []) {
+      if ((player.kills ?? 0) > 0 || (player.deaths ?? 0) > 0) return true;
+    }
+  }
+  return false;
+}
+
 /** Nombre de manches ouvertes (firstKill) par joueur, agrégé sur les games. */
 function firstKillsByPlayer(state: GridSeriesState): Map<string, number> {
   const counts = new Map<string, number>();
   for (const game of state.games ?? []) {
+    if (!isGridGameRecorded(game)) continue;
     for (const team of game.teams ?? []) {
       for (const player of team.players ?? []) {
         if (!player.name || !player.firstKill) continue;
@@ -127,6 +143,8 @@ function perMapByPlayer(state: GridSeriesState): Map<string, MapStatsEntry[]> {
   for (const game of state.games ?? []) {
     // Même filtre que mapGridGames : manche jouée ou en cours, pas les manches à venir.
     if (!game.sequenceNumber || (game.finished === false && game.started !== true)) continue;
+    // Game vide (non enregistrée par Grid) : pas de détail par manche.
+    if (!isGridGameRecorded(game)) continue;
     for (const team of game.teams ?? []) {
       for (const player of team.players ?? []) {
         if (!player.name) continue;
@@ -169,6 +187,15 @@ export function mapGridSeriesState(
       const key = normalizeName(entry.name);
       const objectiveCount = (type: string): number =>
         (entry.objectives ?? []).find((objective) => objective.type === type)?.completionCount ?? 0;
+      // Agrégat série intégralement nul : pas un participant (observateur d'une
+      // game vide, lineup parasite) — même filtre que ballchasing pour les
+      // spectateurs. Un vrai joueur a forcément des kills ou des morts.
+      const participated =
+        (entry.kills ?? 0) > 0 ||
+        (entry.deaths ?? 0) > 0 ||
+        (entry.killAssistsGiven ?? 0) > 0 ||
+        (entry.objectives ?? []).some((objective) => (objective.completionCount ?? 0) > 0);
+      if (!participated) continue;
       const playerPerMap = perMap.get(key);
       lines.push({
         externalName: entry.name,
