@@ -286,6 +286,23 @@ export class CatalogController {
     return { aliases, reingested: matchIds.length, added, redundant };
   }
 
+  /**
+   * Fusionne les fiches joueur en double (historique de stats fragmenté).
+   * `scope=same-team` (défaut) ne regroupe qu'à équipe identique : sans
+   * ambiguïté. `cross-team` ratisse tout le jeu et n'est exposé qu'en dry-run,
+   * le temps de relire ce qu'il propose.
+   */
+  @Post('admin/players/merge-duplicates')
+  @UseGuards(AdminGuard)
+  mergeDuplicatePlayers(@Query('scope') scope?: string, @Query('dryRun') dryRun?: string) {
+    const target = scope ?? 'same-team';
+    if (target !== 'same-team' && target !== 'cross-team') {
+      throw new BadRequestException(`Scope inconnu : ${scope}`);
+    }
+    const simulation = dryRun === '1' || dryRun === 'true' || target === 'cross-team';
+    return this.catalog.mergeDuplicatePlayers(target, simulation);
+  }
+
   /** Équipes LoL/Valorant sans identité provider (saisie manuelle possible). */
   @Get('admin/teams/missing-provider-id')
   @UseGuards(AdminGuard)

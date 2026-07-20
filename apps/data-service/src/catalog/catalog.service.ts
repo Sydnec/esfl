@@ -620,6 +620,130 @@ export class CatalogService {
     return rows.sort((a, b) => b.matches - a.matches);
   }
 
+  /**
+   * Fusionne les fiches joueur en double. Rien ne dédoublonne les fiches en
+   * base (`pandascoreId` est le seul unique, et il est nul sur toutes les
+   * fiches créées par un provider), et le contrôle d'existence de l'ingestion
+   * se fait en mémoire : deux jobs concurrents sur la même équipe créent donc
+   * la même fiche deux fois, fragmentant l'historique de stats du joueur.
+   *
+   * `same-team` regroupe sur (jeu, équipe, pseudo normalisé) : aucune
+   * ambiguïté possible, c'est le même joueur. `cross-team` regroupe sur
+   * (jeu, pseudo normalisé) toutes équipes confondues — un transfert ou une
+   * confusion équipe principale/académie — et doit être relu avant d'être
+   * appliqué, d'où le `dryRun`.
+   */
+  async mergeDuplicatePlayers(
+    scope: 'same-team' | 'cross-team',
+    dryRun: boolean,
+  ): Promise<{
+    scope: string;
+    dryRun: boolean;
+    groupes: number;
+    fichesAbsorbees: number;
+    statsDeplacees: number;
+    details: Array<{ gameId: string; garde: string; absorbees: string[]; stats: number }>;
+  }> {
+    const players = await this.prisma.player.findMany({
+      select: { id: true, gameId: true, teamId: true, name: true, pandascoreId: true },
+    });
+    const statCounts = await this.prisma.playerMatchStats.groupBy({
+      by: ['playerId'],
+      _count: { _all: true },
+    });
+    const statsByPlayer = new Map(statCounts.map((row) => [row.playerId, row._count._all]));
+
+    // Clé de regroupement : l'équipe n'entre en jeu que sur le scope prudent.
+    const groups = new Map<string, typeof players>();
+    for (const player of players) {
+      const key = normalizeName(player.name);
+      if (!key) continue;
+      const groupKey =
+        scope === 'same-team'
+          ? `${player.gameId}|${player.teamId ?? ''}|${key}`
+          : `${player.gameId}|${key}`;
+      groups.set(groupKey, [...(groups.get(groupKey) ?? []), player]);
+    }
+
+    const details: Array<{ gameId: string; garde: string; absorbees: string[]; stats: number }> = [];
+    let fichesAbsorbees = 0;
+    let statsDeplacees = 0;
+
+    for (const group of groups.values()) {
+      if (group.length < 2) continue;
+      // Fiche gardée : celle qui porte déjà l'identité Pandascore (elle est la
+      // référence du reste du système), sinon la plus fournie en stats.
+      const sorted = [...group].sort((a, b) => {
+        if ((a.pandascoreId != null) !== (b.pandascoreId != null)) return a.pandascoreId != null ? -1 : 1;
+        return (statsByPlayer.get(b.id) ?? 0) - (statsByPlayer.get(a.id) ?? 0);
+      });
+      const [keep, ...absorbed] = sorted;
+      // Deux fiches Pandascore distinctes dans un même groupe = deux joueurs
+      // réellement différents chez la source (homonymes), on ne touche à rien.
+      if (absorbed.some((player) => player.pandascoreId != null)) continue;
+
+      const moved = absorbed.reduce((sum, player) => sum + (statsByPlayer.get(player.id) ?? 0), 0);
+      details.push({
+        gameId: keep.gameId,
+        garde: `${keep.name} (${keep.id}${keep.pandascoreId ? `, ps ${keep.pandascoreId}` : ''})`,
+        absorbees: absorbed.map((player) => `${player.name} (${player.id})`),
+        stats: moved,
+      });
+      fichesAbsorbees += absorbed.length;
+      statsDeplacees += moved;
+      if (dryRun) continue;
+
+      await this.mergePlayerInto(keep.id, absorbed.map((player) => player.id));
+    }
+
+    return { scope, dryRun, groupes: details.length, fichesAbsorbees, statsDeplacees, details };
+  }
+
+  /**
+   * Rapatrie stats et identités provider des fiches absorbées vers la fiche
+   * gardée, puis les supprime. Une ligne de stats déjà présente sur la fiche
+   * gardée pour le même match l'emporte (`@@unique([matchId, playerId])` ne
+   * tolère pas le doublon) : la ligne de la fiche absorbée est supprimée.
+   */
+  private async mergePlayerInto(keepId: string, absorbedIds: string[]): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const kept = await tx.playerMatchStats.findMany({
+        where: { playerId: keepId },
+        select: { matchId: true },
+      });
+      const keptMatches = new Set(kept.map((row) => row.matchId));
+      const incoming = await tx.playerMatchStats.findMany({
+        where: { playerId: { in: absorbedIds } },
+        select: { id: true, matchId: true },
+      });
+      const conflicting = incoming.filter((row) => keptMatches.has(row.matchId)).map((r) => r.id);
+      if (conflicting.length > 0) {
+        await tx.playerMatchStats.deleteMany({ where: { id: { in: conflicting } } });
+      }
+      await tx.playerMatchStats.updateMany({
+        where: { playerId: { in: absorbedIds } },
+        data: { playerId: keepId },
+      });
+
+      // Identités provider : l'union, la fiche gardée fait foi en cas de conflit.
+      const all = await tx.player.findMany({
+        where: { id: { in: [keepId, ...absorbedIds] } },
+        select: { id: true, providerIds: true },
+      });
+      const merged: Record<string, string> = {};
+      for (const player of all.filter((p) => p.id !== keepId)) {
+        Object.assign(merged, (player.providerIds as Record<string, string> | null) ?? {});
+      }
+      Object.assign(merged, (all.find((p) => p.id === keepId)?.providerIds as Record<string, string> | null) ?? {});
+
+      await tx.player.update({
+        where: { id: keepId },
+        data: { providerIds: Object.keys(merged).length > 0 ? merged : Prisma.DbNull, active: true },
+      });
+      await tx.player.deleteMany({ where: { id: { in: absorbedIds } } });
+    });
+  }
+
   /** Équipe par id, ou 404. */
   async getTeam(teamId: string) {
     const team = await this.prisma.team.findUnique({ where: { id: teamId } });
