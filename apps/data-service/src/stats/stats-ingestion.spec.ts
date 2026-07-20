@@ -22,6 +22,7 @@ function fakePrisma() {
   const teamUpdates: Array<{ id: string; data: Record<string, unknown> }> = [];
   const playerUpdates: Array<{ id: string; data: Record<string, unknown> }> = [];
   const playerUpdateManys: Array<{ where: Record<string, unknown>; data: Record<string, unknown> }> = [];
+  const statsDeletes: Array<Record<string, unknown>> = [];
   let nextId = 1;
   const prisma = {
     player: {
@@ -44,6 +45,10 @@ function fakePrisma() {
       upsert: vi.fn(async (args: Upsert) => {
         upserts.push(args);
         return args.create;
+      }),
+      deleteMany: vi.fn(async (args: { where: Record<string, unknown> }) => {
+        statsDeletes.push(args.where);
+        return { count: 0 };
       }),
     },
     match: {
@@ -69,6 +74,7 @@ function fakePrisma() {
     teamUpdates,
     playerUpdates,
     playerUpdateManys,
+    statsDeletes,
   };
 }
 
@@ -387,5 +393,38 @@ describe('applyMatchRoster', () => {
       lines: lineup(['Alpha', 'Bravo', 'Charlie'], 'A'),
     });
     expect(playerUpdateManys).toHaveLength(0);
+  });
+});
+
+describe('purgeStaleStats', () => {
+  const lineup = (names: string[], side: 'A' | 'B') => names.map((name) => line(name, side));
+  const roster = (prefix: string, teamId: string) =>
+    [1, 2, 3, 4, 5].map((index) => ({ id: `${prefix}${index}`, name: `${prefix}${index}`, teamId }));
+
+  it('supprime les lignes que le provider n’émet plus (fantôme déjà en base)', async () => {
+    const { prisma, statsDeletes } = fakePrisma();
+    const ingestion = service(prisma);
+    const ctx = context([...roster('a', 'team-a'), ...roster('b', 'team-b')]);
+    await ingestion['persistResult'](match, ctx, 'vlr', {
+      lines: [
+        ...lineup(['a1', 'a2', 'a3', 'a4', 'a5'], 'A'),
+        ...lineup(['b1', 'b2', 'b3', 'b4', 'b5'], 'B'),
+      ],
+    });
+    expect(statsDeletes).toHaveLength(1);
+    expect(statsDeletes[0]).toEqual({
+      matchId: 'match-1',
+      playerId: { notIn: ['a1', 'a2', 'a3', 'a4', 'a5', 'b1', 'b2', 'b3', 'b4', 'b5'] },
+    });
+  });
+
+  it('ne purge rien sur une page partielle (un seul côté complet)', async () => {
+    const { prisma, statsDeletes } = fakePrisma();
+    const ingestion = service(prisma);
+    const ctx = context([...roster('a', 'team-a'), ...roster('b', 'team-b')]);
+    await ingestion['persistResult'](match, ctx, 'vlr', {
+      lines: [...lineup(['a1', 'a2', 'a3', 'a4', 'a5'], 'A'), ...lineup(['b1', 'b2'], 'B')],
+    });
+    expect(statsDeletes).toHaveLength(0);
   });
 });

@@ -467,6 +467,21 @@ describe('mapVlrMatchHtml', () => {
     expect(perMap.find((entry) => entry.map === 'Breeze')).toBeUndefined();
   });
 
+  it('ignore le joueur à agrégat vide (remplaçant listé, cas BLG vs XLG à 11 joueurs)', () => {
+    // VLR liste parfois un 6e joueur dans le lineup d'une équipe : toutes ses
+    // cellules sont vides et il ressortait en 0/0/0 sur la page match.
+    const withGhost = `
+<div class="vm-stats-game" data-game-id="all">
+  ${ovwTable(
+    statRow('TenZ', 'SEN', null, [1.24, 255, 42, 30, 8, 12, 74, 160, 28, 6, 3, 3]) +
+      emptyRow('bud', 'SEN', null),
+  )}
+  ${ovwTable(statRow('Boaster', 'FNC', null, [1.02, 200, 30, 31, 12, -1, 68, 130, 22, 3, 4, -1]))}
+</div>`;
+    const lines = mapVlrMatchHtml(withGhost, { name: 'Sentinels' }, { name: 'Fnatic' });
+    expect(lines.map((line) => line.externalName)).toEqual(['TenZ', 'Boaster']);
+  });
+
   it('sans en-tête de manche exploitable → side null, extraction intacte', () => {
     const aggregateOnly = `
 <div class="vm-stats-game" data-game-id="all">

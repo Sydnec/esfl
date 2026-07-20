@@ -16,6 +16,9 @@ import { LeaguepediaStatsProvider } from './leaguepedia.provider';
 import type { GameStatsProvider, MatchContext, ProviderGameInfo, ProviderResult } from './provider';
 import { VlrStatsProvider } from './vlr.provider';
 
+/** Taille d'un alignement : CS2, Valorant et LoL sont tous en 5v5. */
+const LINEUP_SIZE = 5;
+
 /** Slug d'un lien lol.fandom.com/wiki/... ; null si ce n'est pas un tel lien. */
 function leaguepediaSlug(input: string): string | null {
   const trimmed = input.trim();
@@ -364,7 +367,36 @@ export class StatsIngestionService {
       await this.saveProviderTeamId(context.teamB, source, result.teamIds.B);
     }
     await this.applyMatchRoster(match, context, lineupBySide);
+    await this.purgeStaleStats(match, lineupBySide);
     return persisted;
+  }
+
+  /**
+   * Supprime les lignes de stats que le provider n'émet plus. Les stats sont
+   * upsertées : sans ça, une ligne fantôme écrite une fois (remplaçant listé
+   * dans un lineup, observateur d'une game vide) survit indéfiniment, même une
+   * fois le filtre du provider corrigé — d'où des matchs à 11 joueurs dont un
+   * à 0/0/0.
+   *
+   * Garde-fou : on ne purge que si les DEUX côtés sont revenus complets
+   * (5 joueurs résolus chacun, tous les jeux du périmètre sont en 5v5). Une
+   * page partielle (live en cours, scrape tronqué) ne doit jamais effacer des
+   * stats déjà correctes.
+   */
+  private async purgeStaleStats(
+    match: Match,
+    lineupBySide: Map<'A' | 'B', Set<string>>,
+  ): Promise<void> {
+    const sideA = lineupBySide.get('A') ?? new Set<string>();
+    const sideB = lineupBySide.get('B') ?? new Set<string>();
+    if (sideA.size < LINEUP_SIZE || sideB.size < LINEUP_SIZE) return;
+    const keep = [...sideA, ...sideB];
+    const { count } = await this.prisma.playerMatchStats.deleteMany({
+      where: { matchId: match.id, playerId: { notIn: keep } },
+    });
+    if (count > 0) {
+      this.logger.log(`${count} ligne(s) de stats obsolète(s) supprimée(s) sur ${match.name}`);
+    }
   }
 
   /**

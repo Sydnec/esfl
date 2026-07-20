@@ -534,6 +534,15 @@ export function mapVlrMatchHtml(
 
   const lines: ProviderStatLine[] = [];
   for (const [nameKey, stats] of aggregate) {
+    // Agrégat série intégralement vide ou nul : pas un participant (remplaçant
+    // listé dans le lineup, ligne parasite d'une page live) — même filtre que
+    // Grid. Un joueur qui a réellement joué a des kills, des morts ou de l'ACS.
+    const participated =
+      (stats.kills ?? 0) > 0 ||
+      (stats.deaths ?? 0) > 0 ||
+      (stats.assists ?? 0) > 0 ||
+      (stats.acs ?? 0) > 0;
+    if (!participated) continue;
     const perMap = perMapByPlayer.get(nameKey);
     lines.push({
       externalName: stats.name,
