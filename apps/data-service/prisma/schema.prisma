@@ -114,6 +114,13 @@ model Player {
    * lignes de stats et des titulaires (au-delà du rapprochement par pseudo).
    */
   providerIds  Json?   @map("provider_ids")
+  /**
+   * Autres identités Pandascore de CE joueur, quand Pandascore lui-même le
+   * dédouble (deux fiches pour la même personne). `pandascoreId` reste
+   * l'identité principale ; celles-ci évitent de recréer un doublon chaque
+   * fois qu'une identité secondaire remonte d'un roster.
+   */
+  pandascoreAliasIds Int[] @default([]) @map("pandascore_alias_ids")
   /** Champs possédés par un provider (cf. Team.fieldSources). */
   fieldSources Json?   @map("field_sources")
   team         Team?   @relation(fields: [teamId], references: [id], onDelete: SetNull)

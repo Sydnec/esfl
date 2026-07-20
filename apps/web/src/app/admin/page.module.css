@@ -271,6 +271,31 @@
   color: var(--color-danger, #c0392b);
 }
 
+/* Candidat d'identité joueur : sélectionnable, et plusieurs à la fois quand
+   Pandascore dédouble une même personne. Pas le hover « retirer » rouge des
+   alias d'équipe, la sémantique est inverse. */
+.candidateChip {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: none;
+  color: var(--color-text);
+  padding: 0 var(--space-1);
+  font-size: 0.8rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.candidateChip:hover:not(:disabled) {
+  border-color: var(--color-text);
+}
+
+.candidateChipActive {
+  composes: candidateChip;
+  border-color: var(--color-text);
+  background: var(--color-text);
+  color: var(--color-bg);
+}
+
 .matcherGrid {
   display: grid;
   grid-template-columns: 1fr 1fr;

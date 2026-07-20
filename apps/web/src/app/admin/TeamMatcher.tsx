@@ -137,7 +137,14 @@ interface PlayerAdoption {
   name: string;
   gameId: string;
   teamName: string | null;
-  candidates: Array<{ id: number; name: string; teamName: string | null; role: string | null }>;
+  candidates: Array<{
+    id: number;
+    name: string;
+    teamName: string | null;
+    role: string | null;
+    realName: string | null;
+    nationality: string | null;
+  }>;
 }
 
 /**
@@ -150,6 +157,9 @@ function PlayerAdoptionPanel({ authedFetch }: { authedFetch: AuthedFetch }) {
   const [rows, setRows] = useState<PlayerAdoption[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  // Sélection multiple : Pandascore dédouble parfois une même personne, et
+  // trancher consiste alors à réunir les identités plutôt qu'à en choisir une.
+  const [picked, setPicked] = useState<Record<string, number[]>>({});
 
   const load = useCallback(async () => {
     try {
@@ -163,18 +173,34 @@ function PlayerAdoptionPanel({ authedFetch }: { authedFetch: AuthedFetch }) {
     void load();
   }, [load]);
 
-  async function choose(row: PlayerAdoption, pandascoreId: number) {
+  function toggle(row: PlayerAdoption, id: number) {
+    setPicked((current) => {
+      const selection = current[row.playerId] ?? [];
+      return {
+        ...current,
+        [row.playerId]: selection.includes(id)
+          ? selection.filter((entry) => entry !== id)
+          : [...selection, id],
+      };
+    });
+  }
+
+  async function apply(row: PlayerAdoption) {
+    const ids = picked[row.playerId] ?? [];
+    if (ids.length === 0) return;
     setBusy(row.playerId);
     setNote(null);
     try {
-      const res = await authedFetch<{ merged: boolean }>(
-        `/data/admin/players/${row.playerId}/adopt?pandascoreId=${pandascoreId}`,
+      const res = await authedFetch<{ merged: boolean; principale: number; alias: number[] }>(
+        `/data/admin/players/${row.playerId}/adopt?pandascoreId=${ids.join(',')}`,
         { method: 'POST' },
       );
       setNote(
-        res.merged
-          ? `${row.name} était un doublon : les deux fiches ont été fusionnées.`
-          : `${row.name} rattaché à l'identité ${pandascoreId}.`,
+        res.alias.length > 0
+          ? `${row.name} : ${res.alias.length + 1} identités réunies (principale ${res.principale}).`
+          : res.merged
+            ? `${row.name} était un doublon : les deux fiches ont été fusionnées.`
+            : `${row.name} rattaché à l'identité ${res.principale}.`,
       );
       setRows((current) => current.filter((entry) => entry.playerId !== row.playerId));
     } catch {
@@ -223,18 +249,31 @@ function PlayerAdoptionPanel({ authedFetch }: { authedFetch: AuthedFetch }) {
             </button>
           </div>
           <span className={styles.aliasList}>
-            {row.candidates.map((candidate) => (
-              <button
-                key={candidate.id}
-                className={styles.aliasChip}
-                disabled={busy === row.playerId}
-                onClick={() => void choose(row, candidate.id)}
-                title={`Rattacher à l’identité Pandascore ${candidate.id}`}
-              >
-                {candidate.name} · {candidate.teamName ?? 'sans équipe'}
-                {candidate.role ? ` · ${candidate.role}` : ''}
-              </button>
-            ))}
+            {row.candidates.map((candidate) => {
+              const selected = (picked[row.playerId] ?? []).includes(candidate.id);
+              return (
+                <button
+                  key={candidate.id}
+                  className={selected ? styles.candidateChipActive : styles.candidateChip}
+                  disabled={busy === row.playerId}
+                  onClick={() => toggle(row, candidate.id)}
+                  title={`Identité Pandascore ${candidate.id}`}
+                >
+                  {selected ? '✓ ' : ''}
+                  {candidate.realName ?? candidate.name}
+                  {candidate.nationality ? ` (${candidate.nationality})` : ''} ·{' '}
+                  {candidate.teamName ?? 'sans équipe'}
+                  {candidate.role ? ` · ${candidate.role}` : ''}
+                </button>
+              );
+            })}
+            <button
+              className={styles.action}
+              disabled={busy === row.playerId || (picked[row.playerId] ?? []).length === 0}
+              onClick={() => void apply(row)}
+            >
+              {(picked[row.playerId] ?? []).length > 1 ? 'Réunir' : 'Rattacher'}
+            </button>
           </span>
         </div>
       ))}

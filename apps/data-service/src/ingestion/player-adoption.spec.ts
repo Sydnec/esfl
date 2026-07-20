@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { nameVariants } from './player-adoption.service';
+import { nameVariants, realNameKey } from './player-adoption.service';
 
 /**
  * Graphies soumises à Pandascore : sa recherche par nom est sensible à la
@@ -22,5 +22,25 @@ describe('nameVariants', () => {
 
   it('laisse intacts les pseudos non alphabétiques', () => {
     expect(nameVariants('123')).toEqual(['123']);
+  });
+});
+
+describe('realNameKey', () => {
+  it('absorbe l’ordre, la ponctuation et les diacritiques', () => {
+    // Leaguepedia publie « Lee Sang-hyeok », Pandascore « Lee » + « Sang-hyeok ».
+    expect(realNameKey('Lee Sang-hyeok')).toBe(realNameKey('Lee', 'Sang-hyeok'));
+    // L'ordre prénom/nom varie selon les sources sur les noms coréens.
+    expect(realNameKey('Sang-hyeok', 'Lee')).toBe(realNameKey('Lee', 'Sang-hyeok'));
+    expect(realNameKey('Hubert Mikoś')).toBe(realNameKey('Hubert', 'Mikos'));
+  });
+
+  it('distingue deux personnes différentes', () => {
+    // Cas réel : deux « salazar » en CS2.
+    expect(realNameKey('Kirill', 'Rautskiy')).not.toBe(realNameKey('Jason', 'Salazar'));
+  });
+
+  it('rend une chaîne vide quand la source ne publie rien', () => {
+    expect(realNameKey(null, undefined)).toBe('');
+    expect(realNameKey('  ')).toBe('');
   });
 });

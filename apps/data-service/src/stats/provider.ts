@@ -67,6 +67,12 @@ export interface StarterRef {
   role?: string | null;
   /** Id du joueur chez la source (VLR : id numérique) : matching par id si connu. */
   externalId?: string | null;
+  /**
+   * Vrai nom civil quand la source l'expose (Leaguepedia `Players.Name`, VLR
+   * `name-real`). Sert à départager deux joueurs Pandascore homonymes : le
+   * pseudo ne suffit pas, le patronyme si. Grid ne l'expose pas à notre clé.
+   */
+  realName?: string | null;
   /** Photo du joueur quand la source l'expose (Leaguepedia). */
   imageUrl?: string | null;
   /** Code pays ISO2 quand la source l'expose (Leaguepedia Country converti). */

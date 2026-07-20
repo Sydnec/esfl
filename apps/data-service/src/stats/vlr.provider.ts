@@ -274,8 +274,11 @@ export function parseVlrRoster(html: string): StarterRef[] {
     const externalId = href.match(/\/player\/(\d+)\//)?.[1];
     if (!externalId) return;
     if (item.find('.team-roster-item-name-role').text().trim()) return;
+    // Le pseudo est dans `.name-alias` ; il peut contenir un drapeau et une
+    // icône de capitaine, d'où le nettoyage. Le patronyme vit dans `.name-real`.
     const name = item.find('.team-roster-item-name-alias').text().trim();
-    if (name) starters.push({ name, externalId });
+    const realName = item.find('.team-roster-item-name-real').text().trim() || null;
+    if (name) starters.push({ name, externalId, realName });
   });
   return starters;
 }

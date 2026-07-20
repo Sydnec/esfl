@@ -306,15 +306,22 @@ export class CatalogController {
     return this.catalog.listPlayerAdoptions();
   }
 
-  /** Arbitrage d'un cas ambigu : l'identité choisie parmi les candidats proposés. */
+  /**
+   * Arbitrage d'un cas ambigu. `pandascoreId` accepte plusieurs identités
+   * séparées par des virgules : quand Pandascore dédouble une même personne,
+   * trancher revient à les réunir. La première est l'identité principale.
+   */
   @Post('admin/players/:playerId/adopt')
   @UseGuards(AdminGuard)
   adoptPlayer(@Param('playerId') playerId: string, @Query('pandascoreId') pandascoreId?: string) {
-    const id = Number(pandascoreId);
-    if (!Number.isInteger(id) || id <= 0) {
+    const ids = (pandascoreId ?? '')
+      .split(',')
+      .map((raw) => Number(raw.trim()))
+      .filter((id) => Number.isInteger(id) && id > 0);
+    if (ids.length === 0) {
       throw new BadRequestException(`Id Pandascore invalide : ${pandascoreId}`);
     }
-    return this.adoption.resolveAdoption(playerId, id);
+    return this.adoption.resolveAdoption(playerId, ids);
   }
 
   /** Écarte un cas ambigu (aucun candidat ne correspond). */

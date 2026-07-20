@@ -369,10 +369,16 @@ export class IngestionService {
       // Métadonnées publiées par la source (rôle, photo, pays Leaguepedia) :
       // provider = source de vérité, appliquées à la création comme aux fiches
       // existantes (complète Canna/Busio dès le passage rosters).
+      // Patronyme éclaté en prénom/nom pour coller au modèle Pandascore : le
+      // premier token est le prénom, le reste le nom. Le rapprochement compare
+      // ensuite les tokens triés, donc un découpage imparfait reste sans effet.
+      const [firstName, ...rest] = (starter.realName ?? '').trim().split(/\s+/);
       const profile = {
         role: starter.role ?? null,
         imageUrl: starter.imageUrl ?? null,
         nationality: starter.nationality ?? null,
+        firstName: firstName || null,
+        lastName: rest.length > 0 ? rest.join(' ') : null,
       };
       let local =
         (starter.externalId ? byProviderId.get(starter.externalId) : undefined) ??

@@ -39,6 +39,8 @@ function isLolStarterRole(role: string): boolean {
 /** Ligne de la table Cargo Players (roster courant d'une équipe). */
 export interface LeaguepediaRosterRow {
   ID?: string;
+  /** Patronyme (`Players.Name`) : départage les homonymes chez Pandascore. */
+  RealName?: string;
   Role?: string;
   IsRetired?: string;
   IsSubstitute?: string;
@@ -71,6 +73,7 @@ export function parseLeaguepediaRoster(rows: LeaguepediaRosterRow[]): StarterRef
       // la table Players) EST l'identifiant, mémorisé comme id provider.
       externalId: name,
       role: row.Role ?? null,
+      realName: row.RealName?.trim() || null,
       imageUrl: image
         ? `https://lol.fandom.com/wiki/Special:Filepath/${encodeURIComponent(image)}`
         : null,
@@ -682,6 +685,52 @@ export class LeaguepediaStatsProvider implements GameStatsProvider {
     return starters.length > 0 ? starters : null;
   }
 
+  /**
+   * Patronyme et pays de joueurs précis, par pseudo canonique (l'id provider
+   * Leaguepedia). Le sync des rosters ne couvre que les titulaires actuels : un
+   * ancien joueur ou un académie n'y passe jamais, alors que c'est justement
+   * lui qu'il faut départager face à un homonyme chez Pandascore.
+   */
+  async fetchPlayerIdentities(
+    ids: string[],
+  ): Promise<Map<string, { realName: string | null; nationality: string | null }>> {
+    const out = new Map<string, { realName: string | null; nationality: string | null }>();
+    for (let i = 0; i < ids.length; i += 50) {
+      const chunk = ids.slice(i, i + 50);
+      const inList = chunk.map((id) => `'${id.replace(/'/g, "''")}'`).join(', ');
+      const url = new URL(API_URL);
+      url.searchParams.set('action', 'cargoquery');
+      url.searchParams.set('format', 'json');
+      url.searchParams.set('limit', '100');
+      url.searchParams.set('tables', 'Players');
+      url.searchParams.set('fields', 'Players.ID=ID,Players.Name=RealName,Players.Country=Country');
+      url.searchParams.set('where', `Players.ID IN (${inList})`);
+      const response = await this.fetchAuthed(url, CARGO_SPACING_MS);
+      if (!response.ok) {
+        this.logger.warn(`Leaguepedia identités → ${response.status}`);
+        continue;
+      }
+      const payload = (await response.json()) as {
+        cargoquery?: Array<{ title: LeaguepediaRosterRow }>;
+        error?: { code?: string };
+      };
+      if (payload.error) {
+        if (payload.error.code === 'assertuserfailed') this.invalidateSession();
+        this.logger.warn(`Leaguepedia identités en erreur : ${JSON.stringify(payload.error)}`);
+        continue;
+      }
+      for (const entry of payload.cargoquery ?? []) {
+        const id = stripDisambiguation(entry.title.ID ?? '').trim();
+        if (!id) continue;
+        out.set(id, {
+          realName: entry.title.RealName?.trim() || null,
+          nationality: countryToIso2(entry.title.Country),
+        });
+      }
+    }
+    return out;
+  }
+
   private async queryRoster(names: string[]): Promise<LeaguepediaRosterRow[] | null> {
     const inList = names.map((name) => `'${name.replace(/'/g, "''")}'`).join(', ');
     const url = new URL(API_URL);
@@ -691,7 +740,7 @@ export class LeaguepediaStatsProvider implements GameStatsProvider {
     url.searchParams.set('tables', 'Players');
     url.searchParams.set(
       'fields',
-      'Players.ID=ID,Players.Role=Role,Players.IsRetired=IsRetired,Players.IsSubstitute=IsSubstitute,Players.Image=Image,Players.Country=Country',
+      'Players.ID=ID,Players.Name=RealName,Players.Role=Role,Players.IsRetired=IsRetired,Players.IsSubstitute=IsSubstitute,Players.Image=Image,Players.Country=Country',
     );
     url.searchParams.set('where', `Players.Team IN (${inList})`);
     const response = await this.fetchAuthed(url, CARGO_SPACING_MS);

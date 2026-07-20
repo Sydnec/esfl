@@ -42,17 +42,18 @@ describe('parseVlrMatchTeamIds', () => {
 });
 
 /** Item de roster VLR : `role` vide = titulaire ; sinon remplaçant/staff. */
-const rosterItem = (alias: string, role = '', id = '1') =>
+const rosterItem = (alias: string, role = '', id = '1', realName = '') =>
   `<div class="team-roster-item"><a href="/player/${id}/${alias}" style="display:flex;">` +
   `<div class="team-roster-item-name"><div class="team-roster-item-name-alias">` +
   `<i class="flag mod-gb"></i>${alias}</div>` +
+  (realName ? `<div class="team-roster-item-name-real">${realName}</div>` : '') +
   (role ? `<div class="team-roster-item-name-role">${role}</div>` : '') +
   `</div></a></div>`;
 
 describe('parseVlrRoster', () => {
   it('ne garde que les joueurs sans rôle (exclut sub et staff), avec leur id VLR', () => {
     const html =
-      rosterItem('musashi', '', '7857') +
+      rosterItem('musashi', '', '7857', 'Tyson Ngo') +
       rosterItem('azury', '', '42') +
       rosterItem('Fizzy') +
       rosterItem('MONSTEERR') +
@@ -67,8 +68,9 @@ describe('parseVlrRoster', () => {
       'MONSTEERR',
       'Jamelinho',
     ]);
-    expect(starters[0]).toEqual({ name: 'musashi', externalId: '7857' });
-    expect(starters[1].externalId).toBe('42');
+    // Le patronyme sert à départager deux joueurs Pandascore homonymes.
+    expect(starters[0]).toEqual({ name: 'musashi', externalId: '7857', realName: 'Tyson Ngo' });
+    expect(starters[1]).toMatchObject({ externalId: '42', realName: null });
   });
 });
 
@@ -104,7 +106,7 @@ describe('parseVlrTeamProfile', () => {
       acronym: 'LLL',
       imageUrl: 'https://owcdn.net/img/loud.png',
       location: 'BR',
-      roster: [{ name: 'aspas', externalId: '10646' }],
+      roster: [{ name: 'aspas', externalId: '10646', realName: null }],
     });
   });
 
