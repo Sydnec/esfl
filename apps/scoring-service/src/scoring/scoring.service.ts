@@ -20,6 +20,9 @@ const round2 = (value: number) => Math.round(value * 100) / 100;
 /** Minimum de matchs notés pour figurer dans les tops (évite le bruit). */
 const MIN_SCORES = 3;
 
+/** Joueurs retenus PAR JEU dans les analytics admin (cf. pointStats). */
+const TOP_PLAYERS_PER_GAME = 100;
+
 /** Fenêtre de balayage du gel automatique (jours en arrière depuis hier). */
 const FREEZE_SCAN_DAYS = 10;
 /** Échéance dure : une journée incomplète est gelée quand même à J+3. */
@@ -470,7 +473,7 @@ export class ScoringService {
       }))
       .sort((a, b) => b.count - a.count);
 
-    const topPlayers = [...perPlayer.entries()]
+    const ranked = [...perPlayer.entries()]
       .filter(([, player]) => player.n >= MIN_SCORES)
       .map(([playerId, player]) => {
         const info = metaById.get(playerId);
@@ -484,8 +487,19 @@ export class ScoringService {
           scores: player.n,
         };
       })
-      .sort((a, b) => b.avgPoints - a.avgPoints)
-      .slice(0, 60);
+      .sort((a, b) => b.avgPoints - a.avgPoints);
+
+    // Troncature PAR JEU et non sur le classement global : un top cross-game
+    // tronqué peut ne contenir aucun joueur d'un jeu (les échelles ne sont
+    // comparables qu'en théorie), et le filtre par jeu du front se retrouvait
+    // alors vide. Chaque jeu garde ses meilleurs, la vue « Tous » les fusionne.
+    const perGameCount = new Map<string, number>();
+    const topPlayers = ranked.filter((player) => {
+      const seen = perGameCount.get(player.gameId) ?? 0;
+      if (seen >= TOP_PLAYERS_PER_GAME) return false;
+      perGameCount.set(player.gameId, seen + 1);
+      return true;
+    });
 
     return { generatedAt: new Date().toISOString(), minScores: MIN_SCORES, bucketSize, distributions, topPlayers };
   }

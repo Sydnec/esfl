@@ -126,7 +126,119 @@ export function TeamMatcher() {
         <SearchPanel authedFetch={authedFetch} busy={busy} applyAlias={applyAlias} />
       </div>
       <MissingProviderIdPanel authedFetch={authedFetch} />
+      <PlayerAdoptionPanel authedFetch={authedFetch} />
     </section>
+  );
+}
+
+/** Un rapprochement Pandascore ambigu en attente d'arbitrage. */
+interface PlayerAdoption {
+  playerId: string;
+  name: string;
+  gameId: string;
+  teamName: string | null;
+  candidates: Array<{ id: number; name: string; teamName: string | null; role: string | null }>;
+}
+
+/**
+ * Homonymes Pandascore à arbitrer. L'adoption automatique refuse de deviner
+ * quand plusieurs joueurs portent le même pseudo dans un jeu : ces cas
+ * atterrissent ici avec l'équipe courante de chaque candidat, qui suffit
+ * presque toujours à trancher.
+ */
+function PlayerAdoptionPanel({ authedFetch }: { authedFetch: AuthedFetch }) {
+  const [rows, setRows] = useState<PlayerAdoption[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setRows(await authedFetch<PlayerAdoption[]>('/data/admin/player-adoptions'));
+    } catch {
+      // panneau simplement vide en cas d'erreur
+    }
+  }, [authedFetch]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function choose(row: PlayerAdoption, pandascoreId: number) {
+    setBusy(row.playerId);
+    setNote(null);
+    try {
+      const res = await authedFetch<{ merged: boolean }>(
+        `/data/admin/players/${row.playerId}/adopt?pandascoreId=${pandascoreId}`,
+        { method: 'POST' },
+      );
+      setNote(
+        res.merged
+          ? `${row.name} était un doublon : les deux fiches ont été fusionnées.`
+          : `${row.name} rattaché à l'identité ${pandascoreId}.`,
+      );
+      setRows((current) => current.filter((entry) => entry.playerId !== row.playerId));
+    } catch {
+      setNote('Rattachement refusé');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function dismiss(row: PlayerAdoption) {
+    setBusy(row.playerId);
+    try {
+      await authedFetch(`/data/admin/player-adoptions/${row.playerId}`, { method: 'DELETE' });
+      setRows((current) => current.filter((entry) => entry.playerId !== row.playerId));
+    } catch {
+      // l'état se resynchronise au prochain chargement
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (rows.length === 0) return null;
+
+  return (
+    <div className={styles.matcherCol}>
+      <h3 className={styles.colTitle}>Identités joueur à arbitrer ({rows.length})</h3>
+      <p className={styles.hint}>
+        Plusieurs joueurs Pandascore portent ce pseudo : l’adoption automatique ne devine pas.
+        L’équipe courante de chaque candidat est indiquée pour trancher.
+      </p>
+      {note && <p className={styles.note}>{note}</p>}
+      {rows.map((row) => (
+        <div key={row.playerId} className={styles.unmatchedItem}>
+          <div className={styles.unmatchedHead}>
+            <span>
+              <strong>{row.name}</strong> · {gameLabel(row.gameId)}
+              {row.teamName ? ` · ${row.teamName}` : ''}
+            </span>
+            <button
+              className={styles.action}
+              disabled={busy === row.playerId}
+              onClick={() => void dismiss(row)}
+              title="Aucun candidat ne correspond"
+            >
+              Écarter
+            </button>
+          </div>
+          <span className={styles.aliasList}>
+            {row.candidates.map((candidate) => (
+              <button
+                key={candidate.id}
+                className={styles.aliasChip}
+                disabled={busy === row.playerId}
+                onClick={() => void choose(row, candidate.id)}
+                title={`Rattacher à l’identité Pandascore ${candidate.id}`}
+              >
+                {candidate.name} · {candidate.teamName ?? 'sans équipe'}
+                {candidate.role ? ` · ${candidate.role}` : ''}
+              </button>
+            ))}
+          </span>
+        </div>
+      ))}
+    </div>
   );
 }
 
