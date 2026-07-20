@@ -19,6 +19,7 @@ import {
   INGESTION_QUEUE,
   IngestionJobName,
 } from '../ingestion/ingestion.constants';
+import { TeamEnrichmentService } from '../ingestion/team-enrichment.service';
 import { StatsIngestionService } from '../stats/stats-ingestion';
 import { CatalogService } from './catalog.service';
 
@@ -41,6 +42,7 @@ export class CatalogController {
     private readonly catalog: CatalogService,
     private readonly fantasyClient: FantasyClient,
     private readonly statsIngestion: StatsIngestionService,
+    private readonly enrichment: TeamEnrichmentService,
     @InjectQueue(INGESTION_QUEUE) private readonly ingestionQueue: Queue,
   ) {}
 
@@ -282,6 +284,52 @@ export class CatalogController {
       matchIds.map((id) => enqueueIngestStats(this.ingestionQueue, id, true, true)),
     );
     return { aliases, reingested: matchIds.length, added, redundant };
+  }
+
+  /** Équipes LoL/Valorant sans identité provider (saisie manuelle possible). */
+  @Get('admin/teams/missing-provider-id')
+  @UseGuards(AdminGuard)
+  teamsWithoutProviderId() {
+    return this.catalog.teamsWithoutProviderId();
+  }
+
+  /**
+   * Fixe manuellement l'identité provider d'une équipe (Leaguepedia : lien
+   * lol.fandom.com ou nom ; VLR : lien vlr.gg/team/<id> ou id). La saisie est
+   * validée contre la fiche source avant d'être écrite, puis on relance
+   * l'enrichissement (fiche + roster) et l'ingestion des matchs restés sans
+   * stats — l'id débloque le rapprochement sur tout l'historique.
+   */
+  @Post('admin/teams/:teamId/provider-id')
+  @UseGuards(AdminGuard)
+  async setTeamProviderId(@Param('teamId') teamId: string, @Query('value') value?: string) {
+    const team = await this.catalog.getTeam(teamId);
+    const { source, providerTeamId, profile } = await this.statsIngestion.resolveTeamProviderId(
+      team,
+      value ?? '',
+    );
+    const { providerIds, matchIds } = await this.catalog.setTeamProviderId(
+      teamId,
+      source,
+      providerTeamId,
+    );
+    // Enrichissement AVANT la ré-ingestion, et non en parallèle : il peuple le
+    // roster depuis la fiche provider. Sans ça, une équipe à zéro joueur voit
+    // ses matchs ré-ingérés en concurrence créer chacun les mêmes fiches (rien
+    // ne les dédoublonne en base) et le roster sort en N exemplaires.
+    await this.enrichment.enrichTeam(teamId);
+    await Promise.all(
+      matchIds.map((id) => enqueueIngestStats(this.ingestionQueue, id, true, true)),
+    );
+    return {
+      source,
+      providerTeamId,
+      providerIds,
+      // Ce que la source dit de cette identité : permet de vérifier d'un coup
+      // d'œil qu'on n'a pas rattaché la mauvaise équipe.
+      profile: { name: profile.name, acronym: profile.acronym, roster: profile.roster?.length ?? 0 },
+      reingested: matchIds.length,
+    };
   }
 
   /** Retire un alias d'une équipe. */

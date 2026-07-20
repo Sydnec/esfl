@@ -34,6 +34,13 @@ import { TeamEnrichmentService } from './team-enrichment.service';
     VlrStatsProvider,
     LeaguepediaStatsProvider,
   ],
-  exports: [IngestionService, StatsIngestionService, PandascoreClient, FantasyClient, BullModule],
+  exports: [
+    IngestionService,
+    StatsIngestionService,
+    TeamEnrichmentService,
+    PandascoreClient,
+    FantasyClient,
+    BullModule,
+  ],
 })
 export class IngestionModule {}

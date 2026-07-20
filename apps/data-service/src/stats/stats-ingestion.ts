@@ -1,9 +1,9 @@
 import { InjectQueue } from '@nestjs/bullmq';
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { GameId, QUEUES, StatsIngestedEvent } from '@esfl/contracts';
 import { Queue } from 'bullmq';
 import { Prisma } from '../../generated/client';
-import type { Match, Player } from '../../generated/client';
+import type { Match, Player, Team } from '../../generated/client';
 import { providerUpdate } from '../common/field-precedence';
 import { mergeGamesSummary } from '../common/games-summary';
 import { enqueueEnrichTeam, INGESTION_QUEUE } from '../ingestion/ingestion.constants';
@@ -13,7 +13,13 @@ import { buildPlayerIndex, matchPlayer, normalizeName, teamMatches } from './mat
 import type { NamedPlayer } from './matching';
 import { GridStatsProvider } from './grid.provider';
 import { LeaguepediaStatsProvider } from './leaguepedia.provider';
-import type { GameStatsProvider, MatchContext, ProviderGameInfo, ProviderResult } from './provider';
+import type {
+  GameStatsProvider,
+  MatchContext,
+  ProviderGameInfo,
+  ProviderResult,
+  TeamProfile,
+} from './provider';
 import { VlrStatsProvider } from './vlr.provider';
 
 /** Taille d'un alignement : CS2, Valorant et LoL sont tous en 5v5. */
@@ -62,6 +68,57 @@ export class StatsIngestionService {
     const resolved = await this.leaguepedia.resolveTeamNames(name);
     // Au pire (requête en échec) on garde au moins le nom tiré du lien.
     return resolved.length > 0 ? resolved : [name];
+  }
+
+  /**
+   * Résout une saisie admin (lien provider ou id brut) en identité provider
+   * pour une équipe, et la VALIDE en tapant la fiche : on ne persiste jamais un
+   * id que la source ne reconnaît pas. Les formes acceptées suivent l'id de
+   * chaque source — Leaguepedia : nom canonique de la page (lien
+   * lol.fandom.com/wiki/... ou nom) ; VLR : id numérique (lien vlr.gg/team/... ou
+   * nombre). Lève si le jeu n'a pas de fiche équipe (CS2/Grid) ou si la saisie
+   * ne correspond à rien chez la source.
+   */
+  async resolveTeamProviderId(
+    team: Team,
+    input: string,
+  ): Promise<{ source: string; providerTeamId: string; profile: TeamProfile }> {
+    const raw = input.trim();
+    if (!raw) throw new BadRequestException('Identifiant provider vide');
+    const provider = this.providers.find((candidate) => candidate.gameId === team.gameId);
+    if (!provider?.fetchTeamProfile) {
+      throw new BadRequestException(
+        `Aucune fiche équipe chez la source de ${team.gameId} : id provider non saisissable`,
+      );
+    }
+
+    let providerTeamId: string;
+    if (provider.source === 'leaguepedia') {
+      // L'id Leaguepedia EST le nom canonique de la page d'overview : on passe
+      // par la résolution des redirections pour qu'un nom d'usage ou un lien
+      // vers une redirection retombe sur la bonne page.
+      const fromLink = leaguepediaSlug(raw);
+      const name = fromLink ? decodeURIComponent(fromLink).replace(/_/g, ' ').trim() : raw;
+      const resolved = await this.leaguepedia.resolveTeamNames(name);
+      providerTeamId = resolved[0] ?? name;
+    } else {
+      // VLR : id numérique, dans un lien /team/<id>/... ou saisi brut.
+      const id = raw.match(/\/team\/(\d+)/)?.[1] ?? (/^\d+$/.test(raw) ? raw : null);
+      if (!id) {
+        throw new BadRequestException(
+          `Id VLR attendu (lien vlr.gg/team/<id>/... ou nombre), reçu « ${raw} »`,
+        );
+      }
+      providerTeamId = id;
+    }
+
+    const profile = await provider.fetchTeamProfile(providerTeamId);
+    if (!profile) {
+      throw new BadRequestException(
+        `${provider.source} ne connaît pas « ${providerTeamId} » : rien n'a été enregistré`,
+      );
+    }
+    return { source: provider.source, providerTeamId, profile };
   }
 
   /**

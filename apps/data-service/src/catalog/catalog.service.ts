@@ -580,6 +580,91 @@ export class CatalogService {
     };
   }
 
+  /**
+   * Équipes LoL/Valorant sans identité provider : elles n'ont ni roster
+   * spécialisé (Leaguepedia/VLR) ni enrichissement de fiche, et leur matching
+   * de stats repose sur le seul nom Pandascore. Seuls ces deux jeux exposent
+   * une fiche équipe chez la source — Grid (CS2) n'en a pas, ses équipes sont
+   * donc hors périmètre. Triées par volume de matchs : le plus pénalisant d'abord.
+   */
+  async teamsWithoutProviderId(): Promise<
+    Array<{
+      id: string;
+      gameId: string;
+      name: string;
+      acronym: string | null;
+      aliases: string[];
+      players: number;
+      matches: number;
+    }>
+  > {
+    const teams = await this.prisma.team.findMany({
+      where: {
+        gameId: { in: ['lol', 'valorant'] },
+        OR: [{ providerIds: { equals: Prisma.DbNull } }, { providerIds: { equals: {} } }],
+      },
+    });
+    const rows = await Promise.all(
+      teams.map(async (team) => ({
+        id: team.id,
+        gameId: team.gameId,
+        name: team.name,
+        acronym: team.acronym,
+        aliases: team.aliases ?? [],
+        players: await this.prisma.player.count({ where: { teamId: team.id } }),
+        matches: await this.prisma.match.count({
+          where: { OR: [{ teamAId: team.id }, { teamBId: team.id }] },
+        }),
+      })),
+    );
+    return rows.sort((a, b) => b.matches - a.matches);
+  }
+
+  /** Équipe par id, ou 404. */
+  async getTeam(teamId: string) {
+    const team = await this.prisma.team.findUnique({ where: { id: teamId } });
+    if (!team) throw new NotFoundException(`Équipe inconnue : ${teamId}`);
+    return team;
+  }
+
+  /**
+   * Fixe l'identité provider d'une équipe (saisie admin déjà résolue ET validée
+   * contre la fiche source par `resolveTeamProviderId`). Renvoie les matchs à
+   * ré-ingérer : l'id débloque le rapprochement des stats en plus du roster.
+   */
+  async setTeamProviderId(
+    teamId: string,
+    source: string,
+    providerTeamId: string,
+  ): Promise<{ providerIds: Record<string, string>; matchIds: string[] }> {
+    const team = await this.prisma.team.findUnique({ where: { id: teamId } });
+    if (!team) throw new NotFoundException(`Équipe inconnue : ${teamId}`);
+    const current = (team.providerIds as Record<string, string> | null) ?? {};
+    const providerIds = { ...current, [source]: providerTeamId };
+    await this.prisma.team.update({ where: { id: teamId }, data: { providerIds } });
+    return { providerIds, matchIds: await this.statlessMatchIdsForTeam(teamId) };
+  }
+
+  /**
+   * Matchs finis de l'équipe restés sans aucune ligne de stats. Contrairement à
+   * l'ajout d'alias (fenêtre 7 jours), poser une identité provider débloque
+   * tout l'historique : une équipe jamais rapprochée peut traîner des mois de
+   * matchs vides. Borné aux 50 plus récents pour ne pas noyer la queue.
+   */
+  private async statlessMatchIdsForTeam(teamId: string): Promise<string[]> {
+    const matches = await this.prisma.match.findMany({
+      where: {
+        status: 'finished',
+        OR: [{ teamAId: teamId }, { teamBId: teamId }],
+        stats: { none: {} },
+      },
+      select: { id: true },
+      orderBy: { beginAt: 'desc' },
+      take: 50,
+    });
+    return matches.map((match) => match.id);
+  }
+
   /** Retire un alias d'une équipe. */
   async removeTeamAlias(teamId: string, alias: string): Promise<{ aliases: string[] }> {
     const team = await this.prisma.team.findUnique({ where: { id: teamId } });

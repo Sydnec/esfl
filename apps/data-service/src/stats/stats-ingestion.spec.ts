@@ -428,3 +428,70 @@ describe('purgeStaleStats', () => {
     expect(statsDeletes).toHaveLength(0);
   });
 });
+
+describe('resolveTeamProviderId', () => {
+  const lolTeam = { id: 'team-a', gameId: 'lol', name: 'BIG' } as Team;
+  const valoTeam = { id: 'team-a', gameId: 'valorant', name: 'Team Weibo' } as Team;
+  const cs2Team = { id: 'team-a', gameId: 'cs2', name: 'Vitality' } as Team;
+
+  /** Service avec des providers instrumentés (pas d'appel réseau). */
+  function withProviders(overrides: {
+    leaguepedia?: Partial<LeaguepediaStatsProvider>;
+    vlr?: Partial<VlrStatsProvider>;
+  }) {
+    const { prisma } = fakePrisma();
+    return new StatsIngestionService(
+      prisma,
+      { add: vi.fn() } as never,
+      { add: vi.fn(), getJob: vi.fn(async () => undefined) } as never,
+      { emitMatchUpdated: vi.fn() } as never,
+      { gameId: 'cs2', source: 'grid' } as GridStatsProvider,
+      { gameId: 'valorant', source: 'vlr', ...overrides.vlr } as VlrStatsProvider,
+      { gameId: 'lol', source: 'leaguepedia', ...overrides.leaguepedia } as LeaguepediaStatsProvider,
+    );
+  }
+
+  it('LoL : un lien fandom devient le nom canonique, validé contre la fiche', async () => {
+    const ingestion = withProviders({
+      leaguepedia: {
+        resolveTeamNames: vi.fn(async () => ['Berlin International Gaming', 'BIG']),
+        fetchTeamProfile: vi.fn(async () => ({ name: 'Berlin International Gaming', acronym: 'BIG' })),
+      },
+    });
+    const res = await ingestion.resolveTeamProviderId(
+      lolTeam,
+      'https://lol.fandom.com/wiki/Berlin_International_Gaming',
+    );
+    expect(res).toMatchObject({
+      source: 'leaguepedia',
+      providerTeamId: 'Berlin International Gaming',
+    });
+  });
+
+  it('Valorant : l’id numérique est extrait du lien vlr.gg', async () => {
+    const ingestion = withProviders({
+      vlr: { fetchTeamProfile: vi.fn(async () => ({ name: 'Weibo Gaming' })) },
+    });
+    const res = await ingestion.resolveTeamProviderId(valoTeam, 'https://www.vlr.gg/team/1184/weibo');
+    expect(res.providerTeamId).toBe('1184');
+  });
+
+  it('refuse un id que la source ne reconnaît pas (rien n’est persisté)', async () => {
+    const ingestion = withProviders({
+      vlr: { fetchTeamProfile: vi.fn(async () => null) },
+    });
+    await expect(ingestion.resolveTeamProviderId(valoTeam, '999999')).rejects.toThrow(
+      /ne connaît pas/,
+    );
+  });
+
+  it('refuse une saisie VLR non numérique et un jeu sans fiche équipe (CS2)', async () => {
+    const ingestion = withProviders({ vlr: { fetchTeamProfile: vi.fn(async () => ({})) } });
+    await expect(ingestion.resolveTeamProviderId(valoTeam, 'Weibo Gaming')).rejects.toThrow(
+      /Id VLR attendu/,
+    );
+    await expect(ingestion.resolveTeamProviderId(cs2Team, '123')).rejects.toThrow(
+      /Aucune fiche équipe/,
+    );
+  });
+});

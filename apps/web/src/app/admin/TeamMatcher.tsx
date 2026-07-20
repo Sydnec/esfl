@@ -125,7 +125,117 @@ export function TeamMatcher() {
         />
         <SearchPanel authedFetch={authedFetch} busy={busy} applyAlias={applyAlias} />
       </div>
+      <MissingProviderIdPanel authedFetch={authedFetch} />
     </section>
+  );
+}
+
+/** Équipe LoL/Valorant sans identité chez la source de stats. */
+interface MissingProviderIdTeam {
+  id: string;
+  gameId: string;
+  name: string;
+  acronym: string | null;
+  aliases: string[];
+  players: number;
+  matches: number;
+}
+
+/**
+ * Identités provider manquantes (LoL/Valorant). Sans elle, une équipe n'a ni
+ * roster spécialisé ni fiche enrichie, et son matching de stats repose sur le
+ * seul nom Pandascore. La saisie est validée contre la fiche source avant
+ * d'être enregistrée : on voit tout de suite si on a visé la bonne équipe.
+ */
+function MissingProviderIdPanel({ authedFetch }: { authedFetch: AuthedFetch }) {
+  const [teams, setTeams] = useState<MissingProviderIdTeam[]>([]);
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setTeams(await authedFetch<MissingProviderIdTeam[]>('/data/admin/teams/missing-provider-id'));
+    } catch {
+      // panneau simplement vide en cas d'erreur
+    }
+  }, [authedFetch]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function apply(team: MissingProviderIdTeam) {
+    const value = (draft[team.id] ?? '').trim();
+    if (!value) return;
+    setBusy(team.id);
+    setNote(null);
+    try {
+      const res = await authedFetch<{
+        providerTeamId: string;
+        profile: { name?: string | null; roster: number };
+        reingested: number;
+      }>(`/data/admin/teams/${team.id}/provider-id?value=${encodeURIComponent(value)}`, {
+        method: 'POST',
+      });
+      setNote(
+        `${team.name} rattachée à « ${res.profile.name ?? res.providerTeamId} » ` +
+          `(${res.profile.roster} joueurs), ${res.reingested} match(s) relancé(s).`,
+      );
+      setDraft((current) => ({ ...current, [team.id]: '' }));
+      await load();
+    } catch (error) {
+      setNote(error instanceof Error ? error.message : 'Identifiant refusé par la source');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (teams.length === 0) return null;
+
+  return (
+    <div className={styles.matcherCol}>
+      <h3 className={styles.colTitle}>Identités provider manquantes</h3>
+      <p className={styles.hint}>
+        LoL : nom ou lien lol.fandom.com. Valorant : lien vlr.gg/team/… ou id numérique. La fiche
+        est vérifiée chez la source avant enregistrement, puis le roster et les matchs sans stats
+        sont relancés.
+      </p>
+      {note && <p className={styles.note}>{note}</p>}
+      {teams.map((team) => (
+        <div key={team.id} className={styles.unmatchedItem}>
+          <div className={styles.unmatchedHead}>
+            <span>
+              <strong>{team.name}</strong>
+              {team.acronym ? ` (${team.acronym})` : ''} · {gameLabel(team.gameId)}
+            </span>
+            <span>
+              {team.matches} match(s), {team.players} joueur(s)
+            </span>
+          </div>
+          <span className={styles.aliasList}>
+            <input
+              className={styles.searchInput}
+              placeholder={team.gameId === 'lol' ? 'lien lol.fandom.com ou nom…' : 'lien vlr.gg/team/… ou id'}
+              value={draft[team.id] ?? ''}
+              onChange={(event) =>
+                setDraft((current) => ({ ...current, [team.id]: event.target.value }))
+              }
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') void apply(team);
+              }}
+            />
+            <button
+              className={styles.action}
+              disabled={busy === team.id}
+              onClick={() => void apply(team)}
+            >
+              {busy === team.id ? '…' : 'Rattacher'}
+            </button>
+          </span>
+        </div>
+      ))}
+    </div>
   );
 }
 
