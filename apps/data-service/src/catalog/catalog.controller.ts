@@ -138,10 +138,18 @@ export class CatalogController {
     return this.catalog.dayCompleteness(date);
   }
 
-  /** Déclenchement manuel d'un job d'ingestion (réservé à un usage admin/dev). */
+  /**
+   * Déclenchement manuel d'un job d'ingestion (réservé à un usage admin/dev).
+   *
+   * `backfill-history` accepte `?since=YYYY-MM-DD` : il rafraîchit le catalogue
+   * puis enfile l'ingestion des stats de TOUS les matchs finis depuis cette
+   * date, sans se limiter aux compétitions suivies ni à la fenêtre de 7 jours
+   * des autres relances. Réservé aux reconstructions massives — il ne partait
+   * jusqu'ici qu'au tout premier démarrage, sur base vide.
+   */
   @Post('admin/sync/:job')
   @UseGuards(AdminGuard)
-  async triggerSync(@Param('job') job: string) {
+  async triggerSync(@Param('job') job: string, @Query('since') since?: string) {
     const allowed: IngestionJobName[] = [
       'sync-series',
       'sync-matches',
@@ -150,12 +158,25 @@ export class CatalogController {
       'check-grid-coverage',
       'sync-live-stats',
       'retry-stats-backfill',
+      'backfill-history',
     ];
     if (!allowed.includes(job as IngestionJobName)) {
       throw new BadRequestException(`Job inconnu : ${job}`);
     }
-    await this.ingestionQueue.add(job, {});
-    return { enqueued: job };
+    if (job !== 'backfill-history') {
+      await this.ingestionQueue.add(job, {});
+      return { enqueued: job };
+    }
+    // Défaut aligné sur le premier démarrage : 4 mois glissants.
+    const fallback = new Date();
+    fallback.setUTCMonth(fallback.getUTCMonth() - 4);
+    const from = since ? parseDate(since, 'since') : fallback;
+    await this.ingestionQueue.add(
+      job,
+      { since: (from ?? fallback).toISOString() },
+      { attempts: 3, backoff: { type: 'exponential', delay: 60_000 }, removeOnComplete: true },
+    );
+    return { enqueued: job, since: (from ?? fallback).toISOString().slice(0, 10) };
   }
 
   /** Sync immédiat d'une compétition (appelé par le fantasy-service à l'ajout). */
