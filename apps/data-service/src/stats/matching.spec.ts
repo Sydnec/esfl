@@ -5,6 +5,7 @@ import {
   matchPlayer,
   normalizeName,
   teamMatches,
+  teamMatchesExact,
   teamNamesMatch,
 } from './matching';
 
@@ -93,6 +94,27 @@ describe('teamMatches', () => {
     expect(teamMatches('Liquid Pro', team)).toBe(false);
     // Le nom Pandascore, lui, reste rapproché en flou.
     expect(teamMatches('largados y pelados', team)).toBe(true);
+  });
+});
+
+describe('teamMatchesExact', () => {
+  it('égalité normalisée exacte sur le nom ou un alias', () => {
+    const team = { name: 'Cloud9', aliases: ['C9'] };
+    expect(teamMatchesExact('Cloud9', team)).toBe(true);
+    expect(teamMatchesExact('cloud 9', team)).toBe(true); // normalisation
+    expect(teamMatchesExact('C9', team)).toBe(true);
+  });
+
+  it('ne matche PAS une équipe dérivée dont le nom contient le nôtre', () => {
+    const team = { name: 'Cloud9', aliases: [] };
+    // C'est tout l'objet du correctif : « Cloud9 Academy » ⊃ « Cloud9 ».
+    expect(teamMatchesExact('Cloud9 Academy', team)).toBe(false);
+    expect(teamMatchesExact('Cloud9 Kia', team)).toBe(false);
+    expect(teamMatchesExact('Sentinels GC', { name: 'Sentinels' })).toBe(false);
+  });
+
+  it('chaîne vide ne matche jamais', () => {
+    expect(teamMatchesExact('', { name: 'Cloud9' })).toBe(false);
   });
 });
 

@@ -39,6 +39,21 @@ export function teamMatches(externalName: string, team: TeamRef): boolean {
   return (team.aliases ?? []).some((alias) => normalizeName(alias) === normalized);
 }
 
+/**
+ * Variante STRICTE : égalité normalisée exacte au nom ou à un alias, sans la
+ * sous-chaîne floue de `teamNamesMatch`. Indispensable quand une même fenêtre
+ * contient une équipe et ses dérivées : « Cloud9 » ne doit PAS matcher
+ * « Cloud9 Academy » ni « Sentinels » matcher « Sentinels GC », sinon les
+ * rosters de deux parties distinctes fusionnent. À utiliser là où le nom
+ * externe est fiable et canonique (Leaguepedia : `SG.Team1/Team2`).
+ */
+export function teamMatchesExact(externalName: string, team: TeamRef): boolean {
+  const normalized = normalizeName(externalName);
+  if (!normalized) return false;
+  if (normalized === normalizeName(team.name)) return true;
+  return (team.aliases ?? []).some((alias) => normalizeName(alias) === normalized);
+}
+
 /** Affiche d'une rencontre côté provider, pour la corrélation adverse. */
 export interface OpponentPair {
   nameA: string;

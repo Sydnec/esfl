@@ -240,6 +240,31 @@ describe('mapLeaguepediaRows', () => {
   it('retourne vide si aucune game ne correspond aux équipes', () => {
     expect(mapLeaguepediaRows(rows, { name: 'Karmine Corp' }, { name: 'Vitality' })).toHaveLength(0);
   });
+
+  it('exclut la game d’une équipe dérivée (matching strict, pas de sous-chaîne)', () => {
+    // La fenêtre ±12h contient aussi une game des académies. « G2 Esports
+    // Academy » contient « G2 Esports » : l'ancienne inclusion floue fusionnait
+    // les deux rosters (match à 20 joueurs). L'égalité stricte l'écarte.
+    const withAcademy: LeaguepediaRow[] = [
+      ...rows,
+      {
+        Link: 'Sub Académie (X)',
+        Kills: '9',
+        Deaths: '1',
+        Assists: '4',
+        CS: '260',
+        PlayerWin: 'Yes',
+        Team: 'G2 Esports Academy',
+        Team1: 'G2 Esports Academy',
+        Team2: 'Fnatic Academy',
+        Gamelength: '30',
+      },
+    ];
+    const lines = mapLeaguepediaRows(withAcademy, { name: 'G2 Esports' }, { name: 'Fnatic' });
+    expect(lines.map((line) => line.externalName)).not.toContain('Sub Académie');
+    // Seuls les joueurs de la vraie rencontre G2 vs Fnatic subsistent.
+    expect(lines.every((line) => line.side === 'A' || line.side === 'B')).toBe(true);
+  });
 });
 
 describe('LeaguepediaStatsProvider — cache de fenêtre', () => {

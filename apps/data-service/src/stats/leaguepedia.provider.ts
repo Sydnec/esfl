@@ -8,6 +8,7 @@ import {
   opponentAliasCandidates,
   OpponentPair,
   teamMatches,
+  teamMatchesExact,
   TeamRef,
 } from './matching';
 import { politeFetch } from './polite-fetch';
@@ -162,6 +163,56 @@ export function championImageUrl(champion: string): string {
 }
 
 /**
+ * Lignes de la fenêtre appartenant à UNE seule rencontre teamA vs teamB.
+ *
+ * La fenêtre ±12h contient toutes les parties LoL de la période. Un simple
+ * filtre par paire d'équipes ne suffit pas : le rapprochement flou (tolérant à
+ * « Gen.G » vs « Gen.G Esports ») fait aussi passer les parties des équipes
+ * dérivées (« Cloud9 » ⊂ « Cloud9 Academy »), et agréger deux parties donne un
+ * match à 20 joueurs avec des stats fausses.
+ *
+ * On garde le flou pour la tolérance, mais on CADRE ensuite sur une seule
+ * rencontre : les lignes sont groupées par (page de tournoi + paire d'équipes),
+ * une vraie rencontre (même Bo3) formant un seul groupe. On retient le groupe
+ * qui matche EXACTEMENT nos deux noms, sinon le plus fourni — l'académie, sur
+ * une autre page, est écartée.
+ */
+function scopeMatchRows(
+  rows: LeaguepediaRow[],
+  teamA: TeamRef,
+  teamB: TeamRef,
+): LeaguepediaRow[] {
+  const candidates = rows.filter((row) => {
+    const team1 = row.Team1 ?? '';
+    const team2 = row.Team2 ?? '';
+    return (
+      (teamMatches(team1, teamA) && teamMatches(team2, teamB)) ||
+      (teamMatches(team1, teamB) && teamMatches(team2, teamA))
+    );
+  });
+  if (candidates.length === 0) return [];
+
+  const groups = new Map<string, LeaguepediaRow[]>();
+  for (const row of candidates) {
+    const pair = [normalizeName(row.Team1 ?? ''), normalizeName(row.Team2 ?? '')].sort().join('|');
+    const key = `${row.OverviewPage ?? ''}::${pair}`;
+    groups.set(key, [...(groups.get(key) ?? []), row]);
+  }
+
+  const scored = [...groups.values()].map((group) => {
+    const t1 = group[0].Team1 ?? '';
+    const t2 = group[0].Team2 ?? '';
+    const exact =
+      (teamMatchesExact(t1, teamA) && teamMatchesExact(t2, teamB)) ||
+      (teamMatchesExact(t1, teamB) && teamMatchesExact(t2, teamA));
+    return { group, exact, size: group.length };
+  });
+  // Rencontre exacte d'abord, puis la plus fournie : une seule est retenue.
+  scored.sort((a, b) => Number(b.exact) - Number(a.exact) || b.size - a.size);
+  return scored[0].group;
+}
+
+/**
  * Agrège les games d'un match (Bo3/Bo5) par joueur : K/D/A sommés,
  * csPerMin = CS total / durée totale, win = majorité de games gagnées.
  */
@@ -170,14 +221,7 @@ export function mapLeaguepediaRows(
   teamA: TeamRef,
   teamB: TeamRef,
 ): ProviderStatLine[] {
-  const matchRows = rows.filter((row) => {
-    const team1 = row.Team1 ?? '';
-    const team2 = row.Team2 ?? '';
-    return (
-      (teamMatches(team1, teamA) && teamMatches(team2, teamB)) ||
-      (teamMatches(team1, teamB) && teamMatches(team2, teamA))
-    );
-  });
+  const matchRows = scopeMatchRows(rows, teamA, teamB);
   if (matchRows.length === 0) return [];
 
   // Totaux d'équipe par game (kills, dégâts, or) : base des ratios KP%,
@@ -277,6 +321,8 @@ export function mapLeaguepediaRows(
 
   const lines: ProviderStatLine[] = [];
   for (const [name, aggregate] of byPlayer) {
+    // Rows déjà cadrées sur une seule rencontre : le flou est sûr ici et gère
+    // « Gen.G » (notre nom) vs « Gen.G Esports » (canonique Leaguepedia).
     const side = teamMatches(aggregate.team ?? '', teamA)
       ? 'A'
       : teamMatches(aggregate.team ?? '', teamB)
@@ -332,15 +378,7 @@ export function leaguepediaPageUrl(
   teamA: TeamRef,
   teamB: TeamRef,
 ): string | null {
-  const row = rows.find((candidate) => {
-    const team1 = candidate.Team1 ?? '';
-    const team2 = candidate.Team2 ?? '';
-    return (
-      (teamMatches(team1, teamA) && teamMatches(team2, teamB)) ||
-      (teamMatches(team1, teamB) && teamMatches(team2, teamA))
-    );
-  });
-  const page = row?.OverviewPage?.trim();
+  const page = scopeMatchRows(rows, teamA, teamB)[0]?.OverviewPage?.trim();
   return page ? `https://lol.fandom.com/wiki/${encodeURI(page.replace(/ /g, '_'))}` : null;
 }
 
@@ -360,14 +398,7 @@ export function leaguepediaTeamNames(
   teamA: TeamRef,
   teamB: TeamRef,
 ): { A?: string | null; B?: string | null } {
-  const matchRows = rows.filter((row) => {
-    const team1 = row.Team1 ?? '';
-    const team2 = row.Team2 ?? '';
-    return (
-      (teamMatches(team1, teamA) && teamMatches(team2, teamB)) ||
-      (teamMatches(team1, teamB) && teamMatches(team2, teamA))
-    );
-  });
+  const matchRows = scopeMatchRows(rows, teamA, teamB);
   const canonical = (team: TeamRef): string | null => {
     let fuzzy: string | null = null;
     for (const row of matchRows) {
@@ -388,14 +419,7 @@ export function mapLeaguepediaGames(
   teamA: TeamRef,
   teamB: TeamRef,
 ): ProviderGameInfo[] {
-  const matchRows = rows.filter((row) => {
-    const team1 = row.Team1 ?? '';
-    const team2 = row.Team2 ?? '';
-    return (
-      (teamMatches(team1, teamA) && teamMatches(team2, teamB)) ||
-      (teamMatches(team1, teamB) && teamMatches(team2, teamA))
-    );
-  });
+  const matchRows = scopeMatchRows(rows, teamA, teamB);
   const byGame = new Map<string, LeaguepediaRow[]>();
   for (const row of matchRows) {
     const key = row.GameId ?? `${row.GameNumber ?? '?'}`;
