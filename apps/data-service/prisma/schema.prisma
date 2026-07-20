@@ -125,6 +125,7 @@ model Player {
   fieldSources Json?   @map("field_sources")
   team         Team?   @relation(fields: [teamId], references: [id], onDelete: SetNull)
   stats        PlayerMatchStats[]
+  adoptionCandidate PlayerAdoptionCandidate?
 
   @@index([gameId])
   @@index([teamId])
@@ -140,9 +141,15 @@ model PlayerAdoptionCandidate {
   id String @id @default(cuid())
   /** Fiche locale orpheline concernée. */
   playerId String @unique @map("player_id")
-  /** Candidats Pandascore : [{ id, name, teamName, role }]. */
+  /** Candidats Pandascore : [{ id, name, teamName, role, realName, nationality }]. */
   candidates Json
   createdAt DateTime @default(now()) @map("created_at")
+  /**
+   * Cascade : sans elle, une purge des joueurs laisse des cas d'arbitrage
+   * pointant vers des fiches disparues. Le panneau admin les ignore, mais la
+   * table ment sur le travail restant.
+   */
+  player Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
 
   @@map("player_adoption_candidates")
 }

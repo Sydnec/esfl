@@ -46,6 +46,7 @@ export interface AdoptionReport {
   fusionnes: number;
   ambigus: number;
   introuvables: number;
+  erreurs: number;
 }
 
 /**
@@ -78,6 +79,7 @@ export class PlayerAdoptionService {
       fusionnes: 0,
       ambigus: 0,
       introuvables: 0,
+      erreurs: 0,
     };
     if (!this.pandascore.enabled) {
       this.logger.warn('Adoption ignorée : PANDASCORE_TOKEN absent');
@@ -126,6 +128,22 @@ export class PlayerAdoptionService {
         byKey.set(key, [...(byKey.get(key) ?? []), player]);
       }
 
+      // Repli insensible à la casse sur ce que la recherche en lot n'a pas
+      // trouvé : Pandascore capitalise arbitrairement au milieu des pseudos, et
+      // `filter[name]` compare à la casse exacte. Un appel par joueur, donc
+      // réservé au résidu.
+      const unresolved = orphans.filter((orphan) => !byKey.has(normalizeName(orphan.name)));
+      for (const orphan of unresolved) {
+        const key = normalizeName(orphan.name);
+        if (!key || byKey.has(key)) continue;
+        const hits = await this.pandascore
+          .searchPlayerByName(gameId as GameId, orphan.name)
+          .catch(() => [] as PSPlayer[]);
+        // `search` est par sous-chaîne : on ne garde que l'égalité normalisée.
+        const exact = hits.filter((hit) => normalizeName(hit.name) === key);
+        if (exact.length > 0) byKey.set(key, exact);
+      }
+
       for (const orphan of orphans) {
         const candidates = byKey.get(normalizeName(orphan.name)) ?? [];
         if (candidates.length === 0) {
@@ -139,16 +157,24 @@ export class PlayerAdoptionService {
           continue;
         }
         // Plusieurs identités retenues = Pandascore se dédouble ; la première
-        // devient l'identité principale, les autres des alias.
-        const outcome = await this.adoptOne(orphan, resolved[0], resolved.slice(1).map((c) => c.id));
-        if (outcome === 'fusion') report.fusionnes += 1;
-        else if (outcome === 'adoption') report.adoptes += 1;
+        // devient l'identité principale, les autres des alias. Isolé par
+        // orphelin : une fiche en erreur (conflit d'unicité inattendu) ne doit
+        // pas faire échouer toute la passe.
+        try {
+          const outcome = await this.adoptOne(orphan, resolved[0], resolved.slice(1).map((c) => c.id));
+          if (outcome === 'fusion') report.fusionnes += 1;
+          else if (outcome === 'adoption') report.adoptes += 1;
+        } catch (error) {
+          report.erreurs += 1;
+          this.logger.warn(`Adoption échouée pour ${orphan.name} (${orphan.id}) : ${String(error)}`);
+        }
       }
     }
 
     this.logger.log(
       `Adoption : ${report.adoptes} adoptée(s), ${report.fusionnes} fusionnée(s), ` +
-        `${report.ambigus} ambiguë(s), ${report.introuvables} introuvable(s) sur ${report.orphelins}`,
+        `${report.ambigus} ambiguë(s), ${report.introuvables} introuvable(s), ` +
+        `${report.erreurs} erreur(s) sur ${report.orphelins}`,
     );
     return report;
   }

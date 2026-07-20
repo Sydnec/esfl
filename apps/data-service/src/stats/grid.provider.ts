@@ -224,6 +224,24 @@ export function mapGridSeriesState(
   return lines;
 }
 
+/**
+ * Provider CS2 (Grid). Volontairement dépourvu de `searchTeam` et de
+ * `fetchTeamProfile`, contrairement à VLR et Leaguepedia : notre clé API n'a
+ * pas accès aux données d'identité de central-data (`fullName`, `nationality`
+ * répondent PERMISSION_DENIED). Trois conséquences assumées :
+ *
+ * - l'id Grid d'une équipe ne s'apprend que depuis un match réellement ingéré,
+ *   sans résolution proactive possible. Les équipes dont Grid ne couvre aucun
+ *   tournoi restent donc sans id provider et sans joueur, définitivement — la
+ *   saisie manuelle d'identité (admin/teams/:id/provider-id) ne s'applique pas
+ *   à CS2, faute de fiche équipe à viser ;
+ * - aucun patronyme côté CS2, donc pas de départage automatique des homonymes
+ *   Pandascore : ces cas passent par l'arbitrage admin ;
+ * - les rosters CS2 ne se peuplent que via les lignes de stats.
+ *
+ * Tout ceci se débloquerait par un relèvement de l'abonnement Grid, sans
+ * changement de code au-delà de l'implémentation des deux méthodes.
+ */
 @Injectable()
 export class GridStatsProvider implements GameStatsProvider {
   readonly source = 'grid';

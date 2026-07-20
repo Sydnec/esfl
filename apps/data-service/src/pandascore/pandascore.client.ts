@@ -171,4 +171,26 @@ export class PandascoreClient {
     }
     return players;
   }
+
+  /**
+   * Recherche d'un joueur par pseudo, INSENSIBLE À LA CASSE.
+   *
+   * `filter[name]` compare à la casse exacte, et Pandascore capitalise
+   * arbitrairement, y compris au milieu du pseudo (« KRIMZ », « Ax1Le »,
+   * « KaRnez », « iDISBALANCE ») : aucune liste de graphies ne peut le deviner.
+   * `search[name]` s'en affranchit, mais n'accepte pas de lot — d'où un appel
+   * par pseudo, réservé au résidu que la recherche en lot n'a pas trouvé.
+   *
+   * La recherche est par sous-chaîne : l'appelant doit re-filtrer sur le pseudo
+   * normalisé, sans quoi « alex » ramènerait tous les « alexander ».
+   */
+  async searchPlayerByName(game: GameId, name: string): Promise<PSPlayer[]> {
+    const trimmed = name.trim();
+    if (!trimmed) return [];
+    const prefix = PANDASCORE_PATHS[game];
+    return this.get<PSPlayer[]>(`/${prefix}/players`, {
+      'search[name]': trimmed,
+      per_page: PER_PAGE,
+    });
+  }
 }
