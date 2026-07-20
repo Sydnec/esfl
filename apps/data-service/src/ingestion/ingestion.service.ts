@@ -5,6 +5,7 @@ import { GAME_IDS, GameId } from '@esfl/contracts';
 import type { Competition, Prisma, Team } from '../../generated/client';
 import { Queue } from 'bullmq';
 import { pandascoreUpdate, providerUpdate } from '../common/field-precedence';
+import { createPlayerSafely } from '../common/player-create';
 import { mergeGamesSummary } from '../common/games-summary';
 import { buildPlayerIndex, matchPlayer, normalizeName } from '../stats/matching';
 import type { StarterRef } from '../stats/provider';
@@ -378,17 +379,17 @@ export class IngestionService {
         matchPlayer(index, starter.name);
       if (!local) {
         const seed = providerUpdate(profile, source, { name: source });
-        const created = await this.prisma.player.create({
-          data: {
-            name: starter.name,
-            gameId: team.gameId,
-            teamId: team.id,
-            source,
-            providerIds: starter.externalId ? { [source]: starter.externalId } : undefined,
-            ...seed.data,
-            // Champs posés par le provider : possédés d'entrée.
-            fieldSources: seed.fieldSources,
-          },
+        // Création tolérante à la course : `sync-rosters` et `enrich-team`
+        // peuvent traiter la même équipe en parallèle sur le même worker.
+        const created = await createPlayerSafely(this.prisma, {
+          name: starter.name,
+          gameId: team.gameId,
+          teamId: team.id,
+          source,
+          providerIds: starter.externalId ? { [source]: starter.externalId } : undefined,
+          ...seed.data,
+          // Champs posés par le provider : possédés d'entrée.
+          fieldSources: seed.fieldSources,
         });
         local = { id: created.id, name: created.name };
         index.set(normalizeName(created.name), local);

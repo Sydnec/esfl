@@ -5,6 +5,7 @@ import { Queue } from 'bullmq';
 import { Prisma } from '../../generated/client';
 import type { Match, Player, Team } from '../../generated/client';
 import { providerUpdate } from '../common/field-precedence';
+import { createPlayerSafely } from '../common/player-create';
 import { mergeGamesSummary } from '../common/games-summary';
 import { enqueueEnrichTeam, INGESTION_QUEUE } from '../ingestion/ingestion.constants';
 import { LiveEventsService } from '../live/live-events.service';
@@ -322,18 +323,18 @@ export class StatsIngestionService {
           );
           continue;
         }
-        const created = await this.prisma.player.create({
-          data: {
-            gameId: match.gameId,
-            name: line.externalName,
-            teamId: team.id,
-            role: line.role ?? null,
-            source,
-            providerIds: line.externalId ? { [source]: line.externalId } : undefined,
-            // Champs posés par le provider : possédés d'entrée (Pandascore ne
-            // fera que compléter les manquants à l'adoption).
-            fieldSources: { name: source, ...(line.role ? { role: source } : {}) },
-          },
+        // Création tolérante à la course : un job concurrent sur la même
+        // équipe peut avoir créé la fiche depuis le chargement de l'index.
+        const created = await createPlayerSafely(this.prisma, {
+          gameId: match.gameId,
+          name: line.externalName,
+          teamId: team.id,
+          role: line.role ?? null,
+          source,
+          providerIds: line.externalId ? { [source]: line.externalId } : undefined,
+          // Champs posés par le provider : possédés d'entrée (Pandascore ne
+          // fera que compléter les manquants à l'adoption).
+          fieldSources: { name: source, ...(line.role ? { role: source } : {}) },
         });
         local = created;
         playersById.set(created.id, created);
