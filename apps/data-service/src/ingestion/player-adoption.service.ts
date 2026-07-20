@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { GAME_IDS, GameId } from '@esfl/contracts';
 import { pandascoreUpdate } from '../common/field-precedence';
+import { reassignPlayerStats } from '../common/player-merge';
 import { PandascoreClient } from '../pandascore/pandascore.client';
 import { LeaguepediaStatsProvider } from '../stats/leaguepedia.provider';
 import type { PSPlayer } from '../pandascore/pandascore.types';
@@ -37,6 +38,51 @@ export function realNameKey(...parts: Array<string | null | undefined>): string 
     .filter(Boolean)
     .sort()
     .join('|');
+}
+
+/** Identité locale servant au départage (sous-ensemble de Player). */
+export interface OrphanIdentity {
+  firstName: string | null;
+  lastName: string | null;
+  nationality: string | null;
+}
+
+/**
+ * Départage plusieurs joueurs Pandascore homonymes. Rend la liste des identités
+ * à retenir : vide si le doute persiste (arbitrage humain), un élément pour une
+ * adoption simple, plusieurs quand ce sont les identités dupliquées d'une même
+ * personne. Fonction pure (aucune I/O) pour être testable directement.
+ *
+ * Trois critères, du plus au moins probant. Le pseudo ne discrimine rien ici
+ * puisqu'il est identique par construction.
+ */
+export function disambiguate(orphan: OrphanIdentity, candidates: PSPlayer[]): PSPlayer[] {
+  // 1. Tous les candidats portent le même patronyme : ce n'est pas une
+  //    ambiguïté mais un doublon chez Pandascore, on réunit les identités.
+  const keys = candidates.map((c) => realNameKey(c.first_name, c.last_name));
+  if (keys[0] && keys.every((key) => key === keys[0])) return candidates;
+
+  // 2. Le patronyme de notre fiche (publié par Leaguepedia ou VLR) désigne au
+  //    moins un candidat : soit un seul (adoption), soit un doublon Pandascore
+  //    restreint à ceux qui nous correspondent. Preuve la plus forte.
+  const ours = realNameKey(orphan.firstName, orphan.lastName);
+  if (ours) {
+    const byName = candidates.filter((_, index) => keys[index] === ours);
+    if (byName.length >= 1) return byName;
+  }
+
+  // 3. À défaut, la nationalité. Bien plus faible qu'un patronyme (deux joueurs
+  //    d'un même pays restent possibles), donc réservée au cas où elle isole UN
+  //    seul candidat.
+  const country = (orphan.nationality ?? '').toUpperCase();
+  if (country) {
+    const byCountry = candidates.filter(
+      (candidate) => (candidate.nationality ?? '').toUpperCase() === country,
+    );
+    if (byCountry.length === 1) return byCountry;
+  }
+
+  return [];
 }
 
 /** Bilan d'une passe d'adoption, remonté à l'admin. */
@@ -150,7 +196,7 @@ export class PlayerAdoptionService {
           report.introuvables += 1;
           continue;
         }
-        const resolved = candidates.length === 1 ? candidates : this.disambiguate(orphan, candidates);
+        const resolved = candidates.length === 1 ? candidates : disambiguate(orphan, candidates);
         if (resolved.length === 0) {
           await this.queueForReview(orphan.id, candidates);
           report.ambigus += 1;
@@ -224,49 +270,6 @@ export class PlayerAdoptionService {
   }
 
   /**
-   * Départage plusieurs joueurs Pandascore homonymes. Rend la liste des
-   * identités à retenir : vide si le doute persiste (arbitrage humain), un
-   * élément pour une adoption simple, plusieurs quand ce sont les identités
-   * dupliquées d'une même personne.
-   *
-   * Trois critères, du plus au moins probant. Le pseudo ne discrimine rien ici
-   * puisqu'il est identique par construction.
-   */
-  private disambiguate(
-    orphan: { firstName: string | null; lastName: string | null; nationality: string | null },
-    candidates: PSPlayer[],
-  ): PSPlayer[] {
-    // 1. Tous les candidats portent le même patronyme : ce n'est pas une
-    //    ambiguïté mais un doublon chez Pandascore, on réunit les identités.
-    const keys = candidates.map((c) => realNameKey(c.first_name, c.last_name));
-    if (keys[0] && keys.every((key) => key === keys[0])) return candidates;
-
-    // 2. Le patronyme de notre fiche (publié par Leaguepedia ou VLR) désigne
-    //    exactement un candidat. Preuve la plus forte dont on dispose.
-    const ours = realNameKey(orphan.firstName, orphan.lastName);
-    if (ours) {
-      const byName = candidates.filter((_, index) => keys[index] === ours);
-      if (byName.length === 1) return byName;
-      // Plusieurs candidats au même patronyme que le nôtre : encore un doublon
-      // Pandascore, mais restreint à ceux qui nous correspondent.
-      if (byName.length > 1) return byName;
-    }
-
-    // 3. À défaut, la nationalité. Bien plus faible qu'un patronyme (deux
-    //    joueurs d'un même pays restent possibles), donc réservée au cas où
-    //    elle isole UN seul candidat.
-    const country = (orphan.nationality ?? '').toUpperCase();
-    if (country) {
-      const byCountry = candidates.filter(
-        (candidate) => (candidate.nationality ?? '').toUpperCase() === country,
-      );
-      if (byCountry.length === 1) return byCountry;
-    }
-
-    return [];
-  }
-
-  /**
    * Pose l'identité Pandascore sur l'orphelin. Si cet id est DÉJÀ porté par une
    * autre fiche locale, les deux fiches sont le même joueur (typiquement le
    * même pseudo sous deux équipes, principale et académie) : c'est un doublon
@@ -286,12 +289,15 @@ export class PlayerAdoptionService {
           { pandascoreAliasIds: { hasSome: [candidate.id, ...aliasIds] } },
         ],
       },
-      select: { id: true, pandascoreAliasIds: true },
+      select: { id: true, pandascoreId: true, pandascoreAliasIds: true },
     });
     if (holder) {
       if (holder.id === orphan.id) return 'ignore';
       await this.mergeOrphanInto(holder.id, orphan.id);
+      // Alias = toutes les identités secondaires, l'id principal de la fiche
+      // gardée exclu (sinon il figurerait à la fois en principal et en alias).
       const known = new Set([...holder.pandascoreAliasIds, ...aliasIds, candidate.id]);
+      known.delete(holder.pandascoreId as number);
       await this.prisma.player.update({
         where: { id: holder.id },
         data: { pandascoreAliasIds: [...known] },
@@ -327,29 +333,12 @@ export class PlayerAdoptionService {
 
   /**
    * Rapatrie les stats de l'orphelin sur la fiche déjà identifiée puis le
-   * supprime. Une ligne déjà présente sur la fiche gardée pour le même match
-   * l'emporte : `@@unique([matchId, playerId])` ne tolère pas le doublon.
+   * supprime. La suppression de la fiche cascade sur son éventuel cas
+   * d'arbitrage (`PlayerAdoptionCandidate.onDelete: Cascade`).
    */
   private async mergeOrphanInto(keepId: string, orphanId: string): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
-      const kept = await tx.playerMatchStats.findMany({
-        where: { playerId: keepId },
-        select: { matchId: true },
-      });
-      const keptMatches = new Set(kept.map((row) => row.matchId));
-      const incoming = await tx.playerMatchStats.findMany({
-        where: { playerId: orphanId },
-        select: { id: true, matchId: true },
-      });
-      const conflicting = incoming.filter((row) => keptMatches.has(row.matchId)).map((r) => r.id);
-      if (conflicting.length > 0) {
-        await tx.playerMatchStats.deleteMany({ where: { id: { in: conflicting } } });
-      }
-      await tx.playerMatchStats.updateMany({
-        where: { playerId: orphanId },
-        data: { playerId: keepId },
-      });
-      await tx.playerAdoptionCandidate.deleteMany({ where: { playerId: orphanId } });
+      await reassignPlayerStats(tx, keepId, [orphanId]);
       await tx.player.delete({ where: { id: orphanId } });
     });
   }

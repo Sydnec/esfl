@@ -37,9 +37,11 @@ export async function createPlayerSafely(
 }
 
 /**
- * Fiche d'une équipe dont le pseudo normalisé correspond. Passe par une
- * requête brute : l'unicité vit dans un index d'expression que Prisma ne
- * connaît pas, donc `findUnique` n'est pas utilisable dessus.
+ * Fiche d'une équipe dont le pseudo normalisé correspond. La requête brute ne
+ * récupère que l'`id` (l'unicité vit dans un index d'expression que Prisma ne
+ * connaît pas, `findUnique` ne s'applique pas dessus), puis on recharge la
+ * fiche via `findUnique` : `$queryRaw` renverrait des colonnes snake_case
+ * (`field_sources`, `team_id`…), pas un vrai objet `Player` camelCase.
  */
 async function findPlayerByNameKey(
   prisma: PrismaService,
@@ -49,12 +51,13 @@ async function findPlayerByNameKey(
 ): Promise<Player | null> {
   const key = normalizeName(name);
   if (!key || !teamId) return null;
-  const rows = await prisma.$queryRaw<Player[]>`
-    SELECT * FROM "players"
+  const rows = await prisma.$queryRaw<Array<{ id: string }>>`
+    SELECT "id" FROM "players"
     WHERE "game_id" = ${gameId}
       AND "team_id" = ${teamId}
       AND lower(regexp_replace("name", '[^a-zA-Z0-9]', '', 'g')) = ${key}
     LIMIT 1
   `;
-  return rows[0] ?? null;
+  const id = rows[0]?.id;
+  return id ? prisma.player.findUnique({ where: { id } }) : null;
 }

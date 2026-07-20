@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { parisDate } from '@esfl/contracts';
 import type { Job, Queue } from 'bullmq';
 import { Prisma } from '../../generated/client';
+import { reassignPlayerStats } from '../common/player-merge';
 import { normalizeName, teamNamesMatch } from '../stats/matching';
 import { PrismaService } from '../prisma.service';
 
@@ -707,23 +708,7 @@ export class CatalogService {
    */
   private async mergePlayerInto(keepId: string, absorbedIds: string[]): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
-      const kept = await tx.playerMatchStats.findMany({
-        where: { playerId: keepId },
-        select: { matchId: true },
-      });
-      const keptMatches = new Set(kept.map((row) => row.matchId));
-      const incoming = await tx.playerMatchStats.findMany({
-        where: { playerId: { in: absorbedIds } },
-        select: { id: true, matchId: true },
-      });
-      const conflicting = incoming.filter((row) => keptMatches.has(row.matchId)).map((r) => r.id);
-      if (conflicting.length > 0) {
-        await tx.playerMatchStats.deleteMany({ where: { id: { in: conflicting } } });
-      }
-      await tx.playerMatchStats.updateMany({
-        where: { playerId: { in: absorbedIds } },
-        data: { playerId: keepId },
-      });
+      await reassignPlayerStats(tx, keepId, absorbedIds);
 
       // Identités provider : l'union, la fiche gardée fait foi en cas de conflit.
       const all = await tx.player.findMany({

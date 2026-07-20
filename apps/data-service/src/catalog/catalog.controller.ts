@@ -310,14 +310,17 @@ export class CatalogController {
   }
 
   /**
-   * Lance une passe d'adoption : retrouve chez Pandascore les fiches joueur
-   * restées sans identité, à l'échelle du jeu et non du seul roster de leur
-   * équipe. Synchrone pour que l'admin voie le bilan.
+   * Planifie une passe d'adoption : retrouve chez Pandascore les fiches joueur
+   * restées sans identité, à l'échelle du jeu. Enfilé plutôt qu'exécuté
+   * en ligne — le repli `search[name]` fait un appel Pandascore par orphelin
+   * (espacés de plusieurs secondes), ce qui dépasse le timeout HTTP sur une
+   * base fraîchement reconstruite. Le bilan est journalisé par le worker.
    */
   @Post('admin/players/adopt-orphans')
   @UseGuards(AdminGuard)
-  adoptOrphanPlayers() {
-    return this.adoption.adoptOrphans();
+  async adoptOrphanPlayers() {
+    await this.ingestionQueue.add('adopt-orphan-players', {});
+    return { enqueued: 'adopt-orphan-players' };
   }
 
   /** Rapprochements Pandascore ambigus en attente d'arbitrage. */

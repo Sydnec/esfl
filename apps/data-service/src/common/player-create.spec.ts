@@ -39,11 +39,14 @@ describe('createPlayerSafely', () => {
         create: vi.fn(async () => {
           throw conflict();
         }),
+        // La récupération relit la fiche gagnante par id (objet Prisma
+        // camelCase complet), pas via le SELECT brut.
+        findUnique: vi.fn(async () => ({ id: 'gagnante', name: 'ZywOo', teamId: 'team-a' })),
       },
-      $queryRaw: vi.fn(async () => [{ id: 'gagnante', name: 'ZywOo' }]),
+      $queryRaw: vi.fn(async () => [{ id: 'gagnante' }]),
     } as unknown as PrismaService;
     const player = await createPlayerSafely(prisma, data);
-    expect(player).toMatchObject({ id: 'gagnante' });
+    expect(player).toMatchObject({ id: 'gagnante', teamId: 'team-a' });
   });
 
   it('conflit sans fiche retrouvée : l’erreur remonte (pas de fiche inventée)', async () => {
