@@ -6,6 +6,20 @@ import type { PSPlayer } from '../pandascore/pandascore.types';
 import { PrismaService } from '../prisma.service';
 import { normalizeName } from '../stats/matching';
 
+/**
+ * Graphies d'un pseudo à soumettre à Pandascore, dont la recherche par nom est
+ * sensible à la casse. Trois formes couvrent l'essentiel des conventions
+ * observées (« xyno », « Salazar », « MATYS ») sans faire exploser le nombre de
+ * requêtes ; les doublons sont dédupliqués par l'appelant.
+ */
+export function nameVariants(name: string): string[] {
+  const raw = name.trim();
+  if (!raw) return [];
+  const lower = raw.toLowerCase();
+  const capitalized = lower.charAt(0).toUpperCase() + lower.slice(1);
+  return [...new Set([raw, lower, capitalized])];
+}
+
 /** Bilan d'une passe d'adoption, remonté à l'admin. */
 export interface AdoptionReport {
   orphelins: number;
@@ -58,9 +72,12 @@ export class PlayerAdoptionService {
       if (orphans.length === 0) continue;
       report.orphelins += orphans.length;
 
-      // `filter[name]` fait une égalité exacte, casse comprise : on envoie les
-      // pseudos tels quels et on rapproche nous-mêmes sur la forme normalisée.
-      const names = [...new Set(orphans.map((player) => player.name))];
+      // `filter[name]` fait une égalité exacte, CASSE COMPRISE : demander
+      // « Xyno » ne renvoie rien quand Pandascore stocke « xyno ». On envoie
+      // donc plusieurs graphies du même pseudo ; le rapprochement final, lui,
+      // reste strict sur la forme normalisée, donc élargir la requête n'élargit
+      // jamais le critère d'adoption.
+      const names = [...new Set(orphans.flatMap((player) => nameVariants(player.name)))];
       const found = await this.pandascore
         .listPlayersByNames(gameId as GameId, names)
         .catch((error) => {
