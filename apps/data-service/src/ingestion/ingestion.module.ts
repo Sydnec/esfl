@@ -13,6 +13,7 @@ import { INGESTION_QUEUE } from './ingestion.constants';
 import { IngestionProcessor } from './ingestion.processor';
 import { IngestionScheduler } from './ingestion.scheduler';
 import { IngestionService } from './ingestion.service';
+import { PlayerAdoptionService } from './player-adoption.service';
 import { TeamEnrichmentService } from './team-enrichment.service';
 
 @Module({
@@ -29,6 +30,7 @@ import { TeamEnrichmentService } from './team-enrichment.service';
     IngestionProcessor,
     IngestionScheduler,
     TeamEnrichmentService,
+    PlayerAdoptionService,
     StatsIngestionService,
     GridStatsProvider,
     VlrStatsProvider,
@@ -38,6 +40,7 @@ import { TeamEnrichmentService } from './team-enrichment.service';
     IngestionService,
     StatsIngestionService,
     TeamEnrichmentService,
+    PlayerAdoptionService,
     PandascoreClient,
     FantasyClient,
     BullModule,

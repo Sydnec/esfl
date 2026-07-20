@@ -744,6 +744,49 @@ export class CatalogService {
     });
   }
 
+  /**
+   * Rapprochements Pandascore ambigus en attente d'arbitrage, avec la fiche
+   * locale et son équipe pour que l'admin puisse trancher sur pièces.
+   */
+  async listPlayerAdoptions(): Promise<
+    Array<{
+      playerId: string;
+      name: string;
+      gameId: string;
+      teamName: string | null;
+      candidates: unknown;
+    }>
+  > {
+    const entries = await this.prisma.playerAdoptionCandidate.findMany({
+      orderBy: { createdAt: 'asc' },
+    });
+    if (entries.length === 0) return [];
+    const players = await this.prisma.player.findMany({
+      where: { id: { in: entries.map((entry) => entry.playerId) } },
+      select: { id: true, name: true, gameId: true, team: { select: { name: true } } },
+    });
+    const byId = new Map(players.map((player) => [player.id, player]));
+    return entries.flatMap((entry) => {
+      const player = byId.get(entry.playerId);
+      if (!player) return [];
+      return [
+        {
+          playerId: entry.playerId,
+          name: player.name,
+          gameId: player.gameId,
+          teamName: player.team?.name ?? null,
+          candidates: entry.candidates,
+        },
+      ];
+    });
+  }
+
+  /** Écarte un cas ambigu : aucun candidat ne correspond, on n'y revient plus. */
+  async dismissPlayerAdoption(playerId: string): Promise<{ dismissed: boolean }> {
+    const { count } = await this.prisma.playerAdoptionCandidate.deleteMany({ where: { playerId } });
+    return { dismissed: count > 0 };
+  }
+
   /** Équipe par id, ou 404. */
   async getTeam(teamId: string) {
     const team = await this.prisma.team.findUnique({ where: { id: teamId } });

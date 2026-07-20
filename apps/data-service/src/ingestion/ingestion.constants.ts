@@ -100,4 +100,5 @@ export type IngestionJobName =
   | 'retry-stats-backfill'
   | 'backfill-history'
   | 'enrich-team'
-  | 'backfill-team-players';
+  | 'backfill-team-players'
+  | 'adopt-orphan-players';

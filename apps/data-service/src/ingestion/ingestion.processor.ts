@@ -4,6 +4,7 @@ import { Job } from 'bullmq';
 import { StatsIngestionService } from '../stats/stats-ingestion';
 import { INGESTION_QUEUE, IngestionJobName } from './ingestion.constants';
 import { IngestionService } from './ingestion.service';
+import { PlayerAdoptionService } from './player-adoption.service';
 import { TeamEnrichmentService } from './team-enrichment.service';
 
 export { INGESTION_QUEUE };
@@ -22,6 +23,7 @@ export class IngestionProcessor extends WorkerHost {
     private readonly ingestion: IngestionService,
     private readonly statsIngestion: StatsIngestionService,
     private readonly teamEnrichment: TeamEnrichmentService,
+    private readonly adoption: PlayerAdoptionService,
   ) {
     super();
   }
@@ -49,6 +51,9 @@ export class IngestionProcessor extends WorkerHost {
         break;
       case 'sync-live-stats':
         await this.statsIngestion.syncLiveStats();
+        break;
+      case 'adopt-orphan-players':
+        await this.adoption.adoptOrphans();
         break;
       case 'backfill-history': {
         // Premier démarrage (base vide) : ingestion de tout l'historique.

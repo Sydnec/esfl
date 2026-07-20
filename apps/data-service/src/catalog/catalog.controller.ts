@@ -19,6 +19,7 @@ import {
   INGESTION_QUEUE,
   IngestionJobName,
 } from '../ingestion/ingestion.constants';
+import { PlayerAdoptionService } from '../ingestion/player-adoption.service';
 import { TeamEnrichmentService } from '../ingestion/team-enrichment.service';
 import { StatsIngestionService } from '../stats/stats-ingestion';
 import { CatalogService } from './catalog.service';
@@ -43,6 +44,7 @@ export class CatalogController {
     private readonly fantasyClient: FantasyClient,
     private readonly statsIngestion: StatsIngestionService,
     private readonly enrichment: TeamEnrichmentService,
+    private readonly adoption: PlayerAdoptionService,
     @InjectQueue(INGESTION_QUEUE) private readonly ingestionQueue: Queue,
   ) {}
 
@@ -284,6 +286,42 @@ export class CatalogController {
       matchIds.map((id) => enqueueIngestStats(this.ingestionQueue, id, true, true)),
     );
     return { aliases, reingested: matchIds.length, added, redundant };
+  }
+
+  /**
+   * Lance une passe d'adoption : retrouve chez Pandascore les fiches joueur
+   * restées sans identité, à l'échelle du jeu et non du seul roster de leur
+   * équipe. Synchrone pour que l'admin voie le bilan.
+   */
+  @Post('admin/players/adopt-orphans')
+  @UseGuards(AdminGuard)
+  adoptOrphanPlayers() {
+    return this.adoption.adoptOrphans();
+  }
+
+  /** Rapprochements Pandascore ambigus en attente d'arbitrage. */
+  @Get('admin/player-adoptions')
+  @UseGuards(AdminGuard)
+  playerAdoptions() {
+    return this.catalog.listPlayerAdoptions();
+  }
+
+  /** Arbitrage d'un cas ambigu : l'identité choisie parmi les candidats proposés. */
+  @Post('admin/players/:playerId/adopt')
+  @UseGuards(AdminGuard)
+  adoptPlayer(@Param('playerId') playerId: string, @Query('pandascoreId') pandascoreId?: string) {
+    const id = Number(pandascoreId);
+    if (!Number.isInteger(id) || id <= 0) {
+      throw new BadRequestException(`Id Pandascore invalide : ${pandascoreId}`);
+    }
+    return this.adoption.resolveAdoption(playerId, id);
+  }
+
+  /** Écarte un cas ambigu (aucun candidat ne correspond). */
+  @Delete('admin/player-adoptions/:playerId')
+  @UseGuards(AdminGuard)
+  dismissPlayerAdoption(@Param('playerId') playerId: string) {
+    return this.catalog.dismissPlayerAdoption(playerId);
   }
 
   /**

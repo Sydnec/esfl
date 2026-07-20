@@ -43,6 +43,12 @@ export interface PSTeam extends PSTeamRef {
   players: PSPlayerRef[];
 }
 
+/** Joueur interrogé hors roster d'équipe (recherche par pseudo). */
+export interface PSPlayer extends PSPlayerRef {
+  /** Équipe courante chez Pandascore, null pour un joueur sans équipe. */
+  current_team: PSTeamRef | null;
+}
+
 export interface PSGame {
   id: number;
   position: number;

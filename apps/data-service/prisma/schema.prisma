@@ -124,6 +124,22 @@ model Player {
   @@map("players")
 }
 
+/**
+ * Rapprochement Pandascore ambigu, en attente d'un arbitrage humain. Plusieurs
+ * joueurs Pandascore portent le même pseudo dans ce jeu : on ne devine pas
+ * (même règle que le rapprochement d'équipe), la page admin tranche.
+ */
+model PlayerAdoptionCandidate {
+  id String @id @default(cuid())
+  /** Fiche locale orpheline concernée. */
+  playerId String @unique @map("player_id")
+  /** Candidats Pandascore : [{ id, name, teamName, role }]. */
+  candidates Json
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("player_adoption_candidates")
+}
+
 model Match {
   id            String      @id @default(cuid())
   pandascoreId  Int         @unique @map("pandascore_id")

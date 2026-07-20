@@ -1,7 +1,7 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GameId, PANDASCORE_PATHS } from '@esfl/contracts';
-import type { PSMatch, PSSerie, PSTeam } from './pandascore.types';
+import type { PSMatch, PSPlayer, PSSerie, PSTeam } from './pandascore.types';
 
 const BASE_URL = 'https://api.pandascore.co';
 const PER_PAGE = 100;
@@ -142,5 +142,33 @@ export class PandascoreClient {
       );
     }
     return teams;
+  }
+
+  /**
+   * Joueurs par pseudo, hors roster d'équipe. `listTeamsWithPlayers` ne voit
+   * que les joueurs du roster COURANT d'une équipe donnée : un joueur passé
+   * dans une autre structure (académie, transfert) y est invisible, alors
+   * qu'il existe bien chez Pandascore. Cet appel permet de le retrouver.
+   *
+   * `filter[name]` accepte une liste séparée par des virgules et fait une
+   * égalité exacte (casse comprise) : l'appelant doit donc rapprocher lui-même
+   * sur le pseudo normalisé, et fournir toutes les variantes de casse utiles.
+   */
+  async listPlayersByNames(game: GameId, names: string[]): Promise<PSPlayer[]> {
+    if (names.length === 0) return [];
+    const prefix = PANDASCORE_PATHS[game];
+    const players: PSPlayer[] = [];
+    // Lots de 50 : les pseudos sont plus longs que des ids, on garde l'URL courte.
+    for (let i = 0; i < names.length; i += 50) {
+      const chunk = names.slice(i, i + 50);
+      players.push(
+        ...(await this.getAllPages<PSPlayer>(
+          `/${prefix}/players`,
+          { 'filter[name]': chunk.join(',') },
+          2,
+        )),
+      );
+    }
+    return players;
   }
 }
