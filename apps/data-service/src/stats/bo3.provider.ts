@@ -22,9 +22,22 @@ const BO3_JITTER_MS = 3_000;
 const MATCH_PAGE_SIZE = 50;
 const MATCH_MAX_PAGES = 4;
 
+/**
+ * Durée de vie du cache mémoire. Un backfill enchaîne des centaines de matchs
+ * qui retapent la MÊME fenêtre (matchs d'une même journée) et les MÊMES
+ * équipes, à 3-6 s l'appel : sans cache, l'essentiel du temps part en requêtes
+ * déjà faites. 10 min reste court devant la fenêtre live (3 min) pour ne pas
+ * masquer longtemps un match tout juste publié.
+ */
+const CACHE_TTL_MS = 10 * 60 * 1000;
+/** Au-delà, on repart de zéro plutôt que de garder un cache non borné. */
+const CACHE_MAX_ENTRIES = 2_000;
+
 interface Bo3TeamRef {
   id: number;
   name: string;
+  /** Nom canonique en minuscules-tirets : bo3 réduit parfois `name` au seul tag. */
+  slug?: string | null;
   acronym?: string | null;
   image_url?: string | null;
 }
@@ -79,7 +92,12 @@ interface Bo3List<T> {
 }
 
 const rnd = (value: number) => Math.round(value);
-const day = (date: Date): string => date.toISOString().slice(0, 10);
+/**
+ * Borne de filtre bo3 : datetime UTC sans fuseau. Une borne en `YYYY-MM-DD`
+ * serait comparée à minuit — avec des opérateurs stricts, le jour du match
+ * lui-même sortait de la fenêtre.
+ */
+const bound = (date: Date): string => date.toISOString().slice(0, 19);
 
 /**
  * Lignes de stats bo3 → ProviderStatLine (une par joueur). Pur, testable.
@@ -147,6 +165,43 @@ export function mapBo3Games(games: Bo3Game[]): ProviderGameInfo[] {
     }));
 }
 
+/** Notre équipe vue du rapprochement : nom Pandascore, tag et alias appris. */
+interface LocalTeamRef {
+  name: string;
+  acronym?: string | null;
+  aliases?: string[];
+}
+
+/** Slug bo3 (« esport-academy-copenhagen ») ramené à un nom lisible. */
+function fromSlug(slug: string): string {
+  return slug.replace(/-/g, ' ');
+}
+
+/** Nom → slug bo3 : minuscules, séparateurs en tirets, ponctuation retirée. */
+export function toSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+/**
+ * Rapproche une équipe bo3 de la nôtre. Le `name` bo3 se réduit parfois au seul
+ * tag (« EAC » pour Esport Academy Copenhagen) : on retente alors sur le slug,
+ * qui garde le nom complet, puis sur l'égalité des tags. Sans ces replis, la
+ * corrélation adverse rate les équipes que bo3 abrège.
+ */
+export function bo3TeamMatches(ref: Bo3TeamRef, team: LocalTeamRef): boolean {
+  const local = { name: team.name, aliases: team.aliases ?? [] };
+  if (teamMatches(ref.name, local)) return true;
+  if (ref.slug && teamMatches(fromSlug(ref.slug), local)) return true;
+  const tag = team.acronym ? normalizeName(team.acronym) : '';
+  if (!tag) return false;
+  return normalizeName(ref.name) === tag || normalizeName(ref.acronym ?? '') === tag;
+}
+
 /**
  * Provider stats CS2 via bo3.gg (remplace Grid). bo3 fournit ADR, rating,
  * clutchs, FK/FD et le vrai nom + pays des joueurs — bien au-delà de Grid.
@@ -162,6 +217,22 @@ export class Bo3StatsProvider implements GameStatsProvider {
   readonly source = 'bo3';
   readonly gameId = 'cs2' as const;
   private readonly logger = new Logger(Bo3StatsProvider.name);
+  private readonly cache = new Map<string, { at: number; value: unknown }>();
+
+  /**
+   * Mémoïse un appel dont la réponse est stable sur quelques minutes (liste de
+   * matchs d'une fenêtre, fiche équipe). Le résultat `null` est caché aussi :
+   * une équipe introuvable le reste, la re-chercher à chaque match du backfill
+   * coûterait autant qu'un vrai appel.
+   */
+  private async cached<T>(key: string, load: () => Promise<T>): Promise<T> {
+    const hit = this.cache.get(key);
+    if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.value as T;
+    const value = await load();
+    if (this.cache.size >= CACHE_MAX_ENTRIES) this.cache.clear();
+    this.cache.set(key, { at: Date.now(), value });
+    return value;
+  }
 
   private async get<T>(path: string): Promise<T | null> {
     const spacing = BO3_MIN_SPACING_MS + Math.floor(Math.random() * BO3_JITTER_MS);
@@ -273,17 +344,17 @@ export class Bo3StatsProvider implements GameStatsProvider {
 
     if (idA == null && idB == null) return null; // aucune équipe résolue
 
-    const gt = day(new Date(reference.getTime() - 12 * 3600 * 1000));
-    const lt = day(new Date(reference.getTime() + 12 * 3600 * 1000));
+    const gt = bound(new Date(reference.getTime() - 12 * 3600 * 1000));
+    const lt = bound(new Date(reference.getTime() + 12 * 3600 * 1000));
     const anchor = (idA ?? idB) as number;
     for (let page = 0; page < MATCH_MAX_PAGES; page += 1) {
       // Tous statuts (un match live est « current », pas « finished ») : le
       // gate requireFinished en aval décide s'il faut attendre la fin.
-      const list = await this.get<Bo3List<Bo3Match>>(
+      const path =
         `/matches?page%5Blimit%5D=${MATCH_PAGE_SIZE}&page%5Boffset%5D=${page * MATCH_PAGE_SIZE}` +
-          `&sort=-start_date&filter%5Bmatches.discipline_id%5D%5Beq%5D=${CS2_DISCIPLINE}` +
-          `&filter%5Bmatches.start_date%5D%5Bgt%5D=${gt}&filter%5Bmatches.start_date%5D%5Blt%5D=${lt}`,
-      );
+        `&sort=-start_date&filter%5Bmatches.discipline_id%5D%5Beq%5D=${CS2_DISCIPLINE}` +
+        `&filter%5Bmatches.start_date%5D%5Bgt%5D=${gt}&filter%5Bmatches.start_date%5D%5Blt%5D=${lt}`;
+      const list = await this.cached(path, () => this.get<Bo3List<Bo3Match>>(path));
       const results = list?.results ?? [];
       for (const m of results) {
         if (!m.team1_id || !m.team2_id) continue;
@@ -298,9 +369,9 @@ export class Bo3StatsProvider implements GameStatsProvider {
         // l'adversaire — on vérifie son nom bo3 contre notre équipe non résolue.
         if (!ids.includes(anchor)) continue;
         const otherId = ids[0] === anchor ? ids[1] : ids[0];
-        const otherName = await this.teamNameById(otherId);
+        const otherRef = await this.teamRefById(otherId);
         const otherTeam = idA != null ? teamB : teamA;
-        if (otherName && teamMatches(otherName, otherTeam)) {
+        if (otherRef && bo3TeamMatches(otherRef, otherTeam)) {
           return idA != null
             ? { matchId: String(m.id), idA, idB: otherId }
             : { matchId: String(m.id), idA: otherId, idB };
@@ -321,10 +392,10 @@ export class Bo3StatsProvider implements GameStatsProvider {
   ): Promise<[number | null, number | null]> {
     for (const id of ids) {
       if (id === idA || id === idB) continue;
-      const name = await this.teamNameById(id);
-      if (!name) continue;
-      if (idA == null && teamMatches(name, teamA)) idA = id;
-      else if (idB == null && teamMatches(name, teamB)) idB = id;
+      const ref = await this.teamRefById(id);
+      if (!ref) continue;
+      if (idA == null && bo3TeamMatches(ref, teamA)) idA = id;
+      else if (idB == null && bo3TeamMatches(ref, teamB)) idB = id;
     }
     return [idA, idB];
   }
@@ -344,27 +415,33 @@ export class Bo3StatsProvider implements GameStatsProvider {
     return info?.results?.[0] ?? null;
   }
 
-  private async teamNameById(teamId: number): Promise<string | null> {
-    const list = await this.get<Bo3List<Bo3TeamRef>>(
-      `/teams?page%5Blimit%5D=1&filter%5Bteams.id%5D%5Beq%5D=${teamId}`,
-    );
-    return list?.results?.[0]?.name ?? null;
+  private async teamRefById(teamId: number): Promise<Bo3TeamRef | null> {
+    const path = `/teams?page%5Blimit%5D=1&filter%5Bteams.id%5D%5Beq%5D=${teamId}`;
+    const list = await this.cached(path, () => this.get<Bo3List<Bo3TeamRef>>(path));
+    return list?.results?.[0] ?? null;
   }
 
   /**
-   * Résolution proactive nom → id d'équipe bo3, stricte : nom exactement
-   * identique (après `filter[teams.name][like]`), ou nom proche confirmé par un
-   * tag EXACT. Null si introuvable ou ambigu — jamais de best guess.
+   * Résolution proactive nom → id d'équipe bo3, stricte. Dans l'ordre :
+   * 1. slug exact déduit de notre nom (« Esport Academy Copenhagen » →
+   *    `esport-academy-copenhagen`) — bo3 garde le nom complet dans le slug
+   *    même quand il affiche le seul tag ;
+   * 2. nom exactement identique parmi les résultats de `[name][like]` ;
+   * 3. tag EXACT parmi ces mêmes résultats, puis alias exact.
+   * Null si introuvable ou ambigu — jamais de best guess.
    */
   async searchTeam(
     name: string,
     aliases: string[],
     acronym?: string | null,
   ): Promise<TeamSearchResult | null> {
-    const list = await this.get<Bo3List<Bo3TeamRef>>(
+    const bySlug = await this.teamBySlug(name);
+    if (bySlug) return { id: String(bySlug.id), name: bySlug.name };
+
+    const path =
       `/teams?page%5Blimit%5D=20&filter%5Bteams.discipline_id%5D%5Beq%5D=${CS2_DISCIPLINE}` +
-        `&filter%5Bteams.name%5D%5Blike%5D=${encodeURIComponent(name)}`,
-    );
+      `&filter%5Bteams.name%5D%5Blike%5D=${encodeURIComponent(name)}`;
+    const list = await this.cached(path, () => this.get<Bo3List<Bo3TeamRef>>(path));
     const results = list?.results ?? [];
     const wanted = normalizeName(name);
     const exact = results.filter((t) => normalizeName(t.name) === wanted);
@@ -378,6 +455,16 @@ export class Bo3StatsProvider implements GameStatsProvider {
     const byAlias = results.filter((t) => aliasSet.has(normalizeName(t.name)));
     if (byAlias.length === 1) return { id: String(byAlias[0].id), name: byAlias[0].name };
     return null;
+  }
+
+  /** Équipe bo3 dont le slug correspond exactement à un nom donné. */
+  private async teamBySlug(name: string): Promise<Bo3TeamRef | null> {
+    const slug = toSlug(name);
+    if (!slug) return null;
+    const path = `/teams?page%5Blimit%5D=2&filter%5Bteams.slug%5D%5Beq%5D=${encodeURIComponent(slug)}`;
+    const list = await this.cached(path, () => this.get<Bo3List<Bo3TeamRef>>(path));
+    const results = list?.results ?? [];
+    return results.length === 1 ? results[0] : null;
   }
 
   /** Fiche équipe bo3 (nom, tag, logo) par id connu — enrichissement CS2 (impossible avec Grid). */
