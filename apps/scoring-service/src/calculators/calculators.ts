@@ -1,12 +1,12 @@
 import { GameId } from '@esfl/contracts';
 
 /**
- * Scoring v4 — notes ABSOLUES façon HLTV / VLR (remplace le Z-score v3).
+ * Scoring v1 — notes ABSOLUES façon HLTV / VLR, sur une base repartie de zéro.
  *
- * Chaque jeu a un « Rating de base » calculé par une formule pondérée fixe,
- * converti sur 0-100, puis ajusté par des bonus/malus contextuels (comparaisons
- * intra-match, rôles). Repères : ~70 solide, ~85 MVP, 95+ exceptionnel. Validé
- * sur la population réelle (Valorant médiane 69, CS2 recalibré médiane 70).
+ * Chaque jeu produit un « Rating de base » par une formule pondérée fixe, ramené
+ * sur une échelle COMMUNE aux trois jeux (cf. `noteDepuisRating`), puis ajusté
+ * par des bonus/malus contextuels. Repères : 50 médian, 60 à +1σ, 80 à +3σ,
+ * 100 à +5σ — exceptionnel.
  *
  * Contraintes de données assumées :
  * - CS2 (bo3.gg) : formule HLTV fidèle (KPR/DPR/ADR/KAST), toutes les entrées
@@ -16,7 +16,7 @@ import { GameId } from '@esfl/contracts';
  * - LoL : KDA/KP/GPM/VSM. Bonus par rôle (Support, Jungler approximé). Le bonus
  *   Toplaner (dégâts tourelles) n'est pas implémenté (donnée absente).
  */
-export const SCORING_VERSION = 'v4';
+export const SCORING_VERSION = 'v1';
 
 /** Sous-ensemble du match nécessaire au comptage des maps/rounds. */
 export interface MatchMapsInfo {
