@@ -176,10 +176,10 @@ describe('scoreMatch — bonus contextuels', () => {
     },
   });
 
-  it('LoL : Support +8, +2 si control wards > 3 ; Jungler +2 par objectif d’équipe', () => {
+  it('LoL : Support +8 ; Jungler +2 par objectif d’équipe', () => {
     const scores = scoreMatch(
       [
-        lol('sup', 'Support', 'A', { controlWards: 5 }),
+        lol('sup', 'Support', 'A', {}),
         lol('jgl', 'Jungle', 'A', {}),
         lol('mid', 'Mid', 'B', {}),
       ],
@@ -187,7 +187,6 @@ describe('scoreMatch — bonus contextuels', () => {
     );
     const byId = Object.fromEntries(scores.map((s) => [s.playerId, s.breakdown]));
     expect(byId['sup'].bonusSupport).toBe(8);
-    expect(byId['sup'].bonusWards).toBe(2);
     expect(byId['jgl'].bonusObjectives).toBe(6);
     expect(byId['mid'].bonus).toBe(0);
   });

@@ -391,12 +391,11 @@ function base(player: PlayerStatLine, ctx: MatchScoringContext): BaseResult {
   const kp = num(n, 'killParticipation') * 100;
   const gpm = num(n, 'goldPerMin');
   const vsm = num(n, 'visionPerMin');
-  const controlWards = num(n, 'controlWards');
   if (has(n, 'goldPerMin') && gpm > 0) {
-    const derived = { kda, kp, gpm, vsm, controlWards };
+    const derived = { kda, kp, gpm, vsm };
     return { player, rating: lolRating(derived), derived };
   }
-  const derived = { kda, kp, controlWards, fallback: 1 };
+  const derived = { kda, kp, fallback: 1 };
   return { player, rating: lolFallbackRating({ kda, kp }), derived };
 }
 
@@ -435,10 +434,6 @@ function contextualBonus(
     if (role === 'SUP') {
       detail.bonusSupport = 8;
       total += 8;
-      if ((b.derived.controlWards ?? 0) > 3) {
-        detail.bonusWards = 2;
-        total += 2;
-      }
     } else if (role === 'JUN' && ctx.teamObjectives && b.player.teamSide) {
       // Approximation : objectifs neutres de l'équipe attribués au jungler.
       const objectives = ctx.teamObjectives[b.player.teamSide] ?? 0;

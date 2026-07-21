@@ -121,11 +121,10 @@ export interface LeaguepediaRow {
   VisionScore?: string;
   /** Or total du joueur (part d'équipe → goldShare, or/min → GPM). */
   Gold?: string;
-  /** Wards de contrôle (roses) achetées : approximation du WPM (scoring v5). */
-  ControlWards?: string;
   /**
    * Objectifs neutres pris par chaque côté (barons, dragons, hérauts, grubs).
-   * `Team1*` désigne l'équipe `Team1` de la game, pas notre côté A/B.
+   * `Team1*` désigne l'équipe `Team1` de la game, pas notre côté A/B. Fusionnés
+   * depuis une requête séparée (cf. `fetchWindowObjectives`).
    */
   T1Barons?: string;
   T1Dragons?: string;
@@ -136,6 +135,12 @@ export interface LeaguepediaRow {
   T2Heralds?: string;
   T2Grubs?: string;
 }
+
+/** Objectifs neutres d'une game, requêtés à part puis fusionnés dans les lignes. */
+type ObjectifsGame = Pick<
+  LeaguepediaRow,
+  'T1Barons' | 'T1Dragons' | 'T1Heralds' | 'T1Grubs' | 'T2Barons' | 'T2Dragons' | 'T2Heralds' | 'T2Grubs'
+>;
 
 /** Retire la désambiguïsation Leaguepedia : "Faker (Lee Sang-hyeok)" → "Faker". */
 function stripDisambiguation(link: string): string {
@@ -315,7 +320,6 @@ export function mapLeaguepediaRows(
     games: number;
     vision: number;
     gold: number;
-    controlWards: number;
     kpSum: number;
     shareSum: number;
     goldShareSum: number;
@@ -342,7 +346,6 @@ export function mapLeaguepediaRows(
       games: 0,
       vision: 0,
       gold: 0,
-      controlWards: 0,
       kpSum: 0,
       shareSum: 0,
       goldShareSum: 0,
@@ -369,7 +372,6 @@ export function mapLeaguepediaRows(
     aggregate.wins += row.PlayerWin === 'Yes' ? 1 : 0;
     aggregate.vision += Number(row.VisionScore ?? 0);
     aggregate.gold += gold;
-    aggregate.controlWards += Number(row.ControlWards ?? 0);
     aggregate.games += 1;
     // Ratios par game (moyennés ensuite) : KP% = (K+A)/kills équipe ; part de dégâts.
     const team = teamTotals.get(`${row.GameId ?? ''}::${row.Team ?? ''}`);
@@ -460,7 +462,6 @@ export function mapLeaguepediaRows(
           visionPerMin: perMin(aggregate.vision),
           // Or/min (GPM) et wards de contrôle : scoring v4 (rating LoL + Support).
           goldPerMin: perMin(aggregate.gold),
-          controlWards: aggregate.controlWards,
           durationMinutes: aggregate.minutes > 0 ? Math.round(aggregate.minutes) : null,
         };
       })(),
@@ -753,12 +754,14 @@ export class LeaguepediaStatsProvider implements GameStatsProvider {
     url.searchParams.set('join_on', 'SG.GameId=SP.GameId');
     // NB : les noms de champs Cargo utilisent des underscores (« Gamelength Number »
     // → Gamelength_Number) ; un espace provoque une MWException côté Fandom.
+    // ATTENTION : un champ inexistant fait échouer TOUTE la requête en
+    // MWException, sans indiquer lequel. Vérifier chaque ajout contre
+    // `action=cargofields&table=ScoreboardPlayers` — c'est ainsi qu'un
+    // `VisionWardsBoughtInGame` inventé a paralysé l'ingestion LoL. Les besoins
+    // qui débordent passent par une requête à part, cf. `fetchWindowObjectives`.
     url.searchParams.set(
       'fields',
-      'SP.Link,SP.Role,SP.Champion,SP.Kills,SP.Deaths,SP.Assists,SP.CS,SP.PlayerWin,SP.Team,SP.DamageToChampions,SP.VisionScore,SP.Gold,SP.VisionWardsBoughtInGame=ControlWards,SG.Team1,SG.Team2,SG.Gamelength_Number=Gamelength,SG.GameId=GameId,SG.N_GameInMatch=GameNumber,SG.OverviewPage=OverviewPage,SG.DateTime_UTC=DateTime,' +
-        // Objectifs neutres par côté : base de l'ObjControl du scoring v5.
-        'SG.Team1Barons=T1Barons,SG.Team1Dragons=T1Dragons,SG.Team1RiftHeralds=T1Heralds,SG.Team1VoidGrubs=T1Grubs,' +
-        'SG.Team2Barons=T2Barons,SG.Team2Dragons=T2Dragons,SG.Team2RiftHeralds=T2Heralds,SG.Team2VoidGrubs=T2Grubs',
+      'SP.Link,SP.Role,SP.Champion,SP.Kills,SP.Deaths,SP.Assists,SP.CS,SP.PlayerWin,SP.Team,SP.DamageToChampions,SP.VisionScore,SP.Gold,SG.Team1,SG.Team2,SG.Gamelength_Number=Gamelength,SG.GameId=GameId,SG.N_GameInMatch=GameNumber,SG.OverviewPage=OverviewPage,SG.DateTime_UTC=DateTime',
     );
     url.searchParams.set('where', `SG.DateTime_UTC >= '${from}' AND SG.DateTime_UTC <= '${to}'`);
 
@@ -788,7 +791,69 @@ export class LeaguepediaStatsProvider implements GameStatsProvider {
       if (page.length < 500) break;
     }
 
+    // Objectifs neutres : best effort. Un échec laisse simplement `objControl`
+    // à null, sans compromettre le reste des stats de la fenêtre.
+    const objectifs = await this.fetchWindowObjectives(from, to);
+    if (objectifs) {
+      for (const row of rows) {
+        const game = objectifs.get(row.GameId ?? '');
+        if (game) Object.assign(row, game);
+      }
+    }
+
     return rows;
+  }
+
+  /**
+   * Objectifs neutres par game sur la fenêtre, en requête SÉPARÉE.
+   *
+   * Ces champs ne peuvent pas rejoindre la requête principale : celle-ci est
+   * déjà à la limite de champs que Cargo accepte, et l'ajout la faisait échouer
+   * entièrement en MWException. Requêter `ScoreboardGames` seule reste léger
+   * (une game = une ligne, contre cinq lignes joueur dans la requête jointe).
+   */
+  private async fetchWindowObjectives(
+    from: string,
+    to: string,
+  ): Promise<Map<string, ObjectifsGame> | null> {
+    const url = new URL(API_URL);
+    url.searchParams.set('action', 'cargoquery');
+    url.searchParams.set('format', 'json');
+    url.searchParams.set('limit', '500');
+    url.searchParams.set('tables', 'ScoreboardGames=SG');
+    url.searchParams.set(
+      'fields',
+      'SG.GameId=GameId,' +
+        'SG.Team1Barons=T1Barons,SG.Team1Dragons=T1Dragons,SG.Team1RiftHeralds=T1Heralds,SG.Team1VoidGrubs=T1Grubs,' +
+        'SG.Team2Barons=T2Barons,SG.Team2Dragons=T2Dragons,SG.Team2RiftHeralds=T2Heralds,SG.Team2VoidGrubs=T2Grubs',
+    );
+    url.searchParams.set('where', `SG.DateTime_UTC >= '${from}' AND SG.DateTime_UTC <= '${to}'`);
+
+    const byGame = new Map<string, ObjectifsGame>();
+    for (let offset = 0; offset < 1500; offset += 500) {
+      url.searchParams.set('offset', String(offset));
+      const response = await this.fetchAuthed(url, CARGO_SPACING_MS);
+      if (!response.ok) {
+        this.logger.warn(`Leaguepedia objectifs → ${response.status}`);
+        return null;
+      }
+      const payload = (await response.json()) as {
+        cargoquery?: Array<{ title: ObjectifsGame & { GameId?: string } }>;
+        error?: { code?: string };
+      };
+      if (payload.error) {
+        if (payload.error.code === 'assertuserfailed') this.invalidateSession();
+        this.logger.warn(`Leaguepedia objectifs en erreur : ${JSON.stringify(payload.error)}`);
+        return null;
+      }
+      const page = payload.cargoquery ?? [];
+      for (const { title } of page) {
+        const { GameId, ...objectifs } = title;
+        if (GameId) byGame.set(GameId, objectifs);
+      }
+      if (page.length < 500) break;
+    }
+    return byGame;
   }
 
   /**

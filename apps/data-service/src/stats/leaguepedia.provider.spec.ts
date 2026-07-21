@@ -354,19 +354,23 @@ describe('LeaguepediaStatsProvider — cache de fenêtre', () => {
   const configMock = { get: () => undefined } as unknown as ConfigService;
   const makeProvider = () => new LeaguepediaStatsProvider(configMock);
 
+  // Deux requêtes par fenêtre : les stats jointes, puis les objectifs neutres
+  // (que la requête principale ne peut pas porter, cf. limite de champs Cargo).
+  const REQUETES_PAR_FENETRE = 2;
+
   it('mutualise la requête entre matchs d’un même bucket de 3h', async () => {
     const provider = makeProvider();
     // 01:00 et 02:00 UTC tombent dans le même bucket [00:00, 03:00).
     await provider.fetchStats(matchAt('2026-07-10T01:00:00Z'), context);
     await provider.fetchStats(matchAt('2026-07-10T02:00:00Z'), context);
-    expect(mockedFetch).toHaveBeenCalledTimes(1);
+    expect(mockedFetch).toHaveBeenCalledTimes(REQUETES_PAR_FENETRE);
   });
 
   it('refait une requête pour un autre bucket', async () => {
     const provider = makeProvider();
     await provider.fetchStats(matchAt('2026-07-10T01:00:00Z'), context);
     await provider.fetchStats(matchAt('2026-07-10T04:00:00Z'), context);
-    expect(mockedFetch).toHaveBeenCalledTimes(2);
+    expect(mockedFetch).toHaveBeenCalledTimes(2 * REQUETES_PAR_FENETRE);
   });
 
   it('ne met pas en cache un échec réseau (retry possible)', async () => {
@@ -375,7 +379,8 @@ describe('LeaguepediaStatsProvider — cache de fenêtre', () => {
     const first = await provider.fetchStats(matchAt('2026-07-10T01:00:00Z'), context);
     expect(first).toBeNull();
     // Deuxième essai même bucket : nouvelle requête (le null n'a pas été caché).
+    // L'échec survient sur la requête principale, avant celle des objectifs.
     await provider.fetchStats(matchAt('2026-07-10T01:00:00Z'), context);
-    expect(mockedFetch).toHaveBeenCalledTimes(2);
+    expect(mockedFetch).toHaveBeenCalledTimes(1 + REQUETES_PAR_FENETRE);
   });
 });
