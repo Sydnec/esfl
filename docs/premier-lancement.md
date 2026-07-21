@@ -11,8 +11,9 @@ configuration détaillée du VPS, du domaine et des secrets, voir
 - `.env` à la racine rempli (voir [DEPLOY.md](../DEPLOY.md) pour la liste
   complète). Pour l'ingestion, au minimum :
   - `PANDASCORE_TOKEN` — **indispensable**, sinon aucune ingestion.
-  - `GRID_API_KEY` — stats CS2 (optionnel).
-  - `BALLCHASING_API_KEY` — stats Rocket League (optionnel).
+  - `LEAGUEPEDIA_USERNAME` / `LEAGUEPEDIA_BOT_PASSWORD` — desserrent le rate
+    limit LoL (optionnels). Les stats CS2 (bo3.gg) et Valorant (VLR.gg) ne
+    demandent aucune clé.
   - `ADMIN_TOKEN` — token d'ops pour les routes `/data/admin`.
   - `HISTORY_BACKFILL_SINCE` — date de début du backfill (défaut `2026-01-01`).
 
@@ -54,7 +55,7 @@ Caractéristiques :
 - **Déclencheur** : uniquement quand la base est vide (0 compétition). Une fois
   peuplée, un redémarrage ne relance pas le backfill.
 - **Durée** : plusieurs heures selon le volume. Pandascore est throttlé à ~1
-  requête / 4 s, les sources de stats (Grid, VLR, Leaguepedia, ballchasing) ont
+  requête / 4 s, les sources de stats (bo3, VLR, Leaguepedia) ont
   leur propre throttle, et la file BullMQ sérialise les jobs. La couverture des
   stats se remplit donc progressivement.
 - **Idempotent** : upserts + `jobId` déterministe par match. Un redémarrage

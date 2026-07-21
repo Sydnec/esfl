@@ -14,8 +14,10 @@ frontend Next.js sur Vercel.
   - **Pandascore** : token API (gratuit) → `PANDASCORE_TOKEN`
   - **Discord** : application OAuth (redirect `https://api.mondomaine.fr/auth/oauth/discord/callback`)
   - **Google** : OAuth client (redirect `https://api.mondomaine.fr/auth/oauth/google/callback`)
-  - **Grid.gg Open Access** (optionnel, stats CS2) → `GRID_API_KEY`
-  - **ballchasing.com** (optionnel, stats Rocket League, token gratuit) → `BALLCHASING_API_KEY`
+
+Les trois sources de stats (bo3.gg, VLR.gg, Leaguepedia) ne demandent aucune clé
+obligatoire. Leaguepedia accepte un compte bot, qui desserre nettement son rate limit :
+`LEAGUEPEDIA_USERNAME` / `LEAGUEPEDIA_BOT_PASSWORD`.
 
 ## 2. Backend sur le VPS
 
@@ -37,14 +39,12 @@ COOKIE_SAMESITE=none                        # front et API sur des domaines diff
 PANDASCORE_TOKEN=...
 DISCORD_CLIENT_ID=... / DISCORD_CLIENT_SECRET=...
 GOOGLE_CLIENT_ID=... / GOOGLE_CLIENT_SECRET=...
-GRID_API_KEY=...                            # optionnel, stats CS2
-BALLCHASING_API_KEY=...                      # optionnel, stats Rocket League
+LEAGUEPEDIA_USERNAME=... / LEAGUEPEDIA_BOT_PASSWORD=...   # optionnel, desserre le rate limit LoL
 ADMIN_TOKEN=<openssl rand -hex 32>          # token d'ops pour les routes /data/admin
 ```
 
-> Grid.gg impose un rythme strict : `GRID_MIN_SPACING_MS=3500` espace les requêtes
-> (≈ 17 req/min) pour ne pas se faire limiter. Laisser la valeur par défaut si Grid n'est
-> pas configuré.
+> Chaque source est throttlée par hôte dans `polite-fetch.ts` : bo3 3-6 s variables,
+> Leaguepedia 6 s, VLR 1 s. Ces valeurs sont délibérées, ne pas les baisser.
 
 > Si le front et l'API partagent le même domaine racine (ex: `esfl.fr` et
 > `api.esfl.fr`), préférer `COOKIE_SAMESITE=lax`.
@@ -68,7 +68,6 @@ service (`prisma migrate deploy`). L'ingestion Pandascore démarre seule si
 | `sync-rosters` | 24 h | Rosters des compétitions suivies |
 | `sync-live` | 3 min | Fenêtre serrée sur les matchs imminents/en cours |
 | `sync-live-stats` | 3 min | Stats live pendant les séries (Valorant, CS2) |
-| `check-grid-coverage` | 30 min | Marque les séries CS2 référencées par Grid |
 | `retry-stats-backfill` | 60 min | Rejoue l'ingestion des matchs finis restés sans stats |
 
 Les stats détaillées sont ingérées à la fin de chaque match (fenêtre 48 h) avec retries en
@@ -101,9 +100,8 @@ Providers implémentés dans `apps/data-service/src/stats/` (un provider par jeu
 | Jeu | Source | État |
 |---|---|---|
 | Valorant | Scraper VLR.gg (cheerio) | ✅ validé en réel, stats live |
-| CS2 | Grid.gg GraphQL (hôte Open Platform `api-op.grid.gg`) | ✅ validé en réel, stats live (K/A/D + firstKills + objectifs ; l'ADR n'est pas exposé en open-access) |
+| CS2 | bo3.gg (API JSON publique, sans clé) | ✅ validé en réel, stats **par map** et live (K/A/D, ADR, KAST, clutchs, FK/FD, headshots) |
 | LoL | Leaguepedia Cargo | ✅ implémenté (rate limit Fandom agressif, mutualisé par cache de fenêtre) |
-| RL | ballchasing.com (`BALLCHASING_API_KEY`) | ✅ implémenté (couverture dépendante des replays uploadés, RLCS bien couvert) |
 
 Le rapprochement provider ↔ Pandascore (`stats/matching.ts`) s'appuie sur des alias appris
 automatiquement par corrélation adverse et ajoutables à la main via la page admin. Voir

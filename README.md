@@ -1,6 +1,6 @@
 # ESFL — Esport Fantasy League
 
-Fantasy league esport multigaming : **CS2, Valorant, LoL, Rocket League**.
+Fantasy league esport multigaming : **CS2, Valorant, LoL**.
 
 Chaque journée de match, compose un roster cross-game de joueurs pros ; les joueurs pickés
 sont verrouillés pendant N journées. Les points suivent leurs performances réelles.
@@ -68,10 +68,9 @@ Premier lancement (création de la base, compte admin, backfill historique) :
 ## Sources de données
 
 - **Pandascore** — planning, résultats, équipes, joueurs, tiers (free tier)
-- **Grid.gg Open Access** — stats CS2 (hôte `api-op.grid.gg`)
+- **bo3.gg** — stats CS2 (API JSON publique, sans clé)
 - **VLR.gg** (scraping, non officiel) — stats Valorant
 - **Leaguepedia Cargo API** — stats LoL
-- **ballchasing.com** — stats Rocket League (token gratuit)
 
 Détail des barèmes et de ce que chaque source expose réellement :
 [docs/scoring-et-donnees.md](docs/scoring-et-donnees.md).
