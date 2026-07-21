@@ -90,11 +90,28 @@ export function canonicalLolRole(role: string | null | undefined): string {
 // Note = Rating × pente + ordonnée. Constantes calées pour ~70 médian, ~85 p90.
 
 /**
- * CS2 (façon HLTV) : ADR et KAST disponibles via bo3 (stats par map).
- * Constantes à recalibrer sur la population bo3 après ré-ingestion.
+ * CS2, HLTV 2.0 fidèle : toutes les entrées sont publiées par bo3 (stats par
+ * map). Le terme d'Impact — surpondération des kills et des assists, qui
+ * distingue le joueur décisif du joueur qui accumule en fin de round — était
+ * auparavant absorbé dans la constante, faute d'assists exploitables. Sans lui
+ * le rating tournait autour de 0,75 au lieu de 1,0 et la population était
+ * tassée (médiane 60 au lieu de 70).
  */
-export function cs2BaseNote(i: { kpr: number; dpr: number; adr: number; kast: number }): number {
-  const rating = i.kpr * 0.35 + i.adr * 0.003 + i.kast * 0.007 - i.dpr * 0.53 + 0.16;
+export function cs2BaseNote(i: {
+  kpr: number;
+  dpr: number;
+  apr: number;
+  adr: number;
+  kast: number;
+}): number {
+  const impact = 2.13 * i.kpr + 0.42 * i.apr - 0.41;
+  const rating =
+    0.0073 * i.kast +
+    0.3591 * i.kpr -
+    0.5329 * i.dpr +
+    0.2372 * impact +
+    0.0032 * i.adr +
+    0.1587;
   return rating * 40 + 30;
 }
 /**
@@ -200,6 +217,7 @@ function base(player: PlayerStatLine, ctx: MatchScoringContext): BaseResult {
     const derived = {
       kpr: num(n, 'kills') / rounds,
       dpr: num(n, 'deaths') / rounds,
+      apr: num(n, 'assists') / rounds,
       adr: num(n, 'adr'),
       kast: numOr(n, 'kast', CS2_KAST_DEFAUT),
       firstKills: num(n, 'firstKills'),

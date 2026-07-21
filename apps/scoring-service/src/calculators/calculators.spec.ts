@@ -40,11 +40,18 @@ describe('formules de base — ancrages (~70 solide, ~85 MVP)', () => {
     expect(valorantBaseNote({ kpr: 0.95, apr: 0.3, dpr: 0.55, adr: 175, kast: 80 })).toBeGreaterThan(82);
   });
 
-  it('CS2 (HLTV, ADR via bo3) : joueur moyen ≈ 70', () => {
-    // Moyen : KPR 0.68, DPR 0.68, ADR 80, KAST 70 (imputé).
-    const note = cs2BaseNote({ kpr: 0.68, dpr: 0.68, adr: 80, kast: 70 });
-    expect(note).toBeGreaterThan(60);
-    expect(note).toBeLessThan(78);
+  it('CS2 (HLTV 2.0 complet) : joueur moyen ≈ 70', () => {
+    // Moyen : KPR 0.68, DPR 0.68, APR 0.15, ADR 80, KAST 70.
+    const note = cs2BaseNote({ kpr: 0.68, dpr: 0.68, apr: 0.15, adr: 80, kast: 70 });
+    expect(note).toBeGreaterThan(65);
+    expect(note).toBeLessThan(76);
+  });
+
+  it('CS2 : le terme d’Impact récompense les kills à volume égal de dégâts', () => {
+    const commun = { dpr: 0.68, adr: 85, kast: 72 };
+    const fragger = cs2BaseNote({ ...commun, kpr: 0.85, apr: 0.1 });
+    const soutien = cs2BaseNote({ ...commun, kpr: 0.6, apr: 0.35 });
+    expect(fragger).toBeGreaterThan(soutien);
   });
 
   it('LoL : joueur solide entre 70 et 85 (KDA 3, KP 64, GPM 400, VSM 1.9)', () => {
