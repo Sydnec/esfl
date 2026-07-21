@@ -185,6 +185,109 @@ export function lolRating(i: { kda: number; kp: number; gpm: number; vsm: number
 export function lolFallbackRating(i: { kda: number; kp: number }): number {
   return i.kda * 0.06 + i.kp * 0.008 + 0.2;
 }
+
+// ─── LoL-Rating 1.0 : sous-scores standardisés PAR RÔLE ─────────────────────
+
+/** Métriques du LoL-Rating, chacune standardisée dans son rôle. */
+export type LolMetrique = 'dpmg' | 'kp' | 'visionShare' | 'wpm' | 'objControl';
+
+/** Une métrique du joueur sur le match, avant standardisation. */
+export interface LolMetriques {
+  /** Damage-to-Gold : part de dégâts de l'équipe / part d'or de l'équipe. */
+  dpmg: number;
+  /** Participation aux kills, en fraction (0-1). */
+  kp: number;
+  /** Part du score de vision de l'équipe. */
+  visionShare: number;
+  /** Wards de contrôle par minute (approximation du WPM). */
+  wpm: number;
+  /** Part des objectifs neutres pris par l'équipe. */
+  objControl: number;
+}
+
+/**
+ * Moyenne et écart-type de chaque métrique DANS SON RÔLE.
+ *
+ * C'est le substitut de la valeur attendue E[M | matchups, patch] : faute de
+ * données à 15 minutes et d'historique de matchup, on conditionne sur le rôle.
+ * C'est ce conditionnement qui neutralise le biais — la vision d'un support
+ * est comparée aux autres supports, pas à celle d'un toplaner. Sans lui, le
+ * top 100 était constitué à 82 % de supports.
+ *
+ * Mesurées sur la population réelle ; à repasser après la ré-ingestion ou un
+ * changement de meta (requête dans docs/scoring-et-donnees.md).
+ */
+export type LolDistributions = Record<string, Record<LolMetrique, { moyenne: number; sigma: number }>>;
+
+// À REMPLIR par la mesure, une fois les 938 matchs LoL ré-ingérés avec
+// visionShare et objControl. Table vide = tous les Z à 0 : la formule reste
+// définie mais ne discrimine rien, c'est pourquoi elle n'est pas encore
+// branchée dans `base()`.
+export const LOL_DISTRIBUTIONS: LolDistributions = {};
+
+/** Bornage des sous-scores : un match aberrant ne doit pas polluer le rating. */
+const LOL_Z_CLIP = 3;
+
+/**
+ * Poids par rôle, renormalisés sur les deux sous-scores que nos données
+ * permettent de construire (Laning et Role-Specific demandent des métriques que
+ * Leaguepedia n'expose pas). Les rapports entre rôles de la spec sont conservés.
+ */
+export const POIDS_ROLE_LOL: Record<string, { combat: number; macro: number }> = {
+  TOP: { combat: 0.556, macro: 0.444 },
+  JUN: { combat: 0.462, macro: 0.538 },
+  MID: { combat: 0.7, macro: 0.3 },
+  ADC: { combat: 0.818, macro: 0.182 },
+  SUP: { combat: 0.308, macro: 0.692 },
+  /** Rôle inconnu : pondération neutre entre les deux sous-scores. */
+  Autre: { combat: 0.6, macro: 0.4 },
+};
+
+/**
+ * Facteur d'échelle du tanh. Fixé à `σ_raw / SIGMA_REF` pour que le rating
+ * final ait la dispersion de référence commune aux trois jeux.
+ */
+export const LOL_LAMBDA = 3.5;
+
+/** Modificateur de résultat : reflète la victoire sans écraser l'individuel. */
+export const LOL_BONUS_RESULTAT = 0.03;
+
+/** Écart à la moyenne du rôle, en écarts-types, borné à ±3. */
+function zRole(
+  distributions: LolDistributions,
+  role: string,
+  metrique: LolMetrique,
+  valeur: number,
+): number {
+  const reference = distributions[role]?.[metrique] ?? distributions.Autre?.[metrique];
+  if (!reference || reference.sigma <= 0) return 0;
+  return clamp((valeur - reference.moyenne) / reference.sigma, -LOL_Z_CLIP, LOL_Z_CLIP);
+}
+
+/**
+ * LoL-Rating 1.0 : sous-scores standardisés par rôle, pondérés selon le poste,
+ * puis inscrits sur une gaussienne bornée centrée sur 1,00.
+ *
+ * L'amplitude du tanh est de 1,00 et non 0,50 : à 0,50 le rating serait borné
+ * à [0,58 ; 1,42], donc la note à [29 ; 71], et un joueur LoL ne pourrait
+ * jamais atteindre le haut de l'échelle quand CS2 et Valorant y accèdent. La
+ * dispersion centrale reste pilotée par `LOL_LAMBDA`.
+ */
+export function lolRatingV5(
+  input: LolMetriques & { role: string; win: boolean },
+  distributions: LolDistributions = LOL_DISTRIBUTIONS,
+): number {
+  const z = (metrique: LolMetrique, valeur: number) =>
+    zRole(distributions, input.role, metrique, valeur);
+  const combat = 0.5 * z('dpmg', input.dpmg) + 0.5 * z('kp', input.kp);
+  const macro =
+    0.5 * z('visionShare', input.visionShare) +
+    0.25 * z('wpm', input.wpm) +
+    0.25 * z('objControl', input.objControl);
+  const poids = POIDS_ROLE_LOL[input.role] ?? POIDS_ROLE_LOL.Autre;
+  const raw = poids.combat * combat + poids.macro * macro;
+  return 1 + Math.tanh(raw / LOL_LAMBDA) + (input.win ? LOL_BONUS_RESULTAT : -LOL_BONUS_RESULTAT);
+}
 // ────────────────────────────────────────────────────────────────────────────
 
 /** Ligne de stats d'un joueur pour la notation d'un match. */

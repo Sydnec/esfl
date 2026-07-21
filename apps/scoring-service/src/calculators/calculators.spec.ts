@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   canonicalLolRole,
   cs2Rating,
+  LOL_LAMBDA,
+  LolDistributions,
   lolRating,
+  lolRatingV5,
   mapsPlayed,
   noteDepuisRating,
   PlayerStatLine,
@@ -226,5 +229,92 @@ describe('scoreMatch — bonus contextuels', () => {
     };
     const [score] = scoreMatch([cs2], { rounds: 30 });
     expect(score.breakdown.bonus).toBe(0);
+  });
+});
+
+describe('lolRatingV5 — standardisation par rôle', () => {
+  /** Deux rôles aux références volontairement très différentes. */
+  const metrique = (moyenne: number, sigma: number) => ({ moyenne, sigma });
+  const distributions: LolDistributions = {
+    SUP: {
+      dpmg: metrique(0.5, 0.1),
+      kp: metrique(0.7, 0.1),
+      // Un support voit BEAUCOUP plus qu'un mid : c'est tout l'enjeu.
+      visionShare: metrique(0.35, 0.05),
+      wpm: metrique(0.5, 0.15),
+      objControl: metrique(0.5, 0.2),
+    },
+    MID: {
+      dpmg: metrique(1.3, 0.2),
+      kp: metrique(0.65, 0.1),
+      visionShare: metrique(0.15, 0.03),
+      wpm: metrique(0.15, 0.05),
+      objControl: metrique(0.5, 0.2),
+    },
+  };
+
+  /** Joueur exactement dans la moyenne de son rôle. */
+  const median = (role: 'SUP' | 'MID') => {
+    const d = distributions[role];
+    return {
+      role,
+      dpmg: d.dpmg.moyenne,
+      kp: d.kp.moyenne,
+      visionShare: d.visionShare.moyenne,
+      wpm: d.wpm.moyenne,
+      objControl: d.objControl.moyenne,
+      win: true,
+    };
+  };
+
+  it('un joueur médian de SON rôle obtient 1,00 de rating, quel que soit le poste', () => {
+    const sup = lolRatingV5(median('SUP'), distributions);
+    const mid = lolRatingV5(median('MID'), distributions);
+    // Seul le modificateur de résultat les écarte de 1,00, à l'identique.
+    expect(sup).toBeCloseTo(1.03, 5);
+    expect(mid).toBeCloseTo(1.03, 5);
+    expect(sup).toBeCloseTo(mid, 10);
+  });
+
+  it('c’est ce qui neutralise le biais : une vision élevée en valeur absolue ne suffit plus', () => {
+    // 0,30 de part de vision : au-dessus de la moyenne d'un mid (0,15) mais
+    // SOUS celle d'un support (0,35). Le support doit donc être pénalisé.
+    const sup = lolRatingV5({ ...median('SUP'), visionShare: 0.3 }, distributions);
+    const mid = lolRatingV5({ ...median('MID'), visionShare: 0.3 }, distributions);
+    expect(sup).toBeLessThan(1.03);
+    expect(mid).toBeGreaterThan(1.03);
+  });
+
+  it('la défaite retire ce que la victoire ajoute', () => {
+    const gagne = lolRatingV5(median('MID'), distributions);
+    const perdu = lolRatingV5({ ...median('MID'), win: false }, distributions);
+    expect(gagne - perdu).toBeCloseTo(0.06, 10);
+  });
+
+  it('borne les sous-scores : une valeur aberrante ne fait pas exploser le rating', () => {
+    const aberrant = lolRatingV5({ ...median('MID'), dpmg: 1000 }, distributions);
+    const troisSigma = lolRatingV5({ ...median('MID'), dpmg: 1.3 + 3 * 0.2 }, distributions);
+    expect(aberrant).toBeCloseTo(troisSigma, 10);
+  });
+
+  it('reste dans [0, 2] : la note convertie ne peut ni dépasser 100 ni passer sous 0', () => {
+    const max = lolRatingV5(
+      { role: 'MID', dpmg: 99, kp: 99, visionShare: 99, wpm: 99, objControl: 99, win: true },
+      distributions,
+    );
+    const min = lolRatingV5(
+      { role: 'MID', dpmg: -99, kp: -99, visionShare: -99, wpm: -99, objControl: -99, win: false },
+      distributions,
+    );
+    expect(max).toBeLessThanOrEqual(2);
+    expect(min).toBeGreaterThanOrEqual(0);
+  });
+
+  it('sans table de calibrage, la formule est neutre plutôt que fausse', () => {
+    expect(lolRatingV5(median('MID'), {})).toBeCloseTo(1.03, 5);
+  });
+
+  it('λ pilote la dispersion : un λ plus grand resserre les ratings', () => {
+    expect(LOL_LAMBDA).toBeGreaterThan(0);
   });
 });
