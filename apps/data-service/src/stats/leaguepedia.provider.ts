@@ -119,8 +119,10 @@ export interface LeaguepediaRow {
   DamageToChampions?: string;
   /** Score de vision (agrégé sur les games). */
   VisionScore?: string;
-  /** Or total du joueur (part d'équipe → goldShare). */
+  /** Or total du joueur (part d'équipe → goldShare, or/min → GPM). */
   Gold?: string;
+  /** Wards de contrôle (roses) achetées : bonus Support. */
+  ControlWards?: string;
 }
 
 /** Retire la désambiguïsation Leaguepedia : "Faker (Lee Sang-hyeok)" → "Faker". */
@@ -276,6 +278,8 @@ export function mapLeaguepediaRows(
     wins: number;
     games: number;
     vision: number;
+    gold: number;
+    controlWards: number;
     kpSum: number;
     shareSum: number;
     goldShareSum: number;
@@ -297,6 +301,8 @@ export function mapLeaguepediaRows(
       wins: 0,
       games: 0,
       vision: 0,
+      gold: 0,
+      controlWards: 0,
       kpSum: 0,
       shareSum: 0,
       goldShareSum: 0,
@@ -319,6 +325,8 @@ export function mapLeaguepediaRows(
     aggregate.minutes += Number(row.Gamelength ?? 0);
     aggregate.wins += row.PlayerWin === 'Yes' ? 1 : 0;
     aggregate.vision += Number(row.VisionScore ?? 0);
+    aggregate.gold += gold;
+    aggregate.controlWards += Number(row.ControlWards ?? 0);
     aggregate.games += 1;
     // Ratios par game (moyennés ensuite) : KP% = (K+A)/kills équipe ; part de dégâts.
     const team = teamTotals.get(`${row.GameId ?? ''}::${row.Team ?? ''}`);
@@ -390,6 +398,9 @@ export function mapLeaguepediaRows(
           deathsPerMin: perMin(aggregate.deaths),
           assistsPerMin: perMin(aggregate.assists),
           visionPerMin: perMin(aggregate.vision),
+          // Or/min (GPM) et wards de contrôle : scoring v4 (rating LoL + Support).
+          goldPerMin: perMin(aggregate.gold),
+          controlWards: aggregate.controlWards,
           durationMinutes: aggregate.minutes > 0 ? Math.round(aggregate.minutes) : null,
         };
       })(),
@@ -684,7 +695,7 @@ export class LeaguepediaStatsProvider implements GameStatsProvider {
     // → Gamelength_Number) ; un espace provoque une MWException côté Fandom.
     url.searchParams.set(
       'fields',
-      'SP.Link,SP.Role,SP.Champion,SP.Kills,SP.Deaths,SP.Assists,SP.CS,SP.PlayerWin,SP.Team,SP.DamageToChampions,SP.VisionScore,SP.Gold,SG.Team1,SG.Team2,SG.Gamelength_Number=Gamelength,SG.GameId=GameId,SG.N_GameInMatch=GameNumber,SG.OverviewPage=OverviewPage,SG.DateTime_UTC=DateTime',
+      'SP.Link,SP.Role,SP.Champion,SP.Kills,SP.Deaths,SP.Assists,SP.CS,SP.PlayerWin,SP.Team,SP.DamageToChampions,SP.VisionScore,SP.Gold,SP.VisionWardsBoughtInGame=ControlWards,SG.Team1,SG.Team2,SG.Gamelength_Number=Gamelength,SG.GameId=GameId,SG.N_GameInMatch=GameNumber,SG.OverviewPage=OverviewPage,SG.DateTime_UTC=DateTime',
     );
     url.searchParams.set('where', `SG.DateTime_UTC >= '${from}' AND SG.DateTime_UTC <= '${to}'`);
 
