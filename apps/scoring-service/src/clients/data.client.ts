@@ -12,7 +12,15 @@ export interface DataMatch {
   endAt: string | null;
   scoreA: number | null;
   scoreB: number | null;
-  gamesSummary: Array<{ position: number; winner: 'A' | 'B' | null }> | null;
+  /** Manches : scoreA/scoreB par map = base des rounds (CS2/Valorant). */
+  gamesSummary: Array<{
+    position: number;
+    winner: 'A' | 'B' | null;
+    scoreA?: number | null;
+    scoreB?: number | null;
+  }> | null;
+  /** Objectifs neutres LoL par côté (dragons+barons+hérauts), pour le bonus Jungler. */
+  teamObjectives?: { A: number; B: number } | null;
 }
 
 export interface DataPlayerMatchStats {
@@ -23,6 +31,8 @@ export interface DataPlayerMatchStats {
   source: string;
   normalized: unknown;
   role: string | null;
+  /** Côté A/B du joueur (bonus Jungler LoL). */
+  teamSide: 'A' | 'B' | null;
 }
 
 /** Ligne de stats pour le calcul des distributions de scoring. */

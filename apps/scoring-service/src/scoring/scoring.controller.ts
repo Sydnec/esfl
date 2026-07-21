@@ -82,13 +82,6 @@ export class ScoringController {
     return this.scoring.recomputeAll();
   }
 
-  /** Recalcul des seules distributions (μ/σ) — admin. */
-  @Post('admin/recompute-distributions')
-  @UseGuards(AdminGuard)
-  recomputeDistributions() {
-    return this.scoring.recomputeDistributions();
-  }
-
   /** Bascule : purge tous les scores puis recalcul complet — admin. */
   @Post('admin/reset-scores')
   @UseGuards(AdminGuard)

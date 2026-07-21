@@ -29,24 +29,6 @@ model FantasyPoints {
 }
 
 /**
- * Distribution (moyenne, écart-type) d'une métrique brute par jeu — et par rôle
- * pour LoL (role='' sinon). Base de standardisation Z-score. Recalculée sur
- * l'historique récent du jeu.
- */
-model StatDistribution {
-  gameId     String   @map("game_id")
-  role       String   @default("")
-  metric     String
-  mean       Float
-  stddev     Float
-  sampleSize Int      @map("sample_size")
-  updatedAt  DateTime @updatedAt @map("updated_at")
-
-  @@id([gameId, role, metric])
-  @@map("stat_distributions")
-}
-
-/**
  * Journée (date Paris YYYY-MM-DD) gelée : ses notes joueurs et scores de
  * roster ne bougent plus — ni stats.ingested tardif, ni recompute admin.
  * Gel absolu : seule porte de sortie, le dégel manuel de la date

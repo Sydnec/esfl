@@ -1,15 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { GAME_IDS, GameId, parisDate } from '@esfl/contracts';
+import { GameId, parisDate } from '@esfl/contracts';
 import {
-  computePlayerScore,
-  computeZTotal,
-  Distribution,
-  DistributionLookup,
-  distributionRole,
-  extractMetrics,
-  mapsPlayed,
+  MatchScoringContext,
+  PlayerStatLine,
+  roundsPlayed,
+  scoreMatch,
   SCORING_VERSION,
-  ZTOTAL_METRIC,
 } from '../calculators/calculators';
 import { DataClient, DataMatch } from '../clients/data.client';
 import { FantasyClient, FantasyRoster } from '../clients/fantasy.client';
@@ -80,8 +76,7 @@ export class ScoringService {
       this.logger.log(`${match.name} : journée ${date} gelée, recalcul ignoré`);
       return { playersScored: 0, rostersUpdated: 0 };
     }
-    const distributions = await this.ensureDistributions();
-    const playersScored = await this.scorePlayers(match, distributions);
+    const playersScored = await this.scorePlayers(match);
     const rostersUpdated = await this.updateRosterScores(match);
     this.logger.log(
       `${match.name} : ${playersScored} joueurs notés, ${rostersUpdated} rosters mis à jour`,
@@ -95,9 +90,6 @@ export class ScoringService {
    * Coût : lectures internes data-service uniquement, aucune API externe.
    */
   async recomputeAll(): Promise<{ matches: number; playersScored: number; datesUpdated: number }> {
-    await this.recomputeDistributions();
-    const distributions = await this.loadDistributions();
-
     const fromPoints = await this.prisma.fantasyPoints.findMany({
       distinct: ['matchId'],
       select: { matchId: true },
@@ -115,7 +107,7 @@ export class ScoringService {
       // Journée gelée : notes immuables, on ne re-score pas.
       const date = this.matchDate(match);
       if (date && frozen.has(date)) continue;
-      playersScored += await this.scorePlayers(match, distributions);
+      playersScored += await this.scorePlayers(match);
       if (date) dates.add(date);
     }
 
@@ -163,130 +155,42 @@ export class ScoringService {
   }
 
   /**
-   * (Re)calcule les distributions (μ/σ) par jeu et par rôle LoL sur tout
-   * l'historique, à partir des stats du data-service. Base des Z-scores.
+   * Note (upsert) tous les joueurs d'un match via le systeme absolu v4 : rating
+   * de base par joueur, puis bonus contextuels (le roster complet est charge
+   * d'un coup, requis pour les bonus relatifs). Rounds tires des scores de map.
    */
-  async recomputeDistributions(): Promise<number> {
-    // Tout l'historique en memoire (une passe reseau, reutilisee deux fois).
-    const allStats: Array<{
-      gameId: GameId;
-      role: string | null;
-      normalized: unknown;
-      maps: number;
-    }> = [];
-    for (const gameId of GAME_IDS) {
-      const stats = await this.data.getScoringStats(gameId);
-      for (const stat of stats) {
-        allStats.push({ gameId, role: stat.role, normalized: stat.normalized, maps: stat.maps });
-      }
-    }
-
-    // Passe 1 : distributions par metrique brute.
-    const metricAcc = new Map<string, { n: number; sum: number; sumSq: number }>();
-    for (const stat of allStats) {
-      const role = distributionRole(stat.gameId, stat.role);
-      const values = extractMetrics(stat.gameId, stat.normalized, stat.maps);
-      for (const [metric, value] of Object.entries(values)) {
-        this.accumulate(metricAcc, `${stat.gameId} ${role} ${metric}`, value);
-      }
-    }
-    await this.upsertDistributions(metricAcc);
-
-    // Passe 2 : distribution de Z_total (variance a ramener a 1 pour etaler les
-    // notes), avec les distributions de la passe 1.
-    const lookup = await this.loadDistributions();
-    const zAcc = new Map<string, { n: number; sum: number; sumSq: number }>();
-    for (const stat of allStats) {
-      const result = computeZTotal(stat.gameId, stat.normalized, stat.maps, stat.role, lookup);
-      if (!result) continue;
-      this.accumulate(zAcc, `${stat.gameId} ${result.roleKey} ${ZTOTAL_METRIC}`, result.zTotal);
-    }
-    await this.upsertDistributions(zAcc);
-
-    const total = metricAcc.size + zAcc.size;
-    this.logger.log(`Distributions recalculees : ${total} (jeu x role x metrique, dont Z_total)`);
-    return total;
-  }
-
-  private accumulate(
-    acc: Map<string, { n: number; sum: number; sumSq: number }>,
-    key: string,
-    value: number,
-  ): void {
-    const bucket = acc.get(key) ?? { n: 0, sum: 0, sumSq: 0 };
-    bucket.n += 1;
-    bucket.sum += value;
-    bucket.sumSq += value * value;
-    acc.set(key, bucket);
-  }
-
-  private async upsertDistributions(
-    acc: Map<string, { n: number; sum: number; sumSq: number }>,
-  ): Promise<void> {
-    const ops = [...acc.entries()].map(([key, bucket]) => {
-      const [gameId, role, metric] = key.split(' ');
-      const mean = bucket.sum / bucket.n;
-      const stddev = Math.sqrt(Math.max(0, bucket.sumSq / bucket.n - mean * mean));
-      return this.prisma.statDistribution.upsert({
-        where: { gameId_role_metric: { gameId, role, metric } },
-        create: { gameId, role, metric, mean, stddev, sampleSize: bucket.n },
-        update: { mean, stddev, sampleSize: bucket.n },
-      });
-    });
-    await this.prisma.$transaction(ops);
-  }
-
-  /** Charge les distributions en une fonction de recherche. */
-  private async loadDistributions(): Promise<DistributionLookup> {
-    const rows = await this.prisma.statDistribution.findMany();
-    const map = new Map<string, Distribution>(
-      rows.map((row) => [
-        `${row.gameId} ${row.role} ${row.metric}`,
-        { mean: row.mean, stddev: row.stddev, sampleSize: row.sampleSize },
-      ]),
-    );
-    return (gameId, role, metric) => map.get(`${gameId} ${role} ${metric}`);
-  }
-
-  /** Distributions à jour : recalcule si vides ou périmées (TTL), puis charge. */
-  private async ensureDistributions(): Promise<DistributionLookup> {
-    const newest = await this.prisma.statDistribution.aggregate({ _max: { updatedAt: true } });
-    const ttlMs = (Number(process.env.SCORING_DISTRIBUTION_TTL_HOURS) || 6) * 3600 * 1000;
-    const stale =
-      !newest._max.updatedAt || Date.now() - newest._max.updatedAt.getTime() > ttlMs;
-    if (stale) await this.recomputeDistributions();
-    return this.loadDistributions();
-  }
-
-  /** Note (upsert) tous les joueurs d'un match via le pipeline Z-score. */
-  private async scorePlayers(match: DataMatch, distributions: DistributionLookup): Promise<number> {
+  private async scorePlayers(match: DataMatch): Promise<number> {
     const stats = await this.data.listStats([match.id]);
-    const maps = mapsPlayed(match);
+    if (stats.length === 0) return 0;
 
+    const byId = new Map(stats.map((stat) => [stat.playerId, stat]));
+    const players: PlayerStatLine[] = stats.map((stat) => ({
+      playerId: stat.playerId,
+      gameId: stat.gameId as GameId,
+      normalized: stat.normalized,
+      role: stat.role,
+      teamSide: stat.teamSide,
+    }));
+    const ctx: MatchScoringContext = {
+      rounds: roundsPlayed(match),
+      teamObjectives: match.teamObjectives ?? null,
+    };
+
+    const scores = scoreMatch(players, ctx);
     let playersScored = 0;
-    for (const stat of stats) {
-      const result = computePlayerScore(
-        stat.gameId as GameId,
-        stat.normalized,
-        maps,
-        stat.role,
-        distributions,
-      );
-      if (!result) {
-        this.logger.warn(`Stats invalides pour ${stat.playerId} (${match.name})`);
-        continue;
-      }
+    for (const score of scores) {
+      const gameId = byId.get(score.playerId)?.gameId ?? match.gameId;
       await this.prisma.fantasyPoints.upsert({
-        where: { matchId_playerId: { matchId: match.id, playerId: stat.playerId } },
+        where: { matchId_playerId: { matchId: match.id, playerId: score.playerId } },
         create: {
           matchId: match.id,
-          playerId: stat.playerId,
-          gameId: stat.gameId,
-          points: result.points,
-          breakdown: result.breakdown,
+          playerId: score.playerId,
+          gameId,
+          points: score.points,
+          breakdown: score.breakdown,
           version: SCORING_VERSION,
         },
-        update: { points: result.points, breakdown: result.breakdown, version: SCORING_VERSION },
+        update: { points: score.points, breakdown: score.breakdown, version: SCORING_VERSION },
       });
       playersScored += 1;
     }
@@ -556,10 +460,9 @@ export class ScoringService {
     if ((await this.frozenDates()).has(date)) return;
     const completeness = await this.data.dayCompleteness(date).catch(() => null);
     if (completeness && completeness.scoredMatchIds.length > 0) {
-      const distributions = await this.ensureDistributions();
       for (const matchId of completeness.scoredMatchIds) {
         const match = await this.data.getMatch(matchId).catch(() => null);
-        if (match) await this.scorePlayers(match, distributions);
+        if (match) await this.scorePlayers(match);
       }
       await this.updateRosterScoresForDate(date);
     }

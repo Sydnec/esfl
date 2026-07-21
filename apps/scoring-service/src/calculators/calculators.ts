@@ -1,59 +1,36 @@
 import { GameId } from '@esfl/contracts';
 
 /**
- * Scoring v1 (système Z-score cross-game). Chaque statistique brute est
- * standardisée (Z = (x − μ)/σ) sur la population récente du même jeu (isolée par
- * rôle en LoL), gommant l'asymétrie inter-jeux. On en dérive 4 piliers
- * universels (Impact, Létalité, Soutien, Constance), pondérés (matrice éditable
- * ci-dessous, par rôle en LoL), puis convertis en note 0-100 (50 + 15·Z_total).
+ * Scoring v4 — notes ABSOLUES façon HLTV / VLR (remplace le Z-score v3).
  *
- * Contraintes de données du tier gratuit :
- * - CS2 (Grid open-access) : pas de dégâts/utilitaire → pas d'utility_damage ni
- *   flash_duration. Létalité = kills, Soutien = assists, Impact = firstKills +
- *   objectifs (plants/defuses).
- * - CS2 (Grid open-access) reste limité au K/A/D + first kills + objectifs.
- *   En Valorant, l'onglet Performance VLR fournit multikills/clutchs/éco :
- *   l'Impact intègre désormais les clutchs (le clutcher se distingue du baiter).
+ * Chaque jeu a un « Rating de base » calculé par une formule pondérée fixe,
+ * converti sur 0-100, puis ajusté par des bonus/malus contextuels (comparaisons
+ * intra-match, rôles). Repères : ~70 solide, ~85 MVP, 95+ exceptionnel. Validé
+ * sur la population réelle (Valorant médiane 69, CS2 recalibré médiane 70).
  *
- * v2 : Valorant enrichi (kills/deaths/multikills/clutchs/objectifs/éco), LoL
- * goldShare (part d'or), RL shooting%/bcpm/démolitions subies.
- * v3 : le rôle LoL servi par le data-service est désormais le rôle joué AU
- * match (snapshot PlayerMatchStats.role), plus le rôle courant de la fiche —
- * les distributions et pondérations par rôle suivent le poste réellement tenu.
- * LoL toujours : vision/assists/deaths passent en taux par minute (une game
- * longue gonfle mécaniquement les compteurs, la durée ne doit pas noter).
+ * Contraintes de données assumées :
+ * - CS2 (Grid open-access) : ni ADR, ni KAST, ni clutchs. Modèle adapté sur
+ *   KPR/DPR/FKPR/objectifs, constantes recalibrées. Aucun bonus contextuel.
+ * - Valorant : formule VLR complète. Bonus FK/FD du match et clutchs (sans
+ *   rôle).
+ * - LoL : KDA/KP/GPM/VSM. Bonus par rôle (Support, Jungler approximé). Le bonus
+ *   Toplaner (dégâts tourelles) n'est pas implémenté (donnée absente).
  */
-export const SCORING_VERSION = 'v3';
+export const SCORING_VERSION = 'v4';
 
-/** Taille d'échantillon minimale d'une distribution pour l'utiliser (sinon Z=0). */
-export const MIN_DISTRIBUTION_SAMPLE = 30;
-
-/**
- * Échelle des notes (ÉDITABLE) = écart-type cible autour de 50, après
- * re-standardisation de Z_total. ~20 → les ~1 % extrêmes touchent 0/100, le gros
- * du peloton s'étale sur 30-70. Monter pour plus de contraste.
- */
-export const SCORE_SCALE = 20;
-
-/** Métrique spéciale : distribution de Z_total (re-standardisation des notes). */
-export const ZTOTAL_METRIC = '_zTotal';
-
-export interface ScoreResult {
-  points: number;
-  breakdown: Record<string, number>;
-}
-
-/** Sous-ensemble du match nécessaire au comptage des maps jouées. */
+/** Sous-ensemble du match nécessaire au comptage des maps/rounds. */
 export interface MatchMapsInfo {
-  gamesSummary?: Array<{ position: number; winner: 'A' | 'B' | null }> | null;
+  gamesSummary?: Array<{
+    position: number;
+    winner: 'A' | 'B' | null;
+    scoreA?: number | null;
+    scoreB?: number | null;
+  }> | null;
   scoreA?: number | null;
   scoreB?: number | null;
 }
 
-/**
- * Nombre de maps jouées : manches décidées de gamesSummary, sinon scoreA+scoreB,
- * sinon 1. Sert à normaliser les compteurs par map (comparabilité Bo1/Bo3/Bo5).
- */
+/** Nombre de maps décidées (repli scoreA+scoreB, sinon 1). */
 export function mapsPlayed(match: MatchMapsInfo): number {
   const decided = (match.gamesSummary ?? []).filter((game) => game.winner != null).length;
   if (decided > 0) return decided;
@@ -61,135 +38,26 @@ export function mapsPlayed(match: MatchMapsInfo): number {
   return fromScore > 0 ? fromScore : 1;
 }
 
-function round(value: number): number {
-  return Math.round(value * 100) / 100;
-}
-
-function num(normalized: Record<string, unknown>, key: string): number | null {
-  const value = normalized[key];
-  return typeof value === 'number' && Number.isFinite(value) ? value : null;
-}
-
-type MetricKind = 'counter' | 'rate';
-interface MetricSpec {
-  key: string;
-  kind: MetricKind;
-  get: (normalized: Record<string, unknown>) => number | null;
-}
-
 /**
- * Métriques brutes par jeu et leur nature : `counter` = ramené à la moyenne par
- * map avant standardisation ; `rate` = déjà un taux moyenné (adr, kast, bpm,
- * ratios LoL), pris tel quel.
+ * Total de rounds joués (CS2/Valorant) = Σ (scoreA + scoreB) des maps. Base des
+ * métriques par round (KPR/DPR/APR). 0 si aucun score de map n'est disponible.
  */
-const METRIC_SPECS: Record<GameId, MetricSpec[]> = {
-  cs2: [
-    { key: 'firstKills', kind: 'counter', get: (n) => num(n, 'firstKills') },
-    { key: 'kills', kind: 'counter', get: (n) => num(n, 'kills') },
-    { key: 'assists', kind: 'counter', get: (n) => num(n, 'assists') },
-    { key: 'deaths', kind: 'counter', get: (n) => num(n, 'deaths') },
-    {
-      key: 'objectives',
-      kind: 'counter',
-      get: (n) => {
-        const plants = num(n, 'plants');
-        const defuses = num(n, 'defuses');
-        return plants == null && defuses == null ? null : (plants ?? 0) + (defuses ?? 0);
-      },
-    },
-  ],
-  valorant: [
-    { key: 'firstKills', kind: 'counter', get: (n) => num(n, 'firstKills') },
-    { key: 'firstDeaths', kind: 'counter', get: (n) => num(n, 'firstDeaths') },
-    { key: 'adr', kind: 'rate', get: (n) => num(n, 'adr') },
-    { key: 'kills', kind: 'counter', get: (n) => num(n, 'kills') },
-    { key: 'deaths', kind: 'counter', get: (n) => num(n, 'deaths') },
-    { key: 'assists', kind: 'counter', get: (n) => num(n, 'assists') },
-    { key: 'kast', kind: 'rate', get: (n) => num(n, 'kast') },
-    // Onglet Performance VLR (matchs finis) : multikills, clutchs, objectifs, éco.
-    { key: 'multiKills', kind: 'counter', get: (n) => num(n, 'multiKills') },
-    { key: 'clutches', kind: 'counter', get: (n) => num(n, 'clutches') },
-    {
-      key: 'objectives',
-      kind: 'counter',
-      get: (n) => {
-        const plants = num(n, 'plants');
-        const defuses = num(n, 'defuses');
-        return plants == null && defuses == null ? null : (plants ?? 0) + (defuses ?? 0);
-      },
-    },
-    { key: 'econRating', kind: 'rate', get: (n) => num(n, 'econRating') },
-  ],
-  lol: [
-    { key: 'killParticipation', kind: 'rate', get: (n) => num(n, 'killParticipation') },
-    { key: 'damageShare', kind: 'rate', get: (n) => num(n, 'damageShare') },
-    // Taux par minute plutôt que totaux : une game longue a mécaniquement plus
-    // de kills/morts/vision, la durée ne doit pas fausser la note.
-    { key: 'visionPerMin', kind: 'rate', get: (n) => num(n, 'visionPerMin') },
-    { key: 'goldShare', kind: 'rate', get: (n) => num(n, 'goldShare') },
-    { key: 'assistsPerMin', kind: 'rate', get: (n) => num(n, 'assistsPerMin') },
-    { key: 'deathsPerMin', kind: 'rate', get: (n) => num(n, 'deathsPerMin') },
-  ],
-};
-
-interface Pillars {
-  impact: number;
-  lethality: number;
-  support: number;
-  consistency: number;
+export function roundsPlayed(match: MatchMapsInfo): number {
+  return (match.gamesSummary ?? []).reduce(
+    (sum, game) => sum + (game.scoreA ?? 0) + (game.scoreB ?? 0),
+    0,
+  );
 }
 
-/** Composition des 4 piliers à partir des Z-scores des métriques. */
-const PILLARS: Record<GameId, (z: Record<string, number>) => Pillars> = {
-  cs2: (z) => ({
-    impact: ((z.firstKills ?? 0) + (z.objectives ?? 0)) / 2,
-    lethality: z.kills ?? 0,
-    support: z.assists ?? 0,
-    consistency: -(z.deaths ?? 0),
-  }),
-  valorant: (z) => ({
-    // Duels d'entrée + clutchs (le clutcher se distingue enfin du baiter).
-    impact: ((z.firstKills ?? 0) - (z.firstDeaths ?? 0) + (z.clutches ?? 0)) / 2,
-    lethality: ((z.adr ?? 0) + (z.kills ?? 0) + (z.multiKills ?? 0)) / 3,
-    support: ((z.assists ?? 0) + (z.objectives ?? 0)) / 2,
-    consistency: ((z.kast ?? 0) - (z.deaths ?? 0) + (z.econRating ?? 0)) / 3,
-  }),
-  lol: (z) => ({
-    impact: z.killParticipation ?? 0,
-    // Carry = dégâts + part de ressources (or) de l'équipe.
-    lethality: ((z.damageShare ?? 0) + (z.goldShare ?? 0)) / 2,
-    support: ((z.visionPerMin ?? 0) + (z.assistsPerMin ?? 0)) / 2,
-    consistency: -(z.deathsPerMin ?? 0),
-  }),
-};
+const round2 = (value: number) => Math.round(value * 100) / 100;
+const clamp = (value: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, value));
 
-export interface PillarWeights {
-  impact: number;
-  lethality: number;
-  support: number;
-  consistency: number;
+function num(source: Record<string, unknown>, key: string): number {
+  const value = source[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
 
-// ─── Matrice de pondération (ÉDITABLE) — la somme doit valoir 1.0 ───────────
-/** Jeux unifiés (CS2, Valorant, RL) : désavantage la passivité. */
-export const DEFAULT_WEIGHTS: PillarWeights = {
-  impact: 0.35,
-  lethality: 0.3,
-  support: 0.2,
-  consistency: 0.15,
-};
-
-/** LoL : pondération par rôle (le rôle dicte l'objectif). */
-export const LOL_ROLE_WEIGHTS: Record<string, PillarWeights> = {
-  TOP: { impact: 0.25, lethality: 0.25, support: 0.25, consistency: 0.25 },
-  JUN: { impact: 0.4, lethality: 0.2, support: 0.25, consistency: 0.15 },
-  MID: { impact: 0.3, lethality: 0.4, support: 0.1, consistency: 0.2 },
-  ADC: { impact: 0.2, lethality: 0.5, support: 0.05, consistency: 0.25 },
-  SUP: { impact: 0.3, lethality: 0.05, support: 0.5, consistency: 0.15 },
-};
-// ────────────────────────────────────────────────────────────────────────────
-
-/** Rôle LoL canonique (clé de distribution + de pondération). */
+/** Rôle LoL canonique (clé des bonus de rôle). */
 export function canonicalLolRole(role: string | null | undefined): string {
   const r = (role ?? '').toLowerCase();
   if (/top/.test(r)) return 'TOP';
@@ -200,125 +68,182 @@ export function canonicalLolRole(role: string | null | undefined): string {
   return 'Autre';
 }
 
-/** Clé de rôle d'une distribution : rôle LoL canonique, sinon '' (global). */
-export function distributionRole(gameId: GameId, role: string | null | undefined): string {
-  return gameId === 'lol' ? canonicalLolRole(role) : '';
+// ─── Formules de Rating de base (ÉDITABLES) ─────────────────────────────────
+// Note = Rating × pente + ordonnée. Constantes calées pour ~70 médian, ~85 p90.
+
+/** CS2 adapté (ADR/KAST absents) : calibré sur la population (n≈6446). */
+export function cs2BaseNote(i: { kpr: number; dpr: number; fkpr: number; objpr: number }): number {
+  const rating = i.kpr * 1.35 - i.dpr * 1.45 + i.fkpr * 2.0 + i.objpr * 1.0 + 1.0;
+  return rating * 40 + 30;
+}
+
+/** Valorant (VLR 2.0, fidèle). */
+export function valorantBaseNote(i: {
+  kpr: number;
+  apr: number;
+  dpr: number;
+  adr: number;
+  kast: number;
+}): number {
+  const rating =
+    i.kpr * 0.55 + i.apr * 0.23 + i.adr * 0.0025 + i.kast * 0.0031 - i.dpr * 0.87 + 0.61;
+  return rating * 62.5 + 7.5;
+}
+
+/** LoL (impact global). KP en pourcentage entier, GPM = or/min, VSM = vision/min. */
+export function lolBaseNote(i: { kda: number; kp: number; gpm: number; vsm: number }): number {
+  const rating = i.kda * 0.05 + i.kp * 0.005 + i.gpm * 0.001 + i.vsm * 0.1 + 0.15;
+  return rating * 40 + 30;
+}
+// ────────────────────────────────────────────────────────────────────────────
+
+/** Ligne de stats d'un joueur pour la notation d'un match. */
+export interface PlayerStatLine {
+  playerId: string;
+  gameId: GameId;
+  normalized: unknown;
+  role: string | null;
+  teamSide: 'A' | 'B' | null;
+}
+
+/** Contexte match : rounds (CS2/Valo) et objectifs neutres par côté (LoL). */
+export interface MatchScoringContext {
+  rounds: number;
+  teamObjectives?: { A: number; B: number } | null;
+}
+
+export interface PlayerScore {
+  playerId: string;
+  points: number;
+  breakdown: Record<string, number>;
 }
 
 /**
- * Valeurs des métriques d'un joueur pour un match, normalisées par map pour les
- * compteurs (rates inchangés). Base commune au calcul des distributions et des
- * Z-scores. Les métriques absentes ne sont pas incluses.
+ * Note un match entier en deux passes : rating de base par joueur, puis bonus
+ * contextuels (comparaisons intra-match, rôles), plafonné à [0, 100]. Prend tout
+ * le roster pour les bonus relatifs (max FK/FD du match). Fonction pure.
  */
-export function extractMetrics(
-  gameId: GameId,
-  normalized: unknown,
-  maps: number,
-): Record<string, number> {
-  const source = (normalized ?? {}) as Record<string, unknown>;
-  const values: Record<string, number> = {};
-  for (const spec of METRIC_SPECS[gameId] ?? []) {
-    const raw = spec.get(source);
-    if (raw == null) continue;
-    values[spec.key] = spec.kind === 'counter' ? raw / Math.max(1, maps) : raw;
+export function scoreMatch(players: PlayerStatLine[], ctx: MatchScoringContext): PlayerScore[] {
+  // Passe 1 : rating de base + métriques dérivées (pour le breakdown).
+  const bases = players.map((player) => base(player, ctx));
+
+  // Contexte match pour les bonus relatifs Valorant.
+  const maxFk = Math.max(0, ...bases.map((b) => b.derived.firstKills ?? 0));
+  const maxFd = Math.max(0, ...bases.map((b) => b.derived.firstDeaths ?? 0));
+
+  return bases.map((b) => {
+    const bonus = contextualBonus(b, ctx, maxFk, maxFd);
+    const points = clamp(b.note + bonus.total, 0, 100);
+    return {
+      playerId: b.player.playerId,
+      points: round2(points),
+      breakdown: {
+        ...Object.fromEntries(Object.entries(b.derived).map(([k, v]) => [k, round2(v)])),
+        base: round2(b.note),
+        ...bonus.detail,
+        bonus: round2(bonus.total),
+      },
+    };
+  });
+}
+
+interface BaseResult {
+  player: PlayerStatLine;
+  note: number;
+  derived: Record<string, number>;
+}
+
+/** Rating de base d'un joueur + métriques dérivées, selon le jeu. */
+function base(player: PlayerStatLine, ctx: MatchScoringContext): BaseResult {
+  const n = (player.normalized ?? {}) as Record<string, unknown>;
+  const rounds = Math.max(1, ctx.rounds);
+
+  if (player.gameId === 'cs2') {
+    const derived = {
+      kpr: num(n, 'kills') / rounds,
+      dpr: num(n, 'deaths') / rounds,
+      fkpr: num(n, 'firstKills') / rounds,
+      objpr: (num(n, 'plants') + num(n, 'defuses')) / rounds,
+    };
+    return { player, note: cs2BaseNote(derived), derived };
   }
-  return values;
-}
 
-export interface Distribution {
-  mean: number;
-  stddev: number;
-  sampleSize: number;
-}
-export type DistributionLookup = (
-  gameId: string,
-  role: string,
-  metric: string,
-) => Distribution | undefined;
-
-const clamp = (value: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, value));
-
-export interface ZTotalResult {
-  zTotal: number;
-  pillars: Pillars;
-  values: Record<string, number>;
-  roleKey: string;
-}
-
-/**
- * Z_total (avant re-standardisation) : standardise chaque métrique, compose les
- * piliers et pondère. Base commune au calcul de la distribution de Z_total et
- * de la note finale.
- */
-export function computeZTotal(
-  gameId: GameId,
-  normalized: unknown,
-  maps: number,
-  role: string | null | undefined,
-  lookup: DistributionLookup,
-): ZTotalResult | null {
-  if (!METRIC_SPECS[gameId]) return null;
-  const roleKey = distributionRole(gameId, role);
-  const values = extractMetrics(gameId, normalized, maps);
-
-  const z: Record<string, number> = {};
-  for (const spec of METRIC_SPECS[gameId]) {
-    const value = values[spec.key];
-    const dist = lookup(gameId, roleKey, spec.key);
-    z[spec.key] =
-      value != null && dist && dist.stddev > 1e-9 && dist.sampleSize >= MIN_DISTRIBUTION_SAMPLE
-        ? (value - dist.mean) / dist.stddev
-        : 0;
+  if (player.gameId === 'valorant') {
+    const derived = {
+      kpr: num(n, 'kills') / rounds,
+      apr: num(n, 'assists') / rounds,
+      dpr: num(n, 'deaths') / rounds,
+      adr: num(n, 'adr'),
+      kast: num(n, 'kast'),
+      // Conservés pour les bonus (pas dans le rating de base VLR).
+      firstKills: num(n, 'firstKills'),
+      firstDeaths: num(n, 'firstDeaths'),
+      clutches: num(n, 'clutches'),
+    };
+    return { player, note: valorantBaseNote(derived), derived };
   }
 
-  const pillars = PILLARS[gameId](z);
-  const weights = gameId === 'lol' ? (LOL_ROLE_WEIGHTS[roleKey] ?? DEFAULT_WEIGHTS) : DEFAULT_WEIGHTS;
-  const zTotal =
-    weights.impact * pillars.impact +
-    weights.lethality * pillars.lethality +
-    weights.support * pillars.support +
-    weights.consistency * pillars.consistency;
-  return { zTotal, pillars, values, roleKey };
-}
-
-/**
- * Note 0-100 d'un joueur : Z_total **re-standardisé** (sa variance est écrasée
- * par les moyennes de piliers → on la ramène à 1 via la distribution de Z_total)
- * puis étalé (`SCORE_SCALE`) autour de 50 et borné. C'est ce qui donne de vrais
- * écarts (1 comme 99), pas un tassement autour de 50.
- */
-export function computePlayerScore(
-  gameId: GameId,
-  normalized: unknown,
-  maps: number,
-  role: string | null | undefined,
-  lookup: DistributionLookup,
-): ScoreResult | null {
-  const result = computeZTotal(gameId, normalized, maps, role, lookup);
-  if (!result) return null;
-
-  const ztDist = lookup(gameId, result.roleKey, ZTOTAL_METRIC);
-  const zStd =
-    ztDist && ztDist.stddev > 1e-9 && ztDist.sampleSize >= MIN_DISTRIBUTION_SAMPLE
-      ? (result.zTotal - ztDist.mean) / ztDist.stddev
-      : result.zTotal;
-  const points = clamp(50 + SCORE_SCALE * zStd, 0, 100);
-
-  return {
-    points: round(points),
-    breakdown: {
-      ...Object.fromEntries(Object.entries(result.values).map(([key, value]) => [key, round(value)])),
-      impact: round(result.pillars.impact),
-      lethality: round(result.pillars.lethality),
-      support: round(result.pillars.support),
-      consistency: round(result.pillars.consistency),
-      zTotal: Math.round(result.zTotal * 1000) / 1000,
-      zStandardized: Math.round(zStd * 1000) / 1000,
-    },
+  // LoL
+  const deaths = num(n, 'deaths');
+  const derived = {
+    kda: (num(n, 'kills') + num(n, 'assists')) / Math.max(1, deaths),
+    // killParticipation stocké en fraction (0-1) → pourcentage entier attendu.
+    kp: num(n, 'killParticipation') * 100,
+    gpm: num(n, 'goldPerMin'),
+    vsm: num(n, 'visionPerMin'),
+    controlWards: num(n, 'controlWards'),
   };
+  return { player, note: lolBaseNote(derived), derived };
 }
 
-/** Métriques attendues d'un jeu (pour itérer côté distributions). */
-export function metricKeys(gameId: GameId): string[] {
-  return (METRIC_SPECS[gameId] ?? []).map((spec) => spec.key);
+interface BonusResult {
+  total: number;
+  detail: Record<string, number>;
+}
+
+/** Bonus/malus contextuels selon le jeu. */
+function contextualBonus(
+  b: BaseResult,
+  ctx: MatchScoringContext,
+  maxFk: number,
+  maxFd: number,
+): BonusResult {
+  const detail: Record<string, number> = {};
+  let total = 0;
+
+  if (b.player.gameId === 'valorant') {
+    // +3 au(x) meilleur(s) First Kill du match, −3 au(x) pire(s) First Death.
+    if (maxFk > 0 && (b.derived.firstKills ?? 0) === maxFk) {
+      detail.bonusFk = 3;
+      total += 3;
+    }
+    if (maxFd > 0 && (b.derived.firstDeaths ?? 0) === maxFd) {
+      detail.bonusFd = -3;
+      total -= 3;
+    }
+    // +2 à tout joueur ayant remporté plus de 2 clutchs (sans rôle).
+    if ((b.derived.clutches ?? 0) > 2) {
+      detail.bonusClutch = 2;
+      total += 2;
+    }
+  } else if (b.player.gameId === 'lol') {
+    const role = canonicalLolRole(b.player.role);
+    if (role === 'SUP') {
+      detail.bonusSupport = 8;
+      total += 8;
+      if ((b.derived.controlWards ?? 0) > 3) {
+        detail.bonusWards = 2;
+        total += 2;
+      }
+    } else if (role === 'JUN' && ctx.teamObjectives && b.player.teamSide) {
+      // Approximation : objectifs neutres de l'équipe attribués au jungler.
+      const objectives = ctx.teamObjectives[b.player.teamSide] ?? 0;
+      if (objectives > 0) {
+        detail.bonusObjectives = objectives * 2;
+        total += objectives * 2;
+      }
+    }
+  }
+
+  return { total, detail };
 }

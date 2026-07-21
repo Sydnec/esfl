@@ -46,10 +46,6 @@ function setup(opts: {
       }),
       upsert: vi.fn(async () => ({})),
     },
-    statDistribution: {
-      aggregate: vi.fn(async () => ({ _max: { updatedAt: new Date() } })),
-      findMany: vi.fn(async () => []),
-    },
     $transaction: vi.fn(async (ops: unknown[]) => ops),
   } as unknown as PrismaService;
   const data = {
@@ -82,9 +78,8 @@ describe('gel des journées', () => {
     });
     const result = await service.computeForMatch('m1');
     expect(result).toEqual({ playersScored: 0, rostersUpdated: 0 });
-    // Aucune note écrite, distributions même pas chargées.
+    // Aucune note écrite pour une journée gelée.
     expect(prisma.fantasyPoints.upsert).not.toHaveBeenCalled();
-    expect(prisma.statDistribution.aggregate).not.toHaveBeenCalled();
   });
 
   it('resetAndRecompute épargne les points et scores des journées gelées', async () => {
