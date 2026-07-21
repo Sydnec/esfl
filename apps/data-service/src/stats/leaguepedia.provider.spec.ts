@@ -11,6 +11,7 @@ import {
   mapLeaguepediaGames,
   mapLeaguepediaRows,
   parseLeaguepediaRoster,
+  scopeMatchRows,
 } from './leaguepedia.provider';
 import type { MatchContext } from './provider';
 
@@ -239,6 +240,42 @@ describe('mapLeaguepediaRows', () => {
 
   it('retourne vide si aucune game ne correspond aux équipes', () => {
     expect(mapLeaguepediaRows(rows, { name: 'Karmine Corp' }, { name: 'Vitality' })).toHaveLength(0);
+  });
+
+  describe('scopeMatchRows — repli quand aucun groupe n’est exact', () => {
+    // Notre nom « KT » diffère du canonique Leaguepedia « KT Rolster » : AUCUN
+    // groupe n'est exact, donc le repli décide. Deux rencontres fuzzy dans la
+    // fenêtre : la vraie (à l'heure du match) et l'académie (autre heure/page).
+    const row = (
+      team1: string,
+      team2: string,
+      link: string,
+      page: string,
+      dateTime: string,
+    ): LeaguepediaRow => ({ Team1: team1, Team2: team2, Link: link, OverviewPage: page, DateTime: dateTime });
+    const windowRows: LeaguepediaRow[] = [
+      row('KT Rolster', 'T1', 'Real (X)', 'LCK/2026', '2026-04-25 09:00:00'),
+      row('KT Rolster Challengers', 'T1 EA', 'Aca (Y)', 'LCK_CL/2026', '2026-04-25 02:00:00'),
+    ];
+
+    it('à référence fournie, retient la rencontre la plus proche dans le temps', () => {
+      const scoped = scopeMatchRows(
+        windowRows,
+        { name: 'KT' },
+        { name: 'T1' },
+        new Date('2026-04-25T09:05:00Z'),
+      );
+      expect(scoped.map((r) => r.Link)).toEqual(['Real (X)']);
+    });
+
+    it('sans référence, dégrade vers le groupe le plus fourni', () => {
+      const withBigAcademy = [
+        ...windowRows,
+        row('KT Rolster Challengers', 'T1 EA', 'Aca2 (Z)', 'LCK_CL/2026', '2026-04-25 02:00:00'),
+      ];
+      const scoped = scopeMatchRows(withBigAcademy, { name: 'KT' }, { name: 'T1' });
+      expect(scoped.every((r) => r.OverviewPage === 'LCK_CL/2026')).toBe(true);
+    });
   });
 
   it('exclut la game d’une équipe dérivée (matching strict, pas de sous-chaîne)', () => {

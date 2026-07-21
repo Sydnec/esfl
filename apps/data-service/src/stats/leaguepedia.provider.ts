@@ -113,6 +113,8 @@ export interface LeaguepediaRow {
   GameNumber?: string;
   /** Page wiki du tournoi (lien vers la page de stats originale). */
   OverviewPage?: string;
+  /** Horodatage UTC de la game (« YYYY-MM-DD HH:MM:SS ») : cadrage temporel. */
+  DateTime?: string;
   /** Dégâts aux champions (part d'équipe → damageShare). */
   DamageToChampions?: string;
   /** Score de vision (agrégé sur les games). */
@@ -173,14 +175,19 @@ export function championImageUrl(champion: string): string {
  *
  * On garde le flou pour la tolérance, mais on CADRE ensuite sur une seule
  * rencontre : les lignes sont groupées par (page de tournoi + paire d'équipes),
- * une vraie rencontre (même Bo3) formant un seul groupe. On retient le groupe
- * qui matche EXACTEMENT nos deux noms, sinon le plus fourni — l'académie, sur
- * une autre page, est écartée.
+ * une vraie rencontre (même Bo3) formant un seul groupe. Le groupe retenu est
+ * choisi par ordre de priorité :
+ *   1. celui qui matche EXACTEMENT nos deux noms (preuve la plus forte) ;
+ *   2. sinon, à `reference` fourni, celui dont une game est la plus proche dans
+ *      le temps (déterministe : l'académie jouée à une autre heure est écartée
+ *      sans dépendre de sa taille) ;
+ *   3. sinon le plus fourni.
  */
-function scopeMatchRows(
+export function scopeMatchRows(
   rows: LeaguepediaRow[],
   teamA: TeamRef,
   teamB: TeamRef,
+  reference?: Date,
 ): LeaguepediaRow[] {
   const candidates = rows.filter((row) => {
     const team1 = row.Team1 ?? '';
@@ -196,20 +203,44 @@ function scopeMatchRows(
   for (const row of candidates) {
     const pair = [normalizeName(row.Team1 ?? ''), normalizeName(row.Team2 ?? '')].sort().join('|');
     const key = `${row.OverviewPage ?? ''}::${pair}`;
-    groups.set(key, [...(groups.get(key) ?? []), row]);
+    const group = groups.get(key);
+    if (group) group.push(row);
+    else groups.set(key, [row]);
   }
 
-  const scored = [...groups.values()].map((group) => {
+  const refMs = reference?.getTime();
+  const score = (group: LeaguepediaRow[]) => {
     const t1 = group[0].Team1 ?? '';
     const t2 = group[0].Team2 ?? '';
     const exact =
       (teamMatchesExact(t1, teamA) && teamMatchesExact(t2, teamB)) ||
       (teamMatchesExact(t1, teamB) && teamMatchesExact(t2, teamA));
-    return { group, exact, size: group.length };
-  });
-  // Rencontre exacte d'abord, puis la plus fournie : une seule est retenue.
-  scored.sort((a, b) => Number(b.exact) - Number(a.exact) || b.size - a.size);
-  return scored[0].group;
+    // Distance temporelle minimale d'une game du groupe à la référence.
+    let distance = Number.POSITIVE_INFINITY;
+    if (refMs != null) {
+      for (const row of group) {
+        const ms = parseLeaguepediaDate(row.DateTime);
+        if (ms != null) distance = Math.min(distance, Math.abs(ms - refMs));
+      }
+    }
+    return { group, exact, distance, size: group.length };
+  };
+
+  // Meilleur groupe en une passe : exact d'abord, puis le plus proche dans le
+  // temps, puis le plus fourni.
+  const better = (a: ReturnType<typeof score>, b: ReturnType<typeof score>) => {
+    if (a.exact !== b.exact) return a.exact ? a : b;
+    if (a.distance !== b.distance) return a.distance < b.distance ? a : b;
+    return a.size >= b.size ? a : b;
+  };
+  return [...groups.values()].map(score).reduce(better).group;
+}
+
+/** Parse un horodatage Leaguepedia (« YYYY-MM-DD HH:MM:SS » UTC) en ms, ou null. */
+function parseLeaguepediaDate(value: string | undefined): number | null {
+  if (!value) return null;
+  const ms = Date.parse(`${value.trim().replace(' ', 'T')}Z`);
+  return Number.isNaN(ms) ? null : ms;
 }
 
 /**
@@ -559,7 +590,11 @@ export class LeaguepediaStatsProvider implements GameStatsProvider {
     const rows = await this.fetchWindowRows(reference);
     if (!rows) return null;
 
-    const lines = mapLeaguepediaRows(rows, context.teamA, context.teamB);
+    // Cadrage sur une seule rencontre, calculé UNE fois sur la fenêtre complète
+    // (avec la référence temporelle pour trancher les cas non exacts), puis
+    // partagé entre les quatre mappers — qui re-cadrent un jeu déjà réduit.
+    const scoped = scopeMatchRows(rows, context.teamA, context.teamB, reference);
+    const lines = mapLeaguepediaRows(scoped, context.teamA, context.teamB);
     if (lines.length === 0) {
       this.logger.warn(
         `Leaguepedia : rien trouvé pour ${context.teamA.name} vs ${context.teamB.name}`,
@@ -568,9 +603,9 @@ export class LeaguepediaStatsProvider implements GameStatsProvider {
     }
     return {
       lines,
-      games: mapLeaguepediaGames(rows, context.teamA, context.teamB),
-      teamIds: leaguepediaTeamNames(rows, context.teamA, context.teamB),
-      pageUrl: leaguepediaPageUrl(rows, context.teamA, context.teamB),
+      games: mapLeaguepediaGames(scoped, context.teamA, context.teamB),
+      teamIds: leaguepediaTeamNames(scoped, context.teamA, context.teamB),
+      pageUrl: leaguepediaPageUrl(scoped, context.teamA, context.teamB),
     };
   }
 
@@ -649,7 +684,7 @@ export class LeaguepediaStatsProvider implements GameStatsProvider {
     // → Gamelength_Number) ; un espace provoque une MWException côté Fandom.
     url.searchParams.set(
       'fields',
-      'SP.Link,SP.Role,SP.Champion,SP.Kills,SP.Deaths,SP.Assists,SP.CS,SP.PlayerWin,SP.Team,SP.DamageToChampions,SP.VisionScore,SP.Gold,SG.Team1,SG.Team2,SG.Gamelength_Number=Gamelength,SG.GameId=GameId,SG.N_GameInMatch=GameNumber,SG.OverviewPage=OverviewPage',
+      'SP.Link,SP.Role,SP.Champion,SP.Kills,SP.Deaths,SP.Assists,SP.CS,SP.PlayerWin,SP.Team,SP.DamageToChampions,SP.VisionScore,SP.Gold,SG.Team1,SG.Team2,SG.Gamelength_Number=Gamelength,SG.GameId=GameId,SG.N_GameInMatch=GameNumber,SG.OverviewPage=OverviewPage,SG.DateTime_UTC=DateTime',
     );
     url.searchParams.set('where', `SG.DateTime_UTC >= '${from}' AND SG.DateTime_UTC <= '${to}'`);
 
