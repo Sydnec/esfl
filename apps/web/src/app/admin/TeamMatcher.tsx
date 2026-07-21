@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { GAME_IDS, GAME_LABELS, GameId } from '@esfl/contracts';
 import { useAuth } from '@/components/AuthProvider';
+import { providerInput } from '@/lib/provider-input';
 import { formatDateTime } from '@/lib/format';
 import styles from './page.module.css';
 
@@ -367,7 +368,7 @@ function MissingProviderIdPanel({ authedFetch }: { authedFetch: AuthedFetch }) {
           <span className={styles.aliasList}>
             <input
               className={styles.searchInput}
-              placeholder={team.gameId === 'lol' ? 'lien lol.fandom.com ou nom…' : 'lien vlr.gg/team/… ou id'}
+              placeholder={providerInput(team.gameId).placeholderIdentite}
               value={draft[team.id] ?? ''}
               onChange={(event) =>
                 setDraft((current) => ({ ...current, [team.id]: event.target.value }))
@@ -437,14 +438,18 @@ function UnmatchedPanel({
     void load();
   }, [load]);
 
-  // Valorant se matche par match (on colle un lien de match), pas par équipe :
-  // on dédoublonne par match pour ne pas afficher deux lignes d'une rencontre.
-  // Les autres jeux restent une ligne par équipe (un alias par équipe).
+  // Une rencontre qui se corrige par son LIEN, et non par les alias de ses
+  // équipes, arrive avec ses DEUX équipes : le data-service ne sait pas laquelle
+  // est en cause. On le déduit de la donnée plutôt que de redire ici quels jeux
+  // fonctionnent ainsi — la règle resterait à synchroniser à la main.
   const items = useMemo<PanelItem[]>(() => {
+    const parMatch = new Map<string, number>();
+    for (const team of teams) parMatch.set(team.matchId, (parMatch.get(team.matchId) ?? 0) + 1);
+
     const result: PanelItem[] = [];
     const seenMatch = new Set<string>();
     for (const team of teams) {
-      if (team.gameId === 'valorant') {
+      if ((parMatch.get(team.matchId) ?? 0) > 1) {
         if (seenMatch.has(team.matchId)) continue;
         seenMatch.add(team.matchId);
         result.push({
@@ -616,10 +621,8 @@ function UnmatchedPanel({
                 })()}
                 <span className={styles.aliasList}>
                   <input
-                    className={item.gameId === 'lol' ? styles.searchInput : styles.aliasInput}
-                    placeholder={
-                      item.gameId === 'lol' ? 'nom ou lien lol.fandom.com…' : 'alias manuel…'
-                    }
+                    className={providerInput(item.gameId).champLarge ? styles.searchInput : styles.aliasInput}
+                    placeholder={providerInput(item.gameId).placeholderAlias}
                     value={draft[item.team.id] ?? ''}
                     onChange={(event) =>
                       setDraft((current) => ({ ...current, [item.team.id]: event.target.value }))
@@ -745,8 +748,8 @@ function SearchPanel({
               </button>
             ))}
             <input
-              className={team.gameId === 'lol' ? styles.searchInput : styles.aliasInput}
-              placeholder={team.gameId === 'lol' ? 'nom ou lien lol.fandom.com…' : 'nom provider'}
+              className={providerInput(team.gameId).champLarge ? styles.searchInput : styles.aliasInput}
+              placeholder={providerInput(team.gameId).placeholderAlias}
               value={draft[team.id] ?? ''}
               onChange={(event) =>
                 setDraft((current) => ({ ...current, [team.id]: event.target.value }))

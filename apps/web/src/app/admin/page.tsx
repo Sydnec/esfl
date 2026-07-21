@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { GAME_LABELS, GameId } from '@esfl/contracts';
 import { useAuth } from '@/components/AuthProvider';
+import { providerInput } from '@/lib/provider-input';
 import { formatDateTime } from '@/lib/format';
 import { TeamMatcher } from './TeamMatcher';
 import styles from './page.module.css';
@@ -529,11 +530,11 @@ export default function AdminPage() {
                             >
                               Relancer
                             </button>
-                            {match.gameId === 'valorant' && (
+                            {providerInput(match.gameId).correctionParLien && (
                               <>
                                 <input
                                   className={styles.searchInput}
-                                  placeholder="page VLR.gg…"
+                                  placeholder="lien de la page du match…"
                                   value={vlrUrl[match.id] ?? ''}
                                   onChange={(event) =>
                                     setVlrUrl((current) => ({
