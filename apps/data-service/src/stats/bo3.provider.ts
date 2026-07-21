@@ -295,18 +295,38 @@ export function mapBo3GameStats(
   }));
 }
 
-/** Manches bo3 → ProviderGameInfo. Scores par nom de clan : l'ingestion résout les côtés. */
-export function mapBo3Games(games: Bo3Game[]): ProviderGameInfo[] {
+/**
+ * Manches bo3 → ProviderGameInfo, scores résolus PAR CÔTÉ.
+ *
+ * bo3 nomme les camps d'une manche par leur `clan_name`, qui n'est pas notre
+ * nom Pandascore : laisser l'ingestion les rapprocher par nom échouait souvent
+ * et vidait `scoreA`/`scoreB`, donc le total de manches du scoring — un KPR
+ * calculé sur une seule manche au lieu de quarante. On s'appuie donc sur
+ * `sideByClan`, construit depuis les lignes de stats où chaque joueur porte à
+ * la fois son `clan_name` et l'id d'équipe bo3 qui donne le côté.
+ */
+export function mapBo3Games(
+  games: Bo3Game[],
+  sideByClan: Map<string, 'A' | 'B'>,
+): ProviderGameInfo[] {
+  const cote = (clan: string | null | undefined) =>
+    clan ? (sideByClan.get(normalizeName(clan)) ?? null) : null;
   return games
     .filter((game) => (game.rounds_count ?? 0) > 0)
-    .map((game) => ({
-      position: game.number,
-      map: game.map_name,
-      teams: [
-        { name: game.winner_clan_name ?? '', score: game.winner_clan_score ?? null },
-        { name: game.loser_clan_name ?? '', score: game.loser_clan_score ?? null },
-      ],
-    }));
+    .map((game) => {
+      const scores: { scoreA: number | null; scoreB: number | null } = {
+        scoreA: null,
+        scoreB: null,
+      };
+      for (const camp of [
+        { cote: cote(game.winner_clan_name), score: game.winner_clan_score ?? null },
+        { cote: cote(game.loser_clan_name), score: game.loser_clan_score ?? null },
+      ]) {
+        if (camp.cote === 'A') scores.scoreA = camp.score;
+        else if (camp.cote === 'B') scores.scoreB = camp.score;
+      }
+      return { position: game.number, map: game.map_name, ...scores };
+    });
 }
 
 /** Notre équipe vue du rapprochement : nom Pandascore, tag et alias appris. */
@@ -460,9 +480,18 @@ export class Bo3StatsProvider implements GameStatsProvider {
       return null;
     }
 
+    // Nom de clan → côté, appris depuis les lignes de stats : c'est ce qui
+    // permet de rattacher les scores de manche sans rapprochement par nom.
+    const sideByClan = new Map<string, 'A' | 'B'>();
+    for (const row of rows) {
+      const teamId = row.team_clan?.team_id ?? row.team_clan?.team?.id;
+      const side = teamId != null ? sideByTeamId.get(teamId) : undefined;
+      if (side && row.clan_name) sideByClan.set(normalizeName(row.clan_name), side);
+    }
+
     return {
       lines,
-      games: mapBo3Games(games),
+      games: mapBo3Games(games, sideByClan),
       pageUrl: matchId,
       teamIds: { A: idA != null ? String(idA) : null, B: idB != null ? String(idB) : null },
     };

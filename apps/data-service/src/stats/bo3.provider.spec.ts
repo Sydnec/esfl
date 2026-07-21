@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { bo3TeamMatches, mapBo3GameStats, mapBo3Games, toSlug } from './bo3.provider';
 
 /** Manche bo3 factice. */
-function game(id: number, number: number, rounds: number | null, over: Record<string, unknown> = {}) {
+function game(
+  id: number,
+  number: number,
+  rounds: number | null,
+  over: Record<string, unknown> = {},
+) {
   return {
     id,
     number,
@@ -110,7 +115,10 @@ describe('mapBo3GameStats', () => {
   });
 
   it('ignore le KAST manquant d’une map en cours sans fausser le cumul', () => {
-    const live = new Map([[1, game(1, 1, 20)], [2, game(2, 2, null)]]);
+    const live = new Map([
+      [1, game(1, 1, 20)],
+      [2, game(2, 2, null)],
+    ]);
     const lines = mapBo3GameStats(
       [
         statRow(1, 1, 10, 'ZywOo'),
@@ -129,10 +137,7 @@ describe('mapBo3GameStats', () => {
 
   it('résout le côté B et ignore un joueur sans manche jouée', () => {
     const lines = mapBo3GameStats(
-      [
-        statRow(1, 2, 20, 'Aleksib'),
-        statRow(1, 3, 20, 'Sub', { damage: 0, adr: 0, game_id: 99 }),
-      ],
+      [statRow(1, 2, 20, 'Aleksib'), statRow(1, 3, 20, 'Sub', { damage: 0, adr: 0, game_id: 99 })],
       new Map([[1, game(1, 1, 20)]]),
       sideByTeamId,
       nameByTeamId,
@@ -153,37 +158,63 @@ describe('mapBo3GameStats', () => {
 });
 
 describe('mapBo3Games', () => {
-  it('mappe map/scores par clan et ignore une game sans rounds', () => {
-    const games = mapBo3Games([
-      {
-        id: 1,
-        number: 1,
-        status: 'finished',
-        map_name: 'de_mirage',
-        rounds_count: 22,
-        winner_clan_name: 'Vitality',
-        winner_clan_score: 13,
-        loser_clan_name: 'NAVI',
-        loser_clan_score: 9,
-      },
-      {
-        id: 2,
-        number: 2,
-        status: 'upcoming',
-        map_name: 'de_nuke',
-        rounds_count: 0,
-        winner_clan_name: '',
-        winner_clan_score: null,
-        loser_clan_name: '',
-        loser_clan_score: null,
-      },
-    ]);
+  const sideByClan = new Map<string, 'A' | 'B'>([
+    ['vitality', 'A'],
+    ['navi', 'B'],
+  ]);
+
+  it('résout les scores par côté et ignore une game sans rounds', () => {
+    const games = mapBo3Games(
+      [
+        {
+          id: 1,
+          number: 1,
+          status: 'finished',
+          map_name: 'de_mirage',
+          rounds_count: 22,
+          winner_clan_name: 'Vitality',
+          winner_clan_score: 13,
+          loser_clan_name: 'NAVI',
+          loser_clan_score: 9,
+        },
+        {
+          id: 2,
+          number: 2,
+          status: 'upcoming',
+          map_name: 'de_nuke',
+          rounds_count: 0,
+          winner_clan_name: '',
+          winner_clan_score: null,
+          loser_clan_name: '',
+          loser_clan_score: null,
+        },
+      ],
+      sideByClan,
+    );
     expect(games).toHaveLength(1);
-    expect(games[0]).toMatchObject({ position: 1, map: 'de_mirage' });
-    expect(games[0].teams).toEqual([
-      { name: 'Vitality', score: 13 },
-      { name: 'NAVI', score: 9 },
-    ]);
+    // Le vainqueur est côté A, le perdant côté B : les scores atterrissent
+    // directement sur le bon côté, sans rapprochement de noms en aval.
+    expect(games[0]).toMatchObject({ position: 1, map: 'de_mirage', scoreA: 13, scoreB: 9 });
+  });
+
+  it('laisse les scores à null quand le clan n’est rattaché à aucun côté', () => {
+    const games = mapBo3Games(
+      [
+        {
+          id: 1,
+          number: 1,
+          status: 'finished',
+          map_name: 'de_mirage',
+          rounds_count: 22,
+          winner_clan_name: 'Inconnu',
+          winner_clan_score: 13,
+          loser_clan_name: 'Autre',
+          loser_clan_score: 9,
+        },
+      ],
+      sideByClan,
+    );
+    expect(games[0]).toMatchObject({ scoreA: null, scoreB: null });
   });
 });
 
