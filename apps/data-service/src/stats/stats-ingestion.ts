@@ -12,7 +12,7 @@ import { LiveEventsService } from '../live/live-events.service';
 import { PrismaService } from '../prisma.service';
 import { buildPlayerIndex, matchPlayer, normalizeName, teamMatches } from './matching';
 import type { NamedPlayer } from './matching';
-import { GridStatsProvider } from './grid.provider';
+import { Bo3StatsProvider } from './bo3.provider';
 import { LeaguepediaStatsProvider } from './leaguepedia.provider';
 import type {
   GameStatsProvider,
@@ -48,11 +48,11 @@ export class StatsIngestionService {
     @InjectQueue(QUEUES.STATS_INGESTED) private readonly statsIngestedQueue: Queue,
     @InjectQueue(INGESTION_QUEUE) private readonly ingestionQueue: Queue,
     private readonly liveEvents: LiveEventsService,
-    private readonly grid: GridStatsProvider,
+    private readonly bo3: Bo3StatsProvider,
     vlr: VlrStatsProvider,
     private readonly leaguepedia: LeaguepediaStatsProvider,
   ) {
-    this.providers = [grid, vlr, leaguepedia];
+    this.providers = [bo3, vlr, leaguepedia];
   }
 
   /**
@@ -323,6 +323,9 @@ export class StatsIngestionService {
           );
           continue;
         }
+        // Vrai nom civil (bo3) : éclaté prénom/nom au modèle Pandascore.
+        const [firstName, ...rest] = (line.realName ?? '').trim().split(/\s+/);
+        const lastName = rest.length > 0 ? rest.join(' ') : null;
         // Création tolérante à la course : un job concurrent sur la même
         // équipe peut avoir créé la fiche depuis le chargement de l'index.
         const created = await createPlayerSafely(this.prisma, {
@@ -330,11 +333,19 @@ export class StatsIngestionService {
           name: line.externalName,
           teamId: team.id,
           role: line.role ?? null,
+          firstName: firstName || null,
+          lastName,
+          nationality: line.nationality ?? null,
           source,
           providerIds: line.externalId ? { [source]: line.externalId } : undefined,
           // Champs posés par le provider : possédés d'entrée (Pandascore ne
           // fera que compléter les manquants à l'adoption).
-          fieldSources: { name: source, ...(line.role ? { role: source } : {}) },
+          fieldSources: {
+            name: source,
+            ...(line.role ? { role: source } : {}),
+            ...(firstName ? { firstName: source, lastName: source } : {}),
+            ...(line.nationality ? { nationality: source } : {}),
+          },
         });
         local = created;
         playersById.set(created.id, created);
@@ -366,6 +377,24 @@ export class StatsIngestionService {
         });
         full.role = line.role;
         full.fieldSources = fieldSources;
+      }
+      // Identité civile publiée par la source (bo3) : complète une fiche qui ne
+      // l'a pas encore (précédence par champ ; ne réécrit pas ce que Pandascore
+      // ou une autre source possède déjà).
+      if (full && (line.realName || line.nationality)) {
+        const [firstName, ...rest] = (line.realName ?? '').trim().split(/\s+/);
+        const { data, fieldSources } = providerUpdate(
+          {
+            ...(firstName ? { firstName, lastName: rest.join(' ') || null } : {}),
+            ...(line.nationality ? { nationality: line.nationality } : {}),
+          },
+          source,
+          full.fieldSources,
+        );
+        if (Object.keys(data).length > 0) {
+          await this.prisma.player.update({ where: { id: local.id }, data: { ...data, fieldSources } });
+          full.fieldSources = fieldSources;
+        }
       }
       await this.prisma.playerMatchStats.upsert({
         where: { matchId_playerId: { matchId: match.id, playerId: local.id } },
@@ -624,7 +653,7 @@ export class StatsIngestionService {
       if (!reference) continue;
       const context = await this.loadContext(match);
       if (!context.teamA || !context.teamB) continue;
-      const seriesId = await this.grid.findSeries(reference, context.teamA, context.teamB);
+      const seriesId = await this.bo3.findMatchForTeams(reference, context.teamA, context.teamB);
       const started = match.status !== 'not_started' || reference.getTime() < now;
       if (seriesId) {
         await this.prisma.match.update({ where: { id: match.id }, data: { gridCovered: true } });

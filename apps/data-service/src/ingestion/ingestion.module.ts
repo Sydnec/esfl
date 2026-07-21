@@ -5,7 +5,7 @@ import { FantasyClient } from '../fantasy-client/fantasy.client';
 import { LiveModule } from '../live/live.module';
 import { PandascoreClient } from '../pandascore/pandascore.client';
 import { PrismaService } from '../prisma.service';
-import { GridStatsProvider } from '../stats/grid.provider';
+import { Bo3StatsProvider } from '../stats/bo3.provider';
 import { LeaguepediaStatsProvider } from '../stats/leaguepedia.provider';
 import { StatsIngestionService } from '../stats/stats-ingestion';
 import { VlrStatsProvider } from '../stats/vlr.provider';
@@ -32,7 +32,7 @@ import { TeamEnrichmentService } from './team-enrichment.service';
     TeamEnrichmentService,
     PlayerAdoptionService,
     StatsIngestionService,
-    GridStatsProvider,
+    Bo3StatsProvider,
     VlrStatsProvider,
     LeaguepediaStatsProvider,
   ],

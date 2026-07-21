@@ -27,6 +27,11 @@ export interface ProviderStatLine {
   /** Rôle joué sur CE match quand la source le publie (Leaguepedia : SP.Role).
    * Snapshoté sur la ligne de stats et reporté sur le « dernier rôle connu ». */
   role?: string | null;
+  /** Vrai nom civil quand la source l'expose (bo3 : first+last name) : posé sur
+   * la fiche joueur, sert au départage des homonymes. */
+  realName?: string | null;
+  /** Code pays ISO2 quand la source l'expose (bo3 : player.country.code). */
+  nationality?: string | null;
   raw: Prisma.InputJsonValue;
   normalized: Prisma.InputJsonValue;
   /** Détail par manche (MapStatsEntry[]) quand la source le fournit. */

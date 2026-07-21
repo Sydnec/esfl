@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Match, Team } from '../../generated/client';
 import type { PrismaService } from '../prisma.service';
-import type { GridStatsProvider } from './grid.provider';
+import type { Bo3StatsProvider } from './bo3.provider';
 import type { LeaguepediaStatsProvider } from './leaguepedia.provider';
 import type { VlrStatsProvider } from './vlr.provider';
 import type { MatchContext, ProviderResult } from './provider';
@@ -87,7 +87,7 @@ function service(prisma: PrismaService) {
     queue as never,
     ingestionQueue as never,
     liveEvents as never,
-    { gameId: 'cs2' } as GridStatsProvider,
+    { gameId: 'cs2' } as Bo3StatsProvider,
     { gameId: 'valorant' } as VlrStatsProvider,
     { gameId: 'lol' } as LeaguepediaStatsProvider,
   );
@@ -445,7 +445,7 @@ describe('resolveTeamProviderId', () => {
       { add: vi.fn() } as never,
       { add: vi.fn(), getJob: vi.fn(async () => undefined) } as never,
       { emitMatchUpdated: vi.fn() } as never,
-      { gameId: 'cs2', source: 'grid' } as GridStatsProvider,
+      { gameId: 'cs2', source: 'bo3' } as Bo3StatsProvider,
       { gameId: 'valorant', source: 'vlr', ...overrides.vlr } as VlrStatsProvider,
       { gameId: 'lol', source: 'leaguepedia', ...overrides.leaguepedia } as LeaguepediaStatsProvider,
     );

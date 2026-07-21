@@ -89,11 +89,16 @@ export function canonicalLolRole(role: string | null | undefined): string {
 // ─── Formules de Rating de base (ÉDITABLES) ─────────────────────────────────
 // Note = Rating × pente + ordonnée. Constantes calées pour ~70 médian, ~85 p90.
 
-/** CS2 adapté (ADR/KAST absents) : calibré sur la population (n≈6446). */
-export function cs2BaseNote(i: { kpr: number; dpr: number; fkpr: number; objpr: number }): number {
-  const rating = i.kpr * 1.35 - i.dpr * 1.45 + i.fkpr * 2.0 + i.objpr * 1.0 + 1.0;
+/**
+ * CS2 (façon HLTV) : ADR enfin disponible via bo3. KAST absent de bo3 → imputé
+ * neutre. Constantes à recalibrer sur la population bo3 après ré-ingestion.
+ */
+export function cs2BaseNote(i: { kpr: number; dpr: number; adr: number; kast: number }): number {
+  const rating = i.kpr * 0.35 + i.adr * 0.003 + i.kast * 0.007 - i.dpr * 0.53 + 0.16;
   return rating * 40 + 30;
 }
+/** KAST neutre imputé (bo3 ne le fournit pas). */
+export const CS2_KAST_NEUTRE = 70;
 
 /** Valorant (VLR 2.0, fidèle). */
 export function valorantBaseNote(i: {
@@ -191,8 +196,11 @@ function base(player: PlayerStatLine, ctx: MatchScoringContext): BaseResult {
     const derived = {
       kpr: num(n, 'kills') / rounds,
       dpr: num(n, 'deaths') / rounds,
-      fkpr: num(n, 'firstKills') / rounds,
-      objpr: (num(n, 'plants') + num(n, 'defuses')) / rounds,
+      adr: num(n, 'adr'),
+      // bo3 ne fournit pas KAST : imputé neutre (comme Valorant).
+      kast: numOr(n, 'kast', CS2_KAST_NEUTRE),
+      firstKills: num(n, 'firstKills'),
+      clutches: num(n, 'clutches'),
     };
     return { player, note: cs2BaseNote(derived), derived };
   }

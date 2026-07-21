@@ -990,7 +990,7 @@ export class CatalogService {
 
     // État des sources de stats détaillées (clé configurée côté service).
     const sources = [
-      { gameId: 'cs2', source: 'Grid', configuree: Boolean(process.env.GRID_API_KEY), live: true },
+      { gameId: 'cs2', source: 'bo3.gg', configuree: true, live: true },
       { gameId: 'valorant', source: 'VLR.gg', configuree: true, live: true },
       { gameId: 'lol', source: 'Leaguepedia', configuree: true, live: false },
     ];

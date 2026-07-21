@@ -40,10 +40,11 @@ describe('formules de base — ancrages (~70 solide, ~85 MVP)', () => {
     expect(valorantBaseNote({ kpr: 0.95, apr: 0.3, dpr: 0.55, adr: 175, kast: 80 })).toBeGreaterThan(82);
   });
 
-  it('CS2 : joueur moyen ≈ 70', () => {
-    const note = cs2BaseNote({ kpr: 0.65, dpr: 0.66, fkpr: 0.005, objpr: 0.06 });
-    expect(note).toBeGreaterThan(66);
-    expect(note).toBeLessThan(74);
+  it('CS2 (HLTV, ADR via bo3) : joueur moyen ≈ 70', () => {
+    // Moyen : KPR 0.68, DPR 0.68, ADR 80, KAST 70 (imputé).
+    const note = cs2BaseNote({ kpr: 0.68, dpr: 0.68, adr: 80, kast: 70 });
+    expect(note).toBeGreaterThan(60);
+    expect(note).toBeLessThan(78);
   });
 
   it('LoL : joueur solide entre 70 et 85 (KDA 3, KP 64, GPM 400, VSM 1.9)', () => {

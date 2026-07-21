@@ -44,7 +44,7 @@ const SYNC_JOBS: Array<{ job: string; label: string }> = [
   { job: 'sync-rosters', label: 'Rosters' },
   { job: 'sync-live', label: 'Fenêtre live (scores, statuts)' },
   { job: 'sync-live-stats', label: 'Stats live' },
-  { job: 'check-grid-coverage', label: 'Couverture Grid (CS2)' },
+  { job: 'check-grid-coverage', label: 'Couverture bo3 (CS2)' },
 ];
 
 const STATE_LABELS: Record<QueueJob['state'], string> = {
@@ -507,7 +507,7 @@ export default function AdminPage() {
                       <th>Jeu</th>
                       <th>Match</th>
                       <th>Fin</th>
-                      <th>Grid</th>
+                      <th>bo3</th>
                       <th />
                     </tr>
                   </thead>
