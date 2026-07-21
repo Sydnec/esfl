@@ -29,10 +29,15 @@ export const STAT_COLUMNS: Record<GameId, StatColumnGroup> = {
       { key: 'assists', label: 'A', title: 'Assists' },
       { key: 'adr', label: 'ADR', title: 'Dégâts moyens par round' },
     ],
+    // bo3 ne publie ni bombes posées ni défusées : colonnes retirées, elles ne
+    // rendaient que des « · ».
     advanced: [
+      { key: 'kast', label: 'KAST', title: 'Kill, assist, trade ou survie (% de rounds)' },
       { key: 'firstKills', label: 'FK', title: 'First kills (rounds ouverts)' },
-      { key: 'plants', label: 'PL', title: 'Bombes posées' },
-      { key: 'defuses', label: 'DE', title: 'Bombes défusées' },
+      { key: 'firstDeaths', label: 'FD', title: 'First deaths (entrées perdues)' },
+      { key: 'multiKills', label: 'MK', title: 'Manches à 2 kills ou plus' },
+      { key: 'clutches', label: 'CL', title: 'Clutchs gagnés (1v1 à 1v5)' },
+      { key: 'headshots', label: 'HS', title: 'Kills à la tête' },
     ],
   },
   valorant: {
@@ -84,7 +89,10 @@ export const PER_MAP_KEYS = new Set([
   'rating',
   'kast',
   'hsPercent',
+  'headshots',
   'firstDeaths',
+  'multiKills',
+  'clutches',
   'plants',
   'defuses',
   'econRating',

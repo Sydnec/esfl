@@ -13,12 +13,22 @@ export const cs2StatsSchema = z.object({
   adr: z.number().nullable(),
   /** Rating maison de la source (échelle propre, informatif). */
   rating: z.number().nullable(),
+  /** Kill/Assist/Trade/Survive % — implication dans les rounds. */
+  kast: z.number().nullable().optional(),
   /** Bombes posées. Optionnel : absent des ingestions antérieures et de bo3. */
   plants: z.number().nullable().optional(),
   /** Bombes défusées. */
   defuses: z.number().nullable().optional(),
   /** Manches ouvertes (first kills). */
   firstKills: z.number().nullable().optional(),
+  /** Morts d'entrée — pendant négatif des first kills. */
+  firstDeaths: z.number().nullable().optional(),
+  /** Manches multi-kills (2K+3K+4K+5K). */
+  multiKills: z.number().nullable().optional(),
+  /** Clutchs gagnés (1v1+…+1v5). */
+  clutches: z.number().nullable().optional(),
+  /** Kills à la tête (nombre, pas un pourcentage). */
+  headshots: z.number().nullable().optional(),
 });
 export type Cs2Stats = z.infer<typeof cs2StatsSchema>;
 
@@ -103,6 +113,8 @@ export const mapStatsEntrySchema = z.object({
   rating: z.number().nullable().optional(),
   kast: z.number().nullable().optional(),
   hsPercent: z.number().nullable().optional(),
+  /** Kills à la tête (nombre) — bo3 les donne par map. */
+  headshots: z.number().nullable().optional(),
   firstDeaths: z.number().nullable().optional(),
   /** Onglet Performance VLR, table de la map. */
   multiKills: z.number().nullable().optional(),

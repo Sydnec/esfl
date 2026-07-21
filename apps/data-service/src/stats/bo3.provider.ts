@@ -53,6 +53,7 @@ interface Bo3Match {
 interface Bo3Game {
   id: number;
   number: number;
+  status: string;
   map_name: string | null;
   rounds_count: number | null;
   winner_clan_name: string | null;
@@ -61,37 +62,65 @@ interface Bo3Game {
   loser_clan_score: number | null;
 }
 
-interface Bo3PlayerStat {
-  player_id: number;
-  rounds_count: number;
-  avg_kills: number;
-  avg_death: number;
-  avg_assists: number;
-  avg_damage: number;
-  avg_player_rating: number;
-  avg_first_kills: number;
-  avg_first_death: number;
-  avg_multikills: number;
-  clutches_vs_1: number;
-  clutches_vs_2: number;
-  clutches_vs_3: number;
-  clutches_vs_4: number;
-  clutches_vs_5: number;
-  player: {
-    id: number;
-    nickname: string;
-    first_name: string | null;
-    last_name: string | null;
-    team_id: number | null;
-    country?: { code?: string | null } | null;
-  };
+/**
+ * Ligne de `/games/{id}/players_stats` : stats ABSOLUES d'un joueur sur UNE
+ * map. C'est la source riche de bo3 (KAST compris) et elle se remplit pendant
+ * la partie, contrairement à l'agrégat `players/stats_list` qui reste vide sur
+ * beaucoup de matchs.
+ */
+interface Bo3GamePlayerStat {
+  game_id: number;
+  clan_name: string | null;
+  kills: number | null;
+  death: number | null;
+  assists: number | null;
+  /** Dégâts par round sur la map ; `damage` est le cumul. */
+  adr: number | null;
+  /** Fraction 0-1 (null tant que la map n'est pas terminée). */
+  kast: number | null;
+  damage: number | null;
+  headshots: number | null;
+  first_kills: number | null;
+  first_death: number | null;
+  clutches: number | null;
+  /** Nombre de manches par palier : `{ "2": 3, "3": 1, ... }`. */
+  multikills: Record<string, number> | null;
+  player_rating: number | null;
+  win: number | null;
+  /** Équipe DU MATCH (≠ équipe actuelle du joueur). */
+  team_clan?: { team_id?: number | null; team?: { id?: number | null } | null } | null;
+  steam_profile?: {
+    nickname?: string | null;
+    player_id?: number | null;
+    player?: {
+      id?: number | null;
+      nickname?: string | null;
+      first_name?: string | null;
+      last_name?: string | null;
+      country?: { code?: string | null } | null;
+    } | null;
+  } | null;
 }
 
 interface Bo3List<T> {
   results?: T[];
 }
 
-const rnd = (value: number) => Math.round(value);
+/** Match bo3 résolu : son id, les ids d'équipe par côté, son statut si connu. */
+interface Bo3Resolution {
+  matchId: string;
+  idA: number | null;
+  idB: number | null;
+  /** Renseigné quand la résolution vient du scan de fenêtre (évite un appel). */
+  status: string | null;
+}
+
+const round1 = (value: number | null | undefined) =>
+  value == null ? null : Math.round(value * 10) / 10;
+const round2 = (value: number | null | undefined) =>
+  value == null ? null : Math.round(value * 100) / 100;
+const round3 = (value: number | null | undefined) =>
+  value == null ? null : Math.round(value * 1000) / 1000;
 /**
  * Borne de filtre bo3 : datetime UTC sans fuseau. Une borne en `YYYY-MM-DD`
  * serait comparée à minuit — avec des opérateurs stricts, le jour du match
@@ -99,56 +128,171 @@ const rnd = (value: number) => Math.round(value);
  */
 const bound = (date: Date): string => date.toISOString().slice(0, 19);
 
+/** Manches jouées sur une map : la source les donne, sinon `damage / adr`. */
+function roundsOf(row: Bo3GamePlayerStat, roundsByGameId: Map<number, number>): number {
+  const known = roundsByGameId.get(row.game_id);
+  if (known && known > 0) return known;
+  // Map en cours : `rounds_count` est encore null, mais adr = damage / manches.
+  if (row.adr && row.damage) return Math.max(1, Math.round(row.damage / row.adr));
+  return 0;
+}
+
+/** Manches multi-kills : bo3 compte par palier (2K, 3K…), on veut le total. */
+function multiKillsOf(row: Bo3GamePlayerStat): number {
+  return Object.values(row.multikills ?? {}).reduce((sum, count) => sum + (count || 0), 0);
+}
+
+/** Cumul d'un joueur sur toutes les maps de la rencontre. */
+interface PlayerAccumulator {
+  externalId: string | null;
+  name: string;
+  realName: string | null;
+  nationality: string | null;
+  teamId: number;
+  rounds: number;
+  kills: number;
+  deaths: number;
+  assists: number;
+  firstKills: number;
+  firstDeaths: number;
+  multiKills: number;
+  clutches: number;
+  headshots: number;
+  damage: number;
+  /** Manches couvertes par un KAST connu, et sa somme pondérée. */
+  kastRounds: number;
+  kastWeighted: number;
+  ratingWeighted: number;
+  perMap: Prisma.JsonArray;
+  raw: Bo3GamePlayerStat[];
+}
+
 /**
- * Lignes de stats bo3 → ProviderStatLine (une par joueur). Pur, testable.
- * bo3 donne des moyennes PAR ROUND (`avg_*`) : ×`rounds_count` pour retrouver
- * les totaux attendus par `normalized`. Côté A/B résolu via l'id d'équipe bo3
- * du joueur (`player.team_id`) mappé aux côtés du match.
+ * Stats par map bo3 → une ProviderStatLine par joueur, cumulée sur la
+ * rencontre. Pur, testable.
+ *
+ * Les totaux (kills, clutchs…) s'additionnent ; l'ADR se recalcule sur les
+ * dégâts et les manches cumulés (une moyenne de moyennes fausserait un BO3 aux
+ * maps de longueurs différentes) et le KAST se pondère par les manches où il
+ * est connu. Côté A/B résolu via l'id d'équipe bo3 DU MATCH (`team_clan`), pas
+ * l'équipe actuelle du joueur.
  */
-export function mapBo3Stats(
-  rows: Bo3PlayerStat[],
+export function mapBo3GameStats(
+  rows: Bo3GamePlayerStat[],
+  gamesById: Map<number, Bo3Game>,
   sideByTeamId: Map<number, 'A' | 'B'>,
   nameByTeamId: Map<number, string>,
 ): ProviderStatLine[] {
-  const lines: ProviderStatLine[] = [];
+  const roundsByGameId = new Map(
+    [...gamesById.values()].map((game) => [game.id, game.rounds_count ?? 0] as const),
+  );
+  const byPlayer = new Map<string, PlayerAccumulator>();
+
   for (const row of rows) {
-    const rounds = row.rounds_count || 0;
-    if (rounds <= 0) continue; // remplaçant listé, 0 round joué
-    const teamId = row.player.team_id ?? -1;
-    const clutches =
-      (row.clutches_vs_1 ?? 0) +
-      (row.clutches_vs_2 ?? 0) +
-      (row.clutches_vs_3 ?? 0) +
-      (row.clutches_vs_4 ?? 0) +
-      (row.clutches_vs_5 ?? 0);
-    const realName = [row.player.first_name, row.player.last_name].filter(Boolean).join(' ') || null;
-    lines.push({
-      externalName: row.player.nickname,
-      externalId: String(row.player_id),
-      side: sideByTeamId.get(teamId) ?? null,
-      teamName: nameByTeamId.get(teamId) ?? null,
-      realName,
-      nationality: row.player.country?.code ?? null,
-      role: null,
-      raw: row as unknown as Prisma.InputJsonValue,
-      normalized: {
-        kills: rnd(row.avg_kills * rounds),
-        deaths: rnd(row.avg_death * rounds),
-        assists: rnd(row.avg_assists * rounds),
-        firstKills: rnd(row.avg_first_kills * rounds),
-        firstDeaths: rnd(row.avg_first_death * rounds),
-        multiKills: rnd(row.avg_multikills * rounds),
-        // Enfin disponibles côté CS2 (Grid ne les fournissait pas).
-        adr: Math.round(row.avg_damage * 100) / 100,
-        rating: Math.round(row.avg_player_rating * 1000) / 1000,
-        clutches,
-        // bo3 n'expose pas les plants/defuses par joueur.
-        plants: null,
-        defuses: null,
-      },
+    const rounds = roundsOf(row, roundsByGameId);
+    if (rounds <= 0) continue; // remplaçant listé, aucune manche jouée
+    const profile = row.steam_profile?.player;
+    const externalId = profile?.id ?? row.steam_profile?.player_id ?? null;
+    // Pseudo canonique du joueur pro ; `steam_profile.nickname` est le pseudo
+    // Steam, souvent différent (« flawless » vs « flaw »).
+    const name = profile?.nickname ?? row.steam_profile?.nickname ?? '';
+    const key = externalId != null ? `id:${externalId}` : `name:${normalizeName(name)}`;
+    if (!name) continue;
+
+    let acc = byPlayer.get(key);
+    if (!acc) {
+      acc = {
+        externalId: externalId != null ? String(externalId) : null,
+        name,
+        realName: [profile?.first_name, profile?.last_name].filter(Boolean).join(' ') || null,
+        nationality: profile?.country?.code ?? null,
+        teamId: row.team_clan?.team_id ?? row.team_clan?.team?.id ?? -1,
+        rounds: 0,
+        kills: 0,
+        deaths: 0,
+        assists: 0,
+        firstKills: 0,
+        firstDeaths: 0,
+        multiKills: 0,
+        clutches: 0,
+        headshots: 0,
+        damage: 0,
+        kastRounds: 0,
+        kastWeighted: 0,
+        ratingWeighted: 0,
+        perMap: [],
+        raw: [],
+      };
+      byPlayer.set(key, acc);
+    }
+
+    acc.rounds += rounds;
+    acc.kills += row.kills ?? 0;
+    acc.deaths += row.death ?? 0;
+    acc.assists += row.assists ?? 0;
+    acc.firstKills += row.first_kills ?? 0;
+    acc.firstDeaths += row.first_death ?? 0;
+    acc.multiKills += multiKillsOf(row);
+    acc.clutches += row.clutches ?? 0;
+    acc.headshots += row.headshots ?? 0;
+    acc.damage += row.damage ?? (row.adr ?? 0) * rounds;
+    acc.ratingWeighted += (row.player_rating ?? 0) * rounds;
+    if (row.kast != null) {
+      acc.kastRounds += rounds;
+      acc.kastWeighted += row.kast * rounds;
+    }
+    acc.raw.push(row);
+    const game = gamesById.get(row.game_id);
+    acc.perMap.push({
+      position: game?.number ?? 0,
+      map: game?.map_name ?? null,
+      agent: null,
+      agentImage: null,
+      kills: row.kills ?? null,
+      deaths: row.death ?? null,
+      assists: row.assists ?? null,
+      adr: round2(row.adr),
+      kast: row.kast != null ? round1(row.kast * 100) : null,
+      rating: row.player_rating != null ? round3(row.player_rating) : null,
+      headshots: row.headshots ?? null,
+      firstKills: row.first_kills ?? null,
+      firstDeaths: row.first_death ?? null,
+      multiKills: multiKillsOf(row),
+      clutches: row.clutches ?? null,
+      win: row.win == null ? null : row.win === 1,
     });
   }
-  return lines;
+
+  return [...byPlayer.values()].map((acc) => ({
+    externalName: acc.name,
+    externalId: acc.externalId,
+    side: sideByTeamId.get(acc.teamId) ?? null,
+    teamName: nameByTeamId.get(acc.teamId) ?? null,
+    realName: acc.realName,
+    nationality: acc.nationality,
+    role: null,
+    raw: acc.raw as unknown as Prisma.InputJsonValue,
+    perMap: acc.perMap.sort(
+      (a, b) => ((a as { position: number }).position - (b as { position: number }).position),
+    ),
+    normalized: {
+      kills: acc.kills,
+      deaths: acc.deaths,
+      assists: acc.assists,
+      firstKills: acc.firstKills,
+      firstDeaths: acc.firstDeaths,
+      multiKills: acc.multiKills,
+      clutches: acc.clutches,
+      headshots: acc.headshots,
+      adr: round2(acc.damage / acc.rounds),
+      // Fraction bo3 ramenée en pourcentage, comme le KAST Valorant.
+      kast: acc.kastRounds > 0 ? round1((acc.kastWeighted / acc.kastRounds) * 100) : null,
+      rating: round3(acc.ratingWeighted / acc.rounds),
+      // bo3 n'expose pas les plants/defuses par joueur.
+      plants: null,
+      defuses: null,
+    },
+  }));
 }
 
 /** Manches bo3 → ProviderGameInfo. Scores par nom de clan : l'ingestion résout les côtés. */
@@ -280,13 +424,26 @@ export class Bo3StatsProvider implements GameStatsProvider {
     const { matchId, idA, idB } = resolved;
 
     if (requireFinished) {
-      const info = await this.getMatch(matchId);
-      if (info?.status && info.status !== 'finished') return null;
+      // Statut déjà connu quand la résolution vient du scan de fenêtre : on
+      // n'interroge bo3 que sur le chemin « match mémorisé ».
+      const status = resolved.status ?? (await this.getMatch(matchId))?.status;
+      if (status && status !== 'finished') return null;
     }
 
-    const stats = await this.get<Bo3List<Bo3PlayerStat>>(
-      `/players/stats_list?page%5Blimit%5D=20&filter%5Bmatch_id%5D%5Beq%5D=${matchId}`,
+    const gamesList = await this.get<Bo3List<Bo3Game>>(
+      `/games?page%5Blimit%5D=10&filter%5Bgames.match_id%5D%5Beq%5D=${matchId}`,
     );
+    const games = gamesList?.results ?? [];
+    // Une map jamais commencée n'a pas de stats : inutile de la solliciter.
+    const played = games.filter((game) => game.status !== 'upcoming');
+    const gamesById = new Map(played.map((game) => [game.id, game]));
+
+    const rows: Bo3GamePlayerStat[] = [];
+    for (const game of played) {
+      const stats = await this.get<Bo3GamePlayerStat[]>(`/games/${game.id}/players_stats`);
+      if (stats?.length) rows.push(...stats);
+    }
+
     const sideByTeamId = new Map<number, 'A' | 'B'>();
     const nameByTeamId = new Map<number, string>();
     if (idA != null) {
@@ -297,18 +454,15 @@ export class Bo3StatsProvider implements GameStatsProvider {
       sideByTeamId.set(idB, 'B');
       nameByTeamId.set(idB, context.teamB.name);
     }
-    const lines = mapBo3Stats(stats?.results ?? [], sideByTeamId, nameByTeamId);
+    const lines = mapBo3GameStats(rows, gamesById, sideByTeamId, nameByTeamId);
     if (lines.length === 0) {
       if (!silent) this.logger.warn(`bo3 : aucune ligne de stats pour ${match.name}`);
       return null;
     }
 
-    const gamesList = await this.get<Bo3List<Bo3Game>>(
-      `/games?page%5Blimit%5D=10&filter%5Bgames.match_id%5D%5Beq%5D=${matchId}`,
-    );
     return {
       lines,
-      games: mapBo3Games(gamesList?.results ?? []),
+      games: mapBo3Games(games),
       pageUrl: matchId,
       teamIds: { A: idA != null ? String(idA) : null, B: idB != null ? String(idB) : null },
     };
@@ -328,7 +482,7 @@ export class Bo3StatsProvider implements GameStatsProvider {
     teamA: Team,
     teamB: Team,
     cachedMatchId: string | null,
-  ): Promise<{ matchId: string; idA: number | null; idB: number | null } | null> {
+  ): Promise<Bo3Resolution | null> {
     let idA = await this.resolveTeamId(teamA);
     let idB = await this.resolveTeamId(teamB);
 
@@ -339,7 +493,7 @@ export class Bo3StatsProvider implements GameStatsProvider {
         const ids = [m?.team1_id, m?.team2_id].filter((x): x is number => !!x);
         [idA, idB] = await this.assignSides(ids, teamA, idA, teamB, idB);
       }
-      return { matchId: cachedMatchId, idA, idB };
+      return { matchId: cachedMatchId, idA, idB, status: null };
     }
 
     if (idA == null && idB == null) return null; // aucune équipe résolue
@@ -361,7 +515,7 @@ export class Bo3StatsProvider implements GameStatsProvider {
         const ids = [m.team1_id, m.team2_id];
         if (idA != null && idB != null) {
           if (ids.includes(idA) && ids.includes(idB)) {
-            return { matchId: String(m.id), idA, idB };
+            return { matchId: String(m.id), idA, idB, status: m.status };
           }
           continue;
         }
@@ -373,8 +527,8 @@ export class Bo3StatsProvider implements GameStatsProvider {
         const otherTeam = idA != null ? teamB : teamA;
         if (otherRef && bo3TeamMatches(otherRef, otherTeam)) {
           return idA != null
-            ? { matchId: String(m.id), idA, idB: otherId }
-            : { matchId: String(m.id), idA: otherId, idB };
+            ? { matchId: String(m.id), idA, idB: otherId, status: m.status }
+            : { matchId: String(m.id), idA: otherId, idB, status: m.status };
         }
       }
       if (results.length < MATCH_PAGE_SIZE) break;

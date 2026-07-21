@@ -1,44 +1,63 @@
 import { describe, expect, it } from 'vitest';
-import { bo3TeamMatches, mapBo3Games, mapBo3Stats, toSlug } from './bo3.provider';
+import { bo3TeamMatches, mapBo3GameStats, mapBo3Games, toSlug } from './bo3.provider';
 
-/** Ligne de stats bo3 factice (moyennes par round). */
-function statRow(
-  playerId: number,
-  teamId: number,
-  nickname: string,
-  over: Partial<Record<string, number>> = {},
-  player: Record<string, unknown> = {},
-) {
+/** Manche bo3 factice. */
+function game(id: number, number: number, rounds: number | null, over: Record<string, unknown> = {}) {
   return {
-    player_id: playerId,
-    rounds_count: 20,
-    avg_kills: 1.0,
-    avg_death: 0.7,
-    avg_assists: 0.25,
-    avg_damage: 85,
-    avg_player_rating: 7.1,
-    avg_first_kills: 0.1,
-    avg_first_death: 0.05,
-    avg_multikills: 0.2,
-    clutches_vs_1: 1,
-    clutches_vs_2: 1,
-    clutches_vs_3: 0,
-    clutches_vs_4: 0,
-    clutches_vs_5: 0,
+    id,
+    number,
+    status: rounds ? 'finished' : 'current',
+    map_name: `de_map${number}`,
+    rounds_count: rounds,
+    winner_clan_name: 'Vitality',
+    winner_clan_score: 13,
+    loser_clan_name: 'NAVI',
+    loser_clan_score: 7,
     ...over,
-    player: {
-      id: playerId,
-      nickname,
-      first_name: 'Jean',
-      last_name: 'Dupont',
-      team_id: teamId,
-      country: { code: 'FR' },
-      ...player,
-    },
   };
 }
 
-describe('mapBo3Stats', () => {
+/** Ligne `/games/{id}/players_stats` factice (totaux absolus sur une map). */
+function statRow(
+  gameId: number,
+  playerId: number,
+  teamId: number,
+  nickname: string,
+  over: Record<string, unknown> = {},
+) {
+  return {
+    game_id: gameId,
+    clan_name: 'Vitality',
+    kills: 20,
+    death: 14,
+    assists: 5,
+    adr: 85,
+    kast: 0.75,
+    damage: 1700,
+    headshots: 8,
+    first_kills: 2,
+    first_death: 1,
+    clutches: 1,
+    multikills: { '2': 3, '3': 1, '4': 0, '5': 0 },
+    player_rating: 7.1,
+    win: 1,
+    team_clan: { team_id: teamId, team: { id: teamId } },
+    steam_profile: {
+      nickname: `${nickname}-steam`,
+      player_id: playerId,
+      player: {
+        id: playerId,
+        nickname,
+        first_name: 'Jean',
+        last_name: 'Dupont',
+        country: { code: 'FR' },
+      },
+    },
+    ...over,
+  };
+}
+
+describe('mapBo3GameStats', () => {
   const sideByTeamId = new Map<number, 'A' | 'B'>([
     [10, 'A'],
     [20, 'B'],
@@ -47,28 +66,74 @@ describe('mapBo3Stats', () => {
     [10, 'Vitality'],
     [20, 'NAVI'],
   ]);
+  const games = new Map([
+    [1, game(1, 1, 20)],
+    [2, game(2, 2, 30)],
+  ]);
 
-  it('convertit les moyennes par round en totaux et remonte ADR/rating/clutchs', () => {
-    const lines = mapBo3Stats([statRow(1, 10, 'ZywOo')], sideByTeamId, nameByTeamId);
+  it('remonte les totaux, l’ADR recalculé et le KAST en pourcentage', () => {
+    const lines = mapBo3GameStats([statRow(1, 1, 10, 'ZywOo')], games, sideByTeamId, nameByTeamId);
     expect(lines).toHaveLength(1);
     const l = lines[0];
-    expect(l.externalName).toBe('ZywOo');
+    expect(l.externalName).toBe('ZywOo'); // pseudo pro, pas le pseudo Steam
     expect(l.externalId).toBe('1');
     expect(l.side).toBe('A');
     expect(l.teamName).toBe('Vitality');
     expect(l.realName).toBe('Jean Dupont');
     expect(l.nationality).toBe('FR');
     const n = l.normalized as Record<string, number>;
-    expect(n.kills).toBe(20); // 1.0 × 20
-    expect(n.deaths).toBe(14); // 0.7 × 20
-    expect(n.adr).toBe(85);
-    expect(n.rating).toBe(7.1);
-    expect(n.clutches).toBe(2); // 1 + 1
+    expect(n.kills).toBe(20);
+    expect(n.adr).toBe(85); // 1700 dégâts / 20 manches
+    expect(n.kast).toBe(75);
+    expect(n.multiKills).toBe(4); // 3 doublés + 1 triplé
+    expect(n.clutches).toBe(1);
   });
 
-  it('résout le côté B et ignore un joueur à 0 round (remplaçant listé)', () => {
-    const lines = mapBo3Stats(
-      [statRow(2, 20, 'Aleksib'), statRow(3, 20, 'Sub', { rounds_count: 0 })],
+  it('cumule les maps : totaux additionnés, ADR pondéré par les manches', () => {
+    const lines = mapBo3GameStats(
+      [
+        statRow(1, 1, 10, 'ZywOo'),
+        statRow(2, 1, 10, 'ZywOo', { kills: 10, damage: 1500, adr: 50, kast: 0.5 }),
+      ],
+      games,
+      sideByTeamId,
+      nameByTeamId,
+    );
+    expect(lines).toHaveLength(1);
+    const n = lines[0].normalized as Record<string, number>;
+    expect(n.kills).toBe(30);
+    // 3200 dégâts sur 50 manches : la moyenne des ADR (67,5) serait fausse.
+    expect(n.adr).toBe(64);
+    // KAST pondéré : (0,75×20 + 0,5×30) / 50 = 60 %.
+    expect(n.kast).toBe(60);
+    expect((lines[0].perMap as unknown[]).length).toBe(2);
+  });
+
+  it('ignore le KAST manquant d’une map en cours sans fausser le cumul', () => {
+    const live = new Map([[1, game(1, 1, 20)], [2, game(2, 2, null)]]);
+    const lines = mapBo3GameStats(
+      [
+        statRow(1, 1, 10, 'ZywOo'),
+        // Map en cours : rounds déduits de damage / adr = 10.
+        statRow(2, 1, 10, 'ZywOo', { kast: null, damage: 800, adr: 80, kills: 8 }),
+      ],
+      live,
+      sideByTeamId,
+      nameByTeamId,
+    );
+    const n = lines[0].normalized as Record<string, number>;
+    expect(n.kills).toBe(28);
+    expect(n.kast).toBe(75); // seules les 20 manches à KAST connu comptent
+    expect(n.adr).toBe(83.33); // 2500 / 30
+  });
+
+  it('résout le côté B et ignore un joueur sans manche jouée', () => {
+    const lines = mapBo3GameStats(
+      [
+        statRow(1, 2, 20, 'Aleksib'),
+        statRow(1, 3, 20, 'Sub', { damage: 0, adr: 0, game_id: 99 }),
+      ],
+      new Map([[1, game(1, 1, 20)]]),
       sideByTeamId,
       nameByTeamId,
     );
@@ -77,7 +142,12 @@ describe('mapBo3Stats', () => {
   });
 
   it('côté null quand l’équipe du joueur n’est pas résolue', () => {
-    const [l] = mapBo3Stats([statRow(4, 99, 'Inconnu')], sideByTeamId, nameByTeamId);
+    const [l] = mapBo3GameStats(
+      [statRow(1, 4, 99, 'Inconnu')],
+      new Map([[1, game(1, 1, 20)]]),
+      sideByTeamId,
+      nameByTeamId,
+    );
     expect(l.side).toBeNull();
   });
 });
@@ -88,6 +158,7 @@ describe('mapBo3Games', () => {
       {
         id: 1,
         number: 1,
+        status: 'finished',
         map_name: 'de_mirage',
         rounds_count: 22,
         winner_clan_name: 'Vitality',
@@ -98,6 +169,7 @@ describe('mapBo3Games', () => {
       {
         id: 2,
         number: 2,
+        status: 'upcoming',
         map_name: 'de_nuke',
         rounds_count: 0,
         winner_clan_name: '',

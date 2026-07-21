@@ -9,8 +9,8 @@ import { GameId } from '@esfl/contracts';
  * sur la population réelle (Valorant médiane 69, CS2 recalibré médiane 70).
  *
  * Contraintes de données assumées :
- * - CS2 (bo3.gg) : formule HLTV fidèle (KPR/DPR/ADR/KAST). Le KAST n'est pas
- *   publié par bo3, il est imputé neutre — voir `CS2_KAST_NEUTRE`.
+ * - CS2 (bo3.gg) : formule HLTV fidèle (KPR/DPR/ADR/KAST), toutes les entrées
+ *   publiées par la source.
  * - Valorant : formule VLR complète. Bonus FK/FD du match et clutchs (sans
  *   rôle).
  * - LoL : KDA/KP/GPM/VSM. Bonus par rôle (Support, Jungler approximé). Le bonus
@@ -90,15 +90,19 @@ export function canonicalLolRole(role: string | null | undefined): string {
 // Note = Rating × pente + ordonnée. Constantes calées pour ~70 médian, ~85 p90.
 
 /**
- * CS2 (façon HLTV) : ADR enfin disponible via bo3. KAST absent de bo3 → imputé
- * neutre. Constantes à recalibrer sur la population bo3 après ré-ingestion.
+ * CS2 (façon HLTV) : ADR et KAST disponibles via bo3 (stats par map).
+ * Constantes à recalibrer sur la population bo3 après ré-ingestion.
  */
 export function cs2BaseNote(i: { kpr: number; dpr: number; adr: number; kast: number }): number {
   const rating = i.kpr * 0.35 + i.adr * 0.003 + i.kast * 0.007 - i.dpr * 0.53 + 0.16;
   return rating * 40 + 30;
 }
-/** KAST neutre imputé (bo3 ne le fournit pas). */
-export const CS2_KAST_NEUTRE = 70;
+/**
+ * KAST de repli : seules les ingestions antérieures à la bascule vers les stats
+ * par map en sont dépourvues. Valeur neutre, pour ne pas pénaliser une fiche
+ * incomplète.
+ */
+export const CS2_KAST_DEFAUT = 70;
 
 /** Valorant (VLR 2.0, fidèle). */
 export function valorantBaseNote(i: {
@@ -197,8 +201,7 @@ function base(player: PlayerStatLine, ctx: MatchScoringContext): BaseResult {
       kpr: num(n, 'kills') / rounds,
       dpr: num(n, 'deaths') / rounds,
       adr: num(n, 'adr'),
-      // bo3 ne fournit pas KAST : imputé neutre (comme Valorant).
-      kast: numOr(n, 'kast', CS2_KAST_NEUTRE),
+      kast: numOr(n, 'kast', CS2_KAST_DEFAUT),
       firstKills: num(n, 'firstKills'),
       clutches: num(n, 'clutches'),
     };
