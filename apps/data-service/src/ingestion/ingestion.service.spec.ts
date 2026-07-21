@@ -10,10 +10,33 @@ import { IngestionService } from './ingestion.service';
  * matchs terminés sans stats, sur un horizon borné, avec un Prisma/queue factices.
  */
 
+/** Borne basse du filtre `scheduledAt` du dernier appel Prisma capturé. */
+function bornePlanifiee(where: Record<string, unknown> | undefined): number {
+  const scheduledAt = (where ?? {}).scheduledAt as { gte?: Date } | undefined;
+  if (!scheduledAt?.gte) throw new Error('filtre scheduledAt absent');
+  return scheduledAt.gte.getTime();
+}
+
+/**
+ * Providers factices : le service ne lit d'eux que `gameId`, `source` et la
+ * présence de `fetchStarters`. CS2 n'expose pas de roster pré-match, ce qui est
+ * exactement ce que les traitements testent.
+ */
+function providersFactices() {
+  return [
+    { gameId: 'cs2', source: 'bo3' } as never,
+    { gameId: 'valorant', source: 'vlr', fetchStarters: vi.fn() } as never,
+    { gameId: 'lol', source: 'leaguepedia', fetchStarters: vi.fn() } as never,
+  ] as const;
+}
+
 function setup(configValue?: unknown) {
-  const findMany = vi.fn(async () => [{ id: 'm1' }, { id: 'm2' }]);
+  const findMany = vi.fn(async (_args?: { where?: Record<string, unknown> }) => [
+    { id: 'm1' },
+    { id: 'm2' },
+  ]);
   const prisma = { match: { findMany } } as unknown as PrismaService;
-  const add = vi.fn(async () => undefined);
+  const add = vi.fn(async (_name?: string, _data?: unknown, _opts?: { jobId?: string }) => undefined);
   const getJob = vi.fn(async () => undefined);
   const queue = { add, getJob } as unknown as Queue;
   const config = { get: vi.fn(() => configValue) } as unknown as ConfigService;
@@ -22,8 +45,7 @@ function setup(configValue?: unknown) {
     {} as never, // pandascore
     {} as never, // liveEvents
     config,
-    {} as never, // vlr
-    {} as never, // leaguepedia
+    ...providersFactices(),
     queue,
   );
   return { service, findMany, add, config };
@@ -60,8 +82,7 @@ function flagSetup(opts: {
     {} as never, // pandascore
     {} as never, // liveEvents
     { get: vi.fn() } as unknown as ConfigService,
-    {} as never, // vlr
-    {} as never, // leaguepedia
+    ...providersFactices(),
     { add: vi.fn(), getJob: vi.fn() } as unknown as Queue,
   );
   return { service, updates };
@@ -122,14 +143,14 @@ describe('retryStatsBackfill', () => {
     ]);
 
     // Filtre : terminé, sans stats, deux équipes, dans l'horizon par défaut.
-    const where = findMany.mock.calls[0][0].where;
+    const where = findMany.mock.calls[0][0]?.where;
     expect(where).toMatchObject({
       status: 'finished',
       stats: { none: {} },
       teamAId: { not: null },
       teamBId: { not: null },
     });
-    const cutoff = (where.scheduledAt.gte as Date).getTime();
+    const cutoff = bornePlanifiee(where);
     const expected = now - STATS_BACKFILL_DAYS * 24 * 3600 * 1000;
     expect(Math.abs(cutoff - expected)).toBeLessThan(5000);
   });
@@ -138,7 +159,7 @@ describe('retryStatsBackfill', () => {
     const { service, findMany } = setup(7);
     const now = Date.now();
     await service.retryStatsBackfill();
-    const cutoff = (findMany.mock.calls[0][0].where.scheduledAt.gte as Date).getTime();
+    const cutoff = bornePlanifiee(findMany.mock.calls[0][0]?.where);
     expect(Math.abs(cutoff - (now - 7 * 24 * 3600 * 1000))).toBeLessThan(5000);
   });
 });
@@ -208,8 +229,7 @@ function rosterSetup(opts: {
     pandascore as never,
     {} as never,
     { get: vi.fn() } as unknown as ConfigService,
-    {} as never,
-    {} as never,
+    ...providersFactices(),
     { add: vi.fn(), getJob: vi.fn() } as unknown as Queue,
   );
   return { service, created, playerUpdates, updateManys };
@@ -297,8 +317,7 @@ describe('applyStarterRoster (enrichissement provider des joueurs)', () => {
       {} as never,
       {} as never,
       { get: vi.fn() } as unknown as ConfigService,
-      {} as never,
-      {} as never,
+      ...providersFactices(),
       { add: vi.fn(), getJob: vi.fn() } as unknown as Queue,
     );
     return { service, playerUpdates };
@@ -362,8 +381,7 @@ describe('upsertTeam (précédence des champs)', () => {
       {} as never,
       {} as never,
       { get: vi.fn() } as unknown as ConfigService,
-      {} as never,
-      {} as never,
+      ...providersFactices(),
       queue,
     );
     return { service, teamUpdates, teamCreates, queueAdds };
@@ -389,7 +407,7 @@ describe('upsertTeam (précédence des champs)', () => {
 
 describe('backfillTeamPlayers', () => {
   it('enqueue l’ingestion des derniers matchs finis sans stats des équipes', async () => {
-    const add = vi.fn(async () => undefined);
+    const add = vi.fn(async (_name?: string, _data?: unknown, _opts?: { jobId?: string }) => undefined);
     const prisma = {
       competition: {
         findUnique: vi.fn(async () => ({
@@ -409,8 +427,7 @@ describe('backfillTeamPlayers', () => {
       {} as never,
       {} as never,
       { get: vi.fn() } as unknown as ConfigService,
-      {} as never,
-      {} as never,
+      ...providersFactices(),
       { add, getJob: vi.fn(async () => undefined) } as unknown as Queue,
     );
     const count = await service.backfillTeamPlayers('comp-1');

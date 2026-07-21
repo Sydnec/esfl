@@ -10,6 +10,8 @@ import { mergeGamesSummary } from '../common/games-summary';
 import { buildPlayerIndex, matchPlayer, normalizeName } from '../stats/matching';
 import type { StarterRef } from '../stats/provider';
 import { LeaguepediaStatsProvider } from '../stats/leaguepedia.provider';
+import { Bo3StatsProvider } from '../stats/bo3.provider';
+import type { GameStatsProvider } from '../stats/provider';
 import { VlrStatsProvider } from '../stats/vlr.provider';
 import { PandascoreClient } from '../pandascore/pandascore.client';
 import type { PSMatch, PSSerie, PSStream, PSTeamRef } from '../pandascore/pandascore.types';
@@ -67,15 +69,30 @@ export class IngestionService {
   /** Cache mémoire des titulaires par équipe (source spécialisée), TTL court. */
   private readonly starterCache = new Map<string, { starters: StarterRef[] | null; at: number }>();
 
+  private readonly providers: GameStatsProvider[];
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly pandascore: PandascoreClient,
     private readonly liveEvents: LiveEventsService,
     private readonly config: ConfigService,
-    private readonly vlr: VlrStatsProvider,
-    private readonly leaguepedia: LeaguepediaStatsProvider,
+    bo3: Bo3StatsProvider,
+    vlr: VlrStatsProvider,
+    leaguepedia: LeaguepediaStatsProvider,
     @InjectQueue(INGESTION_QUEUE) private readonly ingestionQueue: Queue,
-  ) {}
+  ) {
+    this.providers = [bo3, vlr, leaguepedia];
+  }
+
+  /**
+   * Provider du jeu. Les traitements se branchent sur les CAPACITÉS du
+   * provider (`fetchStarters` présent ou non), jamais sur l'identifiant du jeu :
+   * une source qui gagne une capacité en fait profiter son jeu sans qu'aucun
+   * appelant ne change.
+   */
+  private providerFor(gameId: string): GameStatsProvider | null {
+    return this.providers.find((provider) => provider.gameId === gameId) ?? null;
+  }
 
   /** Upsert des séries en cours/à venir de tous les jeux. */
   async syncSeries(): Promise<number> {
@@ -324,9 +341,8 @@ export class IngestionService {
 
   /** Titulaires via la source spécialisée du jeu (cache court par équipe). */
   private async fetchSpecializedStarters(team: Team): Promise<StarterRef[] | null> {
-    const provider =
-      team.gameId === 'valorant' ? this.vlr : team.gameId === 'lol' ? this.leaguepedia : null;
-    if (!provider) return null;
+    const provider = this.providerFor(team.gameId);
+    if (!provider?.fetchStarters) return null;
     const key = `${team.gameId}:${team.id}`;
     const cached = this.starterCache.get(key);
     if (cached && Date.now() - cached.at < STARTER_CACHE_TTL_MS) return cached.starters;
@@ -351,7 +367,8 @@ export class IngestionService {
    * (roster lu sur la fiche provider).
    */
   async applyStarterRoster(team: Team, starters: StarterRef[]): Promise<void> {
-    const source = team.gameId === 'lol' ? 'leaguepedia' : 'vlr';
+    const source = this.providerFor(team.gameId)?.source;
+    if (!source) return;
     const teamPlayers = await this.prisma.player.findMany({ where: { teamId: team.id } });
     const index = buildPlayerIndex(teamPlayers);
     const byId = new Map(teamPlayers.map((player) => [player.id, player]));
@@ -448,11 +465,12 @@ export class IngestionService {
   async syncCompetition(competitionId: string): Promise<void> {
     await this.syncMatchesForCompetition(competitionId, true);
     await this.syncRostersForCompetition(competitionId);
-    // CS2 n'a pas de source de roster pré-match (pas de fetchStarters) :
-    // les joueurs naissent à l'ingestion d'un match. On amorce donc les boards
-    // en ingérant les derniers matchs finis des équipes de la compétition.
+    // Sans source de roster pré-match (pas de `fetchStarters`), les joueurs
+    // naissent à l'ingestion d'un match : on amorce les boards en ingérant les
+    // derniers matchs finis des équipes de la compétition. C'est le cas de CS2
+    // aujourd'hui, et de tout jeu dont la source n'exposerait pas de roster.
     const competition = await this.prisma.competition.findUnique({ where: { id: competitionId } });
-    if (competition && competition.gameId === 'cs2') {
+    if (competition && !this.providerFor(competition.gameId)?.fetchStarters) {
       await this.ingestionQueue
         .add(
           'backfill-team-players',
