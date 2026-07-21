@@ -142,6 +142,47 @@ function leetFold(normalized: string): string {
   return normalized.replace(/[013457]/g, (char) => LEET[char] ?? char);
 }
 
+/** Distance d'édition, bornée : au-delà de `max`, la valeur exacte n'importe pas. */
+function editDistance(a: string, b: string, max: number): number {
+  if (Math.abs(a.length - b.length) > max) return max + 1;
+  let previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= a.length; i += 1) {
+    const current = [i];
+    for (let j = 1; j <= b.length; j += 1) {
+      current[j] = Math.min(
+        previous[j] + 1,
+        current[j - 1] + 1,
+        previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+    }
+    if (Math.min(...current) > max) return max + 1;
+    previous = current;
+  }
+  return previous[b.length];
+}
+
+/**
+ * Deux pseudos désignent-ils vraisemblablement la même personne ? Égalité
+ * normalisée, pliage leetspeak (« sh1n » / « Shin »), inclusion (« Djon » /
+ * « Djon8 ») ou une seule lettre d'écart (« Kurama » / « Kuruma », observé sur
+ * deux fiches du même joueur).
+ *
+ * À n'utiliser QU'ADOSSÉ à un autre signal d'identité — le nom civil pour la
+ * fusion des doublons. Seul, il rapprocherait des homonymes.
+ */
+export function pseudosProches(a: string, b: string): boolean {
+  const na = normalizeName(a);
+  const nb = normalizeName(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  if (leetFold(na) === leetFold(nb)) return true;
+  if (na.length < 4 || nb.length < 4) return false;
+  if (na.includes(nb) || nb.includes(na)) return true;
+  // Une lettre d'écart ne vaut qu'à partir de 5 caractères : sur quatre, elle
+  // pèse un quart du pseudo et « ropz » / « ropk » seraient confondus.
+  return na.length >= 5 && nb.length >= 5 && editDistance(na, nb, 1) <= 1;
+}
+
 /**
  * Retrouve un joueur local par son pseudo externe. Dans l'ordre :
  * correspondance exacte normalisée ; égalité après pliage leetspeak

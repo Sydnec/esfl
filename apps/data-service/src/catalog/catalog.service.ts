@@ -3,7 +3,7 @@ import { parisDate } from '@esfl/contracts';
 import type { Job, Queue } from 'bullmq';
 import { Prisma } from '../../generated/client';
 import { reassignPlayerStats } from '../common/player-merge';
-import { normalizeName, teamNamesMatch } from '../stats/matching';
+import { normalizeName, pseudosProches, teamNamesMatch } from '../stats/matching';
 import { PrismaService } from '../prisma.service';
 
 /**
@@ -54,6 +54,35 @@ function fandomTeamName(raw: string): string {
   } catch {
     return trimmed;
   }
+}
+
+/**
+ * Identité civile normalisée d'une fiche, ou null si elle est incomplète.
+ * Les deux parties sont exigées : un prénom seul est bien trop partagé pour
+ * servir de clé d'identité.
+ */
+function identiteCivile(firstName: string | null, lastName: string | null): string | null {
+  const civil = normalizeName(`${firstName ?? ''}${lastName ?? ''}`);
+  if (!firstName?.trim() || !lastName?.trim() || !civil) return null;
+  return civil;
+}
+
+/**
+ * Découpe les fiches d'une même identité civile en groupes de pseudos
+ * proches. Deux personnes peuvent porter le même nom civil sans être la même
+ * (« Kim Min-seong » en LoL) : seul le pseudo tranche. Regroupement transitif,
+ * un pseudo intermédiaire reliant les deux extrêmes.
+ */
+function clustersParPseudo<T extends { name: string }>(fiches: T[]): T[][] {
+  const clusters: T[][] = [];
+  for (const fiche of fiches) {
+    const proche = clusters.find((cluster) =>
+      cluster.some((membre) => pseudosProches(membre.name, fiche.name)),
+    );
+    if (proche) proche.push(fiche);
+    else clusters.push([fiche]);
+  }
+  return clusters;
 }
 
 /** Noms lisibles des jobs BullMQ, pour la liste des échecs de la page admin. */
@@ -624,7 +653,7 @@ export class CatalogService {
    * appliqué, d'où le `dryRun`.
    */
   async mergeDuplicatePlayers(
-    scope: 'same-team' | 'cross-team',
+    scope: 'same-team' | 'cross-team' | 'same-person',
     dryRun: boolean,
   ): Promise<{
     scope: string;
@@ -635,7 +664,15 @@ export class CatalogService {
     details: Array<{ gameId: string; garde: string; absorbees: string[]; stats: number }>;
   }> {
     const players = await this.prisma.player.findMany({
-      select: { id: true, gameId: true, teamId: true, name: true, pandascoreId: true },
+      select: {
+        id: true,
+        gameId: true,
+        teamId: true,
+        name: true,
+        pandascoreId: true,
+        firstName: true,
+        lastName: true,
+      },
     });
     const statCounts = await this.prisma.playerMatchStats.groupBy({
       by: ['playerId'],
@@ -643,23 +680,39 @@ export class CatalogService {
     });
     const statsByPlayer = new Map(statCounts.map((row) => [row.playerId, row._count._all]));
 
-    // Clé de regroupement : l'équipe n'entre en jeu que sur le scope prudent.
+    // Clé de regroupement : l'équipe n'entre en jeu que sur le scope prudent ;
+    // `same-person` regroupe sur l'identité civile, puis découpe par proximité
+    // de pseudo (cf. `clustersParPseudo`).
     const groups = new Map<string, typeof players>();
     for (const player of players) {
       const key = normalizeName(player.name);
       if (!key) continue;
-      const groupKey =
-        scope === 'same-team'
-          ? `${player.gameId}|${player.teamId ?? ''}|${key}`
-          : `${player.gameId}|${key}`;
+      let groupKey: string;
+      if (scope === 'same-team') {
+        groupKey = `${player.gameId}|${player.teamId ?? ''}|${key}`;
+      } else if (scope === 'same-person') {
+        const civil = identiteCivile(player.firstName, player.lastName);
+        if (!civil) continue; // sans nom civil complet, aucun rapprochement
+        groupKey = `${player.gameId}|${civil}`;
+      } else {
+        groupKey = `${player.gameId}|${key}`;
+      }
       groups.set(groupKey, [...(groups.get(groupKey) ?? []), player]);
     }
+
+    // Un nom civil peut être porté par deux personnes distinctes (« Kim
+    // Min-seong » est très répandu) : on ne fusionne que les fiches dont les
+    // pseudos se rejoignent, les autres restent séparées.
+    const aFusionner =
+      scope === 'same-person'
+        ? [...groups.values()].flatMap((group) => clustersParPseudo(group))
+        : [...groups.values()];
 
     const details: Array<{ gameId: string; garde: string; absorbees: string[]; stats: number }> = [];
     let fichesAbsorbees = 0;
     let statsDeplacees = 0;
 
-    for (const group of groups.values()) {
+    for (const group of aFusionner) {
       if (group.length < 2) continue;
       // Fiche gardée : celle qui porte déjà l'identité Pandascore (elle est la
       // référence du reste du système), sinon la plus fournie en stats.

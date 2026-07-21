@@ -355,15 +355,19 @@ export class CatalogController {
 
   /**
    * Fusionne les fiches joueur en double (historique de stats fragmenté).
-   * `scope=same-team` (défaut) ne regroupe qu'à équipe identique : sans
-   * ambiguïté. `cross-team` ratisse tout le jeu et n'est exposé qu'en dry-run,
-   * le temps de relire ce qu'il propose.
+   *
+   * - `same-team` (défaut) : même équipe et même pseudo, sans ambiguïté.
+   * - `same-person` : même identité civile ET pseudo proche, quelle que soit
+   *   l'équipe. C'est le cas du transfert, où l'index unique
+   *   `(jeu, équipe, pseudo)` crée une seconde fiche pour la même personne.
+   * - `cross-team` : même pseudo dans tout le jeu, sans autre signal. Exposé
+   *   en dry-run seulement, il confondrait les homonymes.
    */
   @Post('admin/players/merge-duplicates')
   @UseGuards(AdminGuard)
   mergeDuplicatePlayers(@Query('scope') scope?: string, @Query('dryRun') dryRun?: string) {
     const target = scope ?? 'same-team';
-    if (target !== 'same-team' && target !== 'cross-team') {
+    if (target !== 'same-team' && target !== 'cross-team' && target !== 'same-person') {
       throw new BadRequestException(`Scope inconnu : ${scope}`);
     }
     const simulation = dryRun === '1' || dryRun === 'true' || target === 'cross-team';

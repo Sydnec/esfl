@@ -4,6 +4,7 @@ import {
   inferOpponentAlias,
   matchPlayer,
   normalizeName,
+  pseudosProches,
   teamMatches,
   teamMatchesExact,
   teamNamesMatch,
@@ -156,5 +157,31 @@ describe('inferOpponentAlias', () => {
   it('n’apprend pas quand les deux équipes sont déjà reconnues', () => {
     const pairs = [{ nameA: 'largadosypelados', nameB: 'Fake do Biru', deltaMs: 0 }];
     expect(inferOpponentAlias(pairs, teamA, teamB)).toBeNull();
+  });
+});
+
+describe('pseudosProches', () => {
+  it('rapproche l’identique, le leetspeak et l’inclusion', () => {
+    expect(pseudosProches('AdrieN', 'adrien')).toBe(true);
+    expect(pseudosProches('sh1n', 'Shin')).toBe(true);
+    expect(pseudosProches('Djon', 'Djon8')).toBe(true);
+  });
+
+  it('tolère une lettre d’écart au-delà de 4 caractères', () => {
+    // Cas réel : deux fiches de Sergey Zhukovich.
+    expect(pseudosProches('Kurama', 'Kuruma')).toBe(true);
+  });
+
+  it('refuse une lettre d’écart sur un pseudo court, trop ambigu', () => {
+    expect(pseudosProches('ropz', 'ropk')).toBe(false);
+  });
+
+  it('refuse deux pseudos sans rapport', () => {
+    expect(pseudosProches('dako', 'BLVCKM4GIC')).toBe(false);
+    expect(pseudosProches('GIDEON', 'Heru')).toBe(false);
+  });
+
+  it('refuse un pseudo vide', () => {
+    expect(pseudosProches('', 'ZywOo')).toBe(false);
   });
 });
