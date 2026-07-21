@@ -155,6 +155,32 @@ describe('scoreMatch — bonus contextuels', () => {
     expect(byId['mid'].bonus).toBe(0);
   });
 
+  it('Valorant : KAST/ADR absents → imputés (pas de note plombée)', () => {
+    const sansKast: PlayerStatLine = {
+      playerId: 'p',
+      gameId: 'valorant',
+      role: null,
+      teamSide: 'A',
+      normalized: { kills: 15, deaths: 14, assists: 6, firstKills: 3, firstDeaths: 3, clutches: 0 },
+    };
+    const [score] = scoreMatch([sansKast], { rounds: 24 });
+    // Sans imputation, KAST=ADR=0 donnerait une note très basse ; ici ~moyenne.
+    expect(score.points).toBeGreaterThan(55);
+  });
+
+  it('LoL : GPM absent → formule de secours (KDA/KP), pas une note effondrée', () => {
+    const mineure: PlayerStatLine = {
+      playerId: 'p',
+      gameId: 'lol',
+      role: 'Mid',
+      teamSide: 'A',
+      normalized: { kills: 5, deaths: 3, assists: 8, killParticipation: 0.65 },
+    };
+    const [score] = scoreMatch([mineure], { rounds: 0 });
+    expect(score.breakdown.fallback).toBe(1);
+    expect(score.points).toBeGreaterThan(60);
+  });
+
   it('CS2 : aucun bonus contextuel', () => {
     const cs2: PlayerStatLine = {
       playerId: 'p',

@@ -57,6 +57,24 @@ function num(source: Record<string, unknown>, key: string): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
 
+/** Vrai si la métrique est réellement publiée (nombre fini), pas juste 0/absente. */
+function has(source: Record<string, unknown>, key: string): boolean {
+  const value = source[key];
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+/** Valeur si publiée, sinon une valeur neutre (imputation d'un trou de source). */
+function numOr(source: Record<string, unknown>, key: string, fallback: number): number {
+  return has(source, key) ? (source[key] as number) : fallback;
+}
+
+// Valeurs neutres d'imputation (médianes population), pour ne pas pénaliser un
+// trou de données de la source (VLR muet sur KAST/ADR sur certains matchs).
+const VALO_KAST_NEUTRE = 71;
+const VALO_ADR_NEUTRE = 129;
+/** Un KDA extrême (0-1 mort) ne doit pas exploser la note : plafond. */
+const LOL_KDA_MAX = 10;
+
 /** Rôle LoL canonique (clé des bonus de rôle). */
 export function canonicalLolRole(role: string | null | undefined): string {
   const r = (role ?? '').toLowerCase();
@@ -90,9 +108,20 @@ export function valorantBaseNote(i: {
   return rating * 62.5 + 7.5;
 }
 
-/** LoL (impact global). KP en pourcentage entier, GPM = or/min, VSM = vision/min. */
+/** LoL (impact global, données complètes). KP % entier, GPM = or/min, VSM = vision/min. */
 export function lolBaseNote(i: { kda: number; kp: number; gpm: number; vsm: number }): number {
   const rating = i.kda * 0.05 + i.kp * 0.005 + i.gpm * 0.001 + i.vsm * 0.1 + 0.15;
+  return rating * 40 + 30;
+}
+
+/**
+ * LoL de SECOURS quand GPM (et souvent VSM) manquent : Leaguepedia n'a le détail
+ * complet que pour les ligues majeures (bots Riot) ; les ligues mineures sont
+ * saisies à la main, souvent limitées au KDA/KP. On surpondère alors ce qui est
+ * toujours présent (KDA plafonné + Kill Participation). Calibré médiane ~68.
+ */
+export function lolFallbackNote(i: { kda: number; kp: number }): number {
+  const rating = i.kda * 0.06 + i.kp * 0.008 + 0.2;
   return rating * 40 + 30;
 }
 // ────────────────────────────────────────────────────────────────────────────
@@ -173,8 +202,9 @@ function base(player: PlayerStatLine, ctx: MatchScoringContext): BaseResult {
       kpr: num(n, 'kills') / rounds,
       apr: num(n, 'assists') / rounds,
       dpr: num(n, 'deaths') / rounds,
-      adr: num(n, 'adr'),
-      kast: num(n, 'kast'),
+      // KAST/ADR imputés à la médiane si la source ne les publie pas.
+      adr: numOr(n, 'adr', VALO_ADR_NEUTRE),
+      kast: numOr(n, 'kast', VALO_KAST_NEUTRE),
       // Conservés pour les bonus (pas dans le rating de base VLR).
       firstKills: num(n, 'firstKills'),
       firstDeaths: num(n, 'firstDeaths'),
@@ -183,17 +213,20 @@ function base(player: PlayerStatLine, ctx: MatchScoringContext): BaseResult {
     return { player, note: valorantBaseNote(derived), derived };
   }
 
-  // LoL
+  // LoL : formule complète si GPM publié, sinon secours KDA/KP (ligues mineures).
   const deaths = num(n, 'deaths');
-  const derived = {
-    kda: (num(n, 'kills') + num(n, 'assists')) / Math.max(1, deaths),
-    // killParticipation stocké en fraction (0-1) → pourcentage entier attendu.
-    kp: num(n, 'killParticipation') * 100,
-    gpm: num(n, 'goldPerMin'),
-    vsm: num(n, 'visionPerMin'),
-    controlWards: num(n, 'controlWards'),
-  };
-  return { player, note: lolBaseNote(derived), derived };
+  const kda = Math.min(LOL_KDA_MAX, (num(n, 'kills') + num(n, 'assists')) / Math.max(1, deaths));
+  // killParticipation stocké en fraction (0-1) → pourcentage entier attendu.
+  const kp = num(n, 'killParticipation') * 100;
+  const gpm = num(n, 'goldPerMin');
+  const vsm = num(n, 'visionPerMin');
+  const controlWards = num(n, 'controlWards');
+  if (has(n, 'goldPerMin') && gpm > 0) {
+    const derived = { kda, kp, gpm, vsm, controlWards };
+    return { player, note: lolBaseNote(derived), derived };
+  }
+  const derived = { kda, kp, controlWards, fallback: 1 };
+  return { player, note: lolFallbackNote({ kda, kp }), derived };
 }
 
 interface BonusResult {
