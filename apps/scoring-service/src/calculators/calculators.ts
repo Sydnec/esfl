@@ -86,8 +86,47 @@ export function canonicalLolRole(role: string | null | undefined): string {
   return 'Autre';
 }
 
+// ─── Conversion Rating → Note (ÉDITABLE) ────────────────────────────────────
+
+/**
+ * Dispersion de référence des ratings, commune aux trois jeux. C'est le σ
+ * naturel du rating VLR mesuré sur la population réelle (0,202).
+ */
+export const SIGMA_REF = 0.2;
+
+/**
+ * Médiane et dispersion du rating BRUT de chaque jeu, mesurées sur la base.
+ *
+ * Les ratings ne sont PAS comparables tels quels : le rating HLTV s'étale
+ * presque deux fois plus que le rating VLR (σ 0,357 contre 0,202). Une pente
+ * unique donnerait 73 à une perf de top-décile CS2 contre 63 à son équivalent
+ * Valorant, et picker CS2 deviendrait mécaniquement avantageux. On recentre
+ * donc chaque jeu sur 1,00 et on le ramène à `SIGMA_REF` avant de convertir.
+ *
+ * À repasser après tout changement de formule ou de source de stats : la
+ * requête de mesure est dans docs/scoring-et-donnees.md.
+ */
+export const CALIBRAGE_JEU: Record<GameId, { mediane: number; sigma: number }> = {
+  cs2: { mediane: 1.072, sigma: 0.357 },
+  valorant: { mediane: 0.991, sigma: 0.202 },
+  lol: { mediane: 0.942, sigma: 0.247 },
+};
+
+/**
+ * Rating brut → note sur 100. Le rating est d'abord ramené sur l'échelle
+ * commune, puis converti à raison de 50 points par point de rating : une perf
+ * médiane vaut 50, un rating calibré de 2,00 (soit +5σ, exceptionnel) vaut 100,
+ * une vraie sous-performance tombe à 0.
+ */
+export function noteDepuisRating(gameId: GameId, ratingBrut: number): number {
+  const { mediane, sigma } = CALIBRAGE_JEU[gameId];
+  const calibre = sigma > 0 ? 1 + (ratingBrut - mediane) * (SIGMA_REF / sigma) : ratingBrut;
+  return clamp(calibre * 50, 0, 100);
+}
+
 // ─── Formules de Rating de base (ÉDITABLES) ─────────────────────────────────
-// Note = Rating × pente + ordonnée. Constantes calées pour ~70 médian, ~85 p90.
+// Chacune renvoie un RATING brut, centré sur ~1 dans son propre jeu ; la
+// conversion en note est centralisée dans `noteDepuisRating`.
 
 /**
  * CS2, HLTV 2.0 fidèle : toutes les entrées sont publiées par bo3 (stats par
@@ -97,7 +136,7 @@ export function canonicalLolRole(role: string | null | undefined): string {
  * le rating tournait autour de 0,75 au lieu de 1,0 et la population était
  * tassée (médiane 60 au lieu de 70).
  */
-export function cs2BaseNote(i: {
+export function cs2Rating(i: {
   kpr: number;
   dpr: number;
   apr: number;
@@ -105,14 +144,14 @@ export function cs2BaseNote(i: {
   kast: number;
 }): number {
   const impact = 2.13 * i.kpr + 0.42 * i.apr - 0.41;
-  const rating =
+  return (
     0.0073 * i.kast +
     0.3591 * i.kpr -
     0.5329 * i.dpr +
     0.2372 * impact +
     0.0032 * i.adr +
-    0.1587;
-  return rating * 40 + 30;
+    0.1587
+  );
 }
 /**
  * KAST de repli : seules les ingestions antérieures à la bascule vers les stats
@@ -122,33 +161,29 @@ export function cs2BaseNote(i: {
 export const CS2_KAST_DEFAUT = 70;
 
 /** Valorant (VLR 2.0, fidèle). */
-export function valorantBaseNote(i: {
+export function valorantRating(i: {
   kpr: number;
   apr: number;
   dpr: number;
   adr: number;
   kast: number;
 }): number {
-  const rating =
-    i.kpr * 0.55 + i.apr * 0.23 + i.adr * 0.0025 + i.kast * 0.0031 - i.dpr * 0.87 + 0.61;
-  return rating * 62.5 + 7.5;
+  return i.kpr * 0.55 + i.apr * 0.23 + i.adr * 0.0025 + i.kast * 0.0031 - i.dpr * 0.87 + 0.61;
 }
 
 /** LoL (impact global, données complètes). KP % entier, GPM = or/min, VSM = vision/min. */
-export function lolBaseNote(i: { kda: number; kp: number; gpm: number; vsm: number }): number {
-  const rating = i.kda * 0.05 + i.kp * 0.005 + i.gpm * 0.001 + i.vsm * 0.1 + 0.15;
-  return rating * 40 + 30;
+export function lolRating(i: { kda: number; kp: number; gpm: number; vsm: number }): number {
+  return i.kda * 0.05 + i.kp * 0.005 + i.gpm * 0.001 + i.vsm * 0.1 + 0.15;
 }
 
 /**
  * LoL de SECOURS quand GPM (et souvent VSM) manquent : Leaguepedia n'a le détail
  * complet que pour les ligues majeures (bots Riot) ; les ligues mineures sont
  * saisies à la main, souvent limitées au KDA/KP. On surpondère alors ce qui est
- * toujours présent (KDA plafonné + Kill Participation). Calibré médiane ~68.
+ * toujours présent (KDA plafonné + Kill Participation).
  */
-export function lolFallbackNote(i: { kda: number; kp: number }): number {
-  const rating = i.kda * 0.06 + i.kp * 0.008 + 0.2;
-  return rating * 40 + 30;
+export function lolFallbackRating(i: { kda: number; kp: number }): number {
+  return i.kda * 0.06 + i.kp * 0.008 + 0.2;
 }
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -187,14 +222,17 @@ export function scoreMatch(players: PlayerStatLine[], ctx: MatchScoringContext):
   const maxFd = Math.max(0, ...bases.map((b) => b.derived.firstDeaths ?? 0));
 
   return bases.map((b) => {
+    const note = noteDepuisRating(b.player.gameId, b.rating);
     const bonus = contextualBonus(b, ctx, maxFk, maxFd);
-    const points = clamp(b.note + bonus.total, 0, 100);
+    // Points fantasy entiers ; le breakdown garde le détail décimal.
+    const points = Math.round(clamp(note + bonus.total, 0, 100));
     return {
       playerId: b.player.playerId,
-      points: round2(points),
+      points,
       breakdown: {
         ...Object.fromEntries(Object.entries(b.derived).map(([k, v]) => [k, round2(v)])),
-        base: round2(b.note),
+        rating: round2(b.rating),
+        base: round2(note),
         ...bonus.detail,
         bonus: round2(bonus.total),
       },
@@ -204,7 +242,8 @@ export function scoreMatch(players: PlayerStatLine[], ctx: MatchScoringContext):
 
 interface BaseResult {
   player: PlayerStatLine;
-  note: number;
+  /** Rating BRUT du jeu, avant mise à l'échelle commune. */
+  rating: number;
   derived: Record<string, number>;
 }
 
@@ -223,7 +262,7 @@ function base(player: PlayerStatLine, ctx: MatchScoringContext): BaseResult {
       firstKills: num(n, 'firstKills'),
       clutches: num(n, 'clutches'),
     };
-    return { player, note: cs2BaseNote(derived), derived };
+    return { player, rating: cs2Rating(derived), derived };
   }
 
   if (player.gameId === 'valorant') {
@@ -239,7 +278,7 @@ function base(player: PlayerStatLine, ctx: MatchScoringContext): BaseResult {
       firstDeaths: num(n, 'firstDeaths'),
       clutches: num(n, 'clutches'),
     };
-    return { player, note: valorantBaseNote(derived), derived };
+    return { player, rating: valorantRating(derived), derived };
   }
 
   // LoL : formule complète si GPM publié, sinon secours KDA/KP (ligues mineures).
@@ -252,10 +291,10 @@ function base(player: PlayerStatLine, ctx: MatchScoringContext): BaseResult {
   const controlWards = num(n, 'controlWards');
   if (has(n, 'goldPerMin') && gpm > 0) {
     const derived = { kda, kp, gpm, vsm, controlWards };
-    return { player, note: lolBaseNote(derived), derived };
+    return { player, rating: lolRating(derived), derived };
   }
   const derived = { kda, kp, controlWards, fallback: 1 };
-  return { player, note: lolFallbackNote({ kda, kp }), derived };
+  return { player, rating: lolFallbackRating({ kda, kp }), derived };
 }
 
 interface BonusResult {

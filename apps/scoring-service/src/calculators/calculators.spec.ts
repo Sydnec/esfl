@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   canonicalLolRole,
-  cs2BaseNote,
-  lolBaseNote,
+  cs2Rating,
+  lolRating,
   mapsPlayed,
+  noteDepuisRating,
   PlayerStatLine,
   roundsPlayed,
   scoreMatch,
-  valorantBaseNote,
+  valorantRating,
 } from './calculators';
 
 describe('mapsPlayed / roundsPlayed', () => {
@@ -32,32 +33,57 @@ describe('mapsPlayed / roundsPlayed', () => {
   });
 });
 
-describe('formules de base — ancrages (~70 solide, ~85 MVP)', () => {
-  it('Valorant : joueur moyen ≈ 70, MVP ≈ 85', () => {
-    const moyen = valorantBaseNote({ kpr: 0.68, apr: 0.25, dpr: 0.66, adr: 130, kast: 72 });
-    expect(moyen).toBeGreaterThan(66);
-    expect(moyen).toBeLessThan(74);
-    expect(valorantBaseNote({ kpr: 0.95, apr: 0.3, dpr: 0.55, adr: 175, kast: 80 })).toBeGreaterThan(82);
+describe('noteDepuisRating — échelle commune', () => {
+  it('une perf médiane vaut 50 dans chacun des trois jeux', () => {
+    expect(noteDepuisRating('cs2', 1.072)).toBeCloseTo(50, 1);
+    expect(noteDepuisRating('valorant', 0.991)).toBeCloseTo(50, 1);
+    expect(noteDepuisRating('lol', 0.942)).toBeCloseTo(50, 1);
   });
 
-  it('CS2 (HLTV 2.0 complet) : joueur moyen ≈ 70', () => {
-    // Moyen : KPR 0.68, DPR 0.68, APR 0.15, ADR 80, KAST 70.
-    const note = cs2BaseNote({ kpr: 0.68, dpr: 0.68, apr: 0.15, adr: 80, kast: 70 });
-    expect(note).toBeGreaterThan(65);
-    expect(note).toBeLessThan(76);
+  it('un rating calibré de 2,00 (+5σ) vaut 100, une sous-perf tombe à 0', () => {
+    // +5σ propres à chaque jeu → même note : c'est tout l'objet du calibrage.
+    expect(noteDepuisRating('cs2', 1.072 + 5 * 0.357)).toBeCloseTo(100, 1);
+    expect(noteDepuisRating('valorant', 0.991 + 5 * 0.202)).toBeCloseTo(100, 1);
+    expect(noteDepuisRating('lol', 0.942 - 5 * 0.247)).toBeCloseTo(0, 1);
+  });
+
+  it('à écart-type égal, les trois jeux donnent la même note', () => {
+    const aUnSigma = [
+      noteDepuisRating('cs2', 1.072 + 0.357),
+      noteDepuisRating('valorant', 0.991 + 0.202),
+      noteDepuisRating('lol', 0.942 + 0.247),
+    ];
+    for (const note of aUnSigma) expect(note).toBeCloseTo(60, 1);
+  });
+
+  it('borne à [0, 100] sans jamais sortir de l’échelle', () => {
+    expect(noteDepuisRating('cs2', 10)).toBe(100);
+    expect(noteDepuisRating('cs2', -5)).toBe(0);
+  });
+});
+
+describe('formules de rating — ancrages', () => {
+  it('Valorant : joueur moyen ≈ 1,00 de rating', () => {
+    const moyen = valorantRating({ kpr: 0.68, apr: 0.25, dpr: 0.66, adr: 130, kast: 72 });
+    expect(moyen).toBeGreaterThan(0.9);
+    expect(moyen).toBeLessThan(1.1);
+  });
+
+  it('CS2 (HLTV 2.0 complet) : joueur moyen ≈ 1,00 de rating', () => {
+    const rating = cs2Rating({ kpr: 0.68, dpr: 0.68, apr: 0.15, adr: 80, kast: 70 });
+    expect(rating).toBeGreaterThan(0.9);
+    expect(rating).toBeLessThan(1.1);
   });
 
   it('CS2 : le terme d’Impact récompense les kills à volume égal de dégâts', () => {
     const commun = { dpr: 0.68, adr: 85, kast: 72 };
-    const fragger = cs2BaseNote({ ...commun, kpr: 0.85, apr: 0.1 });
-    const soutien = cs2BaseNote({ ...commun, kpr: 0.6, apr: 0.35 });
+    const fragger = cs2Rating({ ...commun, kpr: 0.85, apr: 0.1 });
+    const soutien = cs2Rating({ ...commun, kpr: 0.6, apr: 0.35 });
     expect(fragger).toBeGreaterThan(soutien);
   });
 
-  it('LoL : joueur solide entre 70 et 85 (KDA 3, KP 64, GPM 400, VSM 1.9)', () => {
-    const note = lolBaseNote({ kda: 3, kp: 64, gpm: 400, vsm: 1.9 });
-    expect(note).toBeGreaterThan(70);
-    expect(note).toBeLessThan(85);
+  it('LoL : joueur solide au-dessus de la médiane', () => {
+    expect(lolRating({ kda: 3, kp: 64, gpm: 400, vsm: 1.9 })).toBeGreaterThan(0.942);
   });
 });
 
@@ -172,8 +198,9 @@ describe('scoreMatch — bonus contextuels', () => {
       normalized: { kills: 15, deaths: 14, assists: 6, firstKills: 3, firstDeaths: 3, clutches: 0 },
     };
     const [score] = scoreMatch([sansKast], { rounds: 24 });
-    // Sans imputation, KAST=ADR=0 donnerait une note très basse ; ici ~moyenne.
-    expect(score.points).toBeGreaterThan(55);
+    // Sans imputation, KAST=ADR=0 effondrerait la note ; ici on reste autour de
+    // la médiane de l'échelle commune (50).
+    expect(score.points).toBeGreaterThan(35);
   });
 
   it('LoL : GPM absent → formule de secours (KDA/KP), pas une note effondrée', () => {
@@ -186,7 +213,7 @@ describe('scoreMatch — bonus contextuels', () => {
     };
     const [score] = scoreMatch([mineure], { rounds: 0 });
     expect(score.breakdown.fallback).toBe(1);
-    expect(score.points).toBeGreaterThan(60);
+    expect(score.points).toBeGreaterThan(35);
   });
 
   it('CS2 : aucun bonus contextuel', () => {
