@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { GAME_LABELS, GameId } from '@esfl/contracts';
 import { useAuth } from '@/components/AuthProvider';
-import { providerInput } from '@/lib/provider-input';
+import { gameProfile } from '@/lib/game-profile';
 import { formatDateTime } from '@/lib/format';
 import { TeamMatcher } from './TeamMatcher';
 import styles from './page.module.css';
@@ -530,7 +530,7 @@ export default function AdminPage() {
                             >
                               Relancer
                             </button>
-                            {providerInput(match.gameId).correctionParLien && (
+                            {gameProfile(match.gameId).correctionParLien && (
                               <>
                                 <input
                                   className={styles.searchInput}

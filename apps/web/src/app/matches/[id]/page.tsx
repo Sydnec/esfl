@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { GAME_LABELS, type GameId } from '@esfl/contracts';
 import { Avatar } from '@/components/Avatar';
+import { gameProfile } from '@/lib/game-profile';
 import { request } from '@/lib/api';
 import { flagEmoji } from '@/lib/flags';
 import { agentIconSrc } from '@/lib/agents';
@@ -129,16 +130,18 @@ export default function MatchPage() {
 
   const running = match.status === 'running';
   const finished = match.status === 'finished';
-  // Lien vers la page de stats originale : chemin VLR à préfixer, URL complète
-  // (Leaguepedia) telle quelle ; l'id de match bo3 n'est pas un lien.
-  const sourceUrl = match.statsPageUrl
-    ? match.statsPageUrl.startsWith('http')
+  // Lien vers la page de stats d'origine : URL complète telle quelle, chemin
+  // relatif préfixé par la base de la source. Un identifiant qui n'est pas une
+  // adresse (l'id de match bo3) ne donne aucun lien.
+  const profil = gameProfile(match.gameId);
+  const sourceUrl = !match.statsPageUrl
+    ? null
+    : match.statsPageUrl.startsWith('http')
       ? match.statsPageUrl
-      : match.gameId === 'valorant' && match.statsPageUrl.startsWith('/')
-        ? `https://www.vlr.gg${match.statsPageUrl}`
-        : null
-    : null;
-  const sourceLabel = match.gameId === 'valorant' ? 'VLR.gg' : 'Leaguepedia';
+      : match.statsPageUrl.startsWith('/') && profil.baseUrlStats
+        ? `${profil.baseUrlStats}${match.statsPageUrl}`
+        : null;
+  const sourceLabel = profil.libelleSource;
   const forfeit = match.forfeit ?? match.status === 'canceled';
   const winnerName =
     match.winnerTeamId === match.teamA?.id
@@ -150,9 +153,8 @@ export default function MatchPage() {
   const tagB = match.teamB?.acronym || match.teamB?.name || 'TBD';
   const games = match.gamesSummary ?? [];
 
-  // Durée par game : seulement en LoL pour l'instant (durée variable,
-  // signifiante). Valorant/CS2 : inutile ; RL : à trancher plus tard.
-  const showDuration = match.gameId === 'lol';
+  // Durée par manche : signifiante seulement là où elle varie vraiment.
+  const showDuration = profil.afficheDuree;
   // Game en cours d'un match live : la première sans vainqueur. Sa puce garde
   // le même format, avec « en cours » à la place de la durée (Leaguepedia ne
   // publie la durée réelle qu'en fin de game, toute estimation serait fausse).
@@ -267,7 +269,7 @@ export default function MatchPage() {
             // seulement quand quelque chose suit).
             const label =
               game.map ??
-              (match.gameId === 'lol'
+              (profil.mancheNumerotee
                 ? `Game ${game.position}${hasScores || !ongoing ? ' :' : ''}`
                 : `M${game.position}`);
             // Le score du vainqueur reste accentué, celui du perdant passe en
@@ -347,8 +349,9 @@ export default function MatchPage() {
             const snapshot = side === 'A' ? match.teamASnapshot : match.teamBSnapshot;
             const lines = statsBySide(side, team?.id);
             if (lines.length === 0) return null;
-            // LoL : ordre usuel des rôles (TOP/JUN/MID/ADC/SUP), rôle du match d'abord.
-            if (match.gameId === 'lol') {
+            // Ordre d'usage des rôles quand le jeu en a un (TOP/JUN/MID/ADC/SUP),
+            // rôle du match d'abord.
+            if (profil.triParRole) {
               lines.sort((a, b) => {
                 const pa = players.get(a.playerId);
                 const pb = players.get(b.playerId);
@@ -373,7 +376,7 @@ export default function MatchPage() {
             // ainsi en largeur).
             const withAgents = match.gameId !== 'cs2' && mapTabs.length > 0;
             const withPoints = cumulative && !advanced;
-            const agentLabel = match.gameId === 'lol' ? 'Champion' : 'Agent';
+            const agentLabel = profil.libellePersonnage;
             return (
               <div key={side} className={styles.teamStats}>
                 <h3 className={styles.teamStatsTitle}>

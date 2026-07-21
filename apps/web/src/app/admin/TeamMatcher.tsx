@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { GAME_IDS, GAME_LABELS, GameId } from '@esfl/contracts';
 import { useAuth } from '@/components/AuthProvider';
-import { providerInput } from '@/lib/provider-input';
+import { gameProfile } from '@/lib/game-profile';
 import { formatDateTime } from '@/lib/format';
 import styles from './page.module.css';
 
@@ -368,7 +368,7 @@ function MissingProviderIdPanel({ authedFetch }: { authedFetch: AuthedFetch }) {
           <span className={styles.aliasList}>
             <input
               className={styles.searchInput}
-              placeholder={providerInput(team.gameId).placeholderIdentite}
+              placeholder={gameProfile(team.gameId).placeholderIdentite}
               value={draft[team.id] ?? ''}
               onChange={(event) =>
                 setDraft((current) => ({ ...current, [team.id]: event.target.value }))
@@ -621,8 +621,8 @@ function UnmatchedPanel({
                 })()}
                 <span className={styles.aliasList}>
                   <input
-                    className={providerInput(item.gameId).champLarge ? styles.searchInput : styles.aliasInput}
-                    placeholder={providerInput(item.gameId).placeholderAlias}
+                    className={gameProfile(item.gameId).champLarge ? styles.searchInput : styles.aliasInput}
+                    placeholder={gameProfile(item.gameId).placeholderAlias}
                     value={draft[item.team.id] ?? ''}
                     onChange={(event) =>
                       setDraft((current) => ({ ...current, [item.team.id]: event.target.value }))
@@ -748,8 +748,8 @@ function SearchPanel({
               </button>
             ))}
             <input
-              className={providerInput(team.gameId).champLarge ? styles.searchInput : styles.aliasInput}
-              placeholder={providerInput(team.gameId).placeholderAlias}
+              className={gameProfile(team.gameId).champLarge ? styles.searchInput : styles.aliasInput}
+              placeholder={gameProfile(team.gameId).placeholderAlias}
               value={draft[team.id] ?? ''}
               onChange={(event) =>
                 setDraft((current) => ({ ...current, [team.id]: event.target.value }))
