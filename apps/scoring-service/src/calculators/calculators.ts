@@ -189,7 +189,7 @@ export function lolFallbackRating(i: { kda: number; kp: number }): number {
 // ─── LoL-Rating 1.0 : sous-scores standardisés PAR RÔLE ─────────────────────
 
 /** Métriques du LoL-Rating, chacune standardisée dans son rôle. */
-export type LolMetrique = 'dpmg' | 'kp' | 'visionShare' | 'wpm' | 'objControl';
+export type LolMetrique = 'dpmg' | 'kp' | 'visionShare' | 'objControl';
 
 /** Une métrique du joueur sur le match, avant standardisation. */
 export interface LolMetriques {
@@ -199,8 +199,6 @@ export interface LolMetriques {
   kp: number;
   /** Part du score de vision de l'équipe. */
   visionShare: number;
-  /** Wards de contrôle par minute (approximation du WPM). */
-  wpm: number;
   /** Part des objectifs neutres pris par l'équipe. */
   objControl: number;
 }
@@ -280,10 +278,9 @@ export function lolRatingV5(
   const z = (metrique: LolMetrique, valeur: number) =>
     zRole(distributions, input.role, metrique, valeur);
   const combat = 0.5 * z('dpmg', input.dpmg) + 0.5 * z('kp', input.kp);
-  const macro =
-    0.5 * z('visionShare', input.visionShare) +
-    0.25 * z('wpm', input.wpm) +
-    0.25 * z('objControl', input.objControl);
+  // Le WPM de la spec est hors de portée : la table Cargo n'expose aucun champ
+  // de wards. Les deux poids restants sont renormalisés à somme 1.
+  const macro = 0.667 * z('visionShare', input.visionShare) + 0.333 * z('objControl', input.objControl);
   const poids = POIDS_ROLE_LOL[input.role] ?? POIDS_ROLE_LOL.Autre;
   const raw = poids.combat * combat + poids.macro * macro;
   return 1 + Math.tanh(raw / LOL_LAMBDA) + (input.win ? LOL_BONUS_RESULTAT : -LOL_BONUS_RESULTAT);

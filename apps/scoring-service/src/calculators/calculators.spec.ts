@@ -240,14 +240,12 @@ describe('lolRatingV5 — standardisation par rôle', () => {
       kp: metrique(0.7, 0.1),
       // Un support voit BEAUCOUP plus qu'un mid : c'est tout l'enjeu.
       visionShare: metrique(0.35, 0.05),
-      wpm: metrique(0.5, 0.15),
       objControl: metrique(0.5, 0.2),
     },
     MID: {
       dpmg: metrique(1.3, 0.2),
       kp: metrique(0.65, 0.1),
       visionShare: metrique(0.15, 0.03),
-      wpm: metrique(0.15, 0.05),
       objControl: metrique(0.5, 0.2),
     },
   };
@@ -260,7 +258,6 @@ describe('lolRatingV5 — standardisation par rôle', () => {
       dpmg: d.dpmg.moyenne,
       kp: d.kp.moyenne,
       visionShare: d.visionShare.moyenne,
-      wpm: d.wpm.moyenne,
       objControl: d.objControl.moyenne,
       win: true,
     };
@@ -298,11 +295,11 @@ describe('lolRatingV5 — standardisation par rôle', () => {
 
   it('reste dans [0, 2] : la note convertie ne peut ni dépasser 100 ni passer sous 0', () => {
     const max = lolRatingV5(
-      { role: 'MID', dpmg: 99, kp: 99, visionShare: 99, wpm: 99, objControl: 99, win: true },
+      { role: 'MID', dpmg: 99, kp: 99, visionShare: 99, objControl: 99, win: true },
       distributions,
     );
     const min = lolRatingV5(
-      { role: 'MID', dpmg: -99, kp: -99, visionShare: -99, wpm: -99, objControl: -99, win: false },
+      { role: 'MID', dpmg: -99, kp: -99, visionShare: -99, objControl: -99, win: false },
       distributions,
     );
     expect(max).toBeLessThanOrEqual(2);
