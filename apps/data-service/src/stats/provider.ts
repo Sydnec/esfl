@@ -137,6 +137,16 @@ export interface GameStatsProvider {
    */
   fetchLiveStats?(match: Match, context: MatchContext): Promise<ProviderResult | null>;
   /**
+   * Patronyme et pays de joueurs précis, par id provider. Sert à départager un
+   * orphelin face à des homonymes Pandascore : le sync des rosters ne couvre
+   * que les titulaires actuels, or ce sont les anciens et les académies qui
+   * restent ambigus. Optionnel — une source dont l'ingestion pose déjà le
+   * patronyme (bo3, VLR) n'en a pas besoin.
+   */
+  fetchPlayerIdentities?(
+    ids: string[],
+  ): Promise<Map<string, { realName: string | null; nationality: string | null }>>;
+  /**
    * Noms d'équipe candidats vus par la source autour du match, quand une seule
    * des deux équipes locales est reconnue : le nom d'en face est un alias
    * probable de l'équipe non résolue. Alimente le matching manuel assisté

@@ -3,7 +3,10 @@ import { GAME_IDS, GameId } from '@esfl/contracts';
 import { pandascoreUpdate } from '../common/field-precedence';
 import { reassignPlayerStats } from '../common/player-merge';
 import { PandascoreClient } from '../pandascore/pandascore.client';
+import { Bo3StatsProvider } from '../stats/bo3.provider';
 import { LeaguepediaStatsProvider } from '../stats/leaguepedia.provider';
+import type { GameStatsProvider } from '../stats/provider';
+import { VlrStatsProvider } from '../stats/vlr.provider';
 import type { PSPlayer } from '../pandascore/pandascore.types';
 import { PrismaService } from '../prisma.service';
 import { normalizeName } from '../stats/matching';
@@ -112,11 +115,22 @@ export interface AdoptionReport {
 export class PlayerAdoptionService {
   private readonly logger = new Logger(PlayerAdoptionService.name);
 
+  private readonly providers: GameStatsProvider[];
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly pandascore: PandascoreClient,
-    private readonly leaguepedia: LeaguepediaStatsProvider,
-  ) {}
+    bo3: Bo3StatsProvider,
+    vlr: VlrStatsProvider,
+    leaguepedia: LeaguepediaStatsProvider,
+  ) {
+    this.providers = [bo3, vlr, leaguepedia];
+  }
+
+  /** Provider du jeu, pour se brancher sur ses capacités et non sur son nom. */
+  private providerFor(gameId: string): GameStatsProvider | null {
+    return this.providers.find((provider) => provider.gameId === gameId) ?? null;
+  }
 
   async adoptOrphans(): Promise<AdoptionReport> {
     const report: AdoptionReport = {
@@ -162,10 +176,10 @@ export class PlayerAdoptionService {
           return [] as PSPlayer[];
         });
 
-      // Patronyme des orphelins LoL encore inconnus : le sync des rosters ne
-      // couvre que les titulaires actuels, or ce sont justement les anciens et
-      // les académies qui restent ambigus. On les interroge par id provider.
-      if (gameId === 'lol') await this.fillMissingIdentities(orphans);
+      // Patronyme des orphelins encore inconnus, quand la source sait le
+      // fournir : le sync des rosters ne couvre que les titulaires actuels, or
+      // ce sont justement les anciens et les académies qui restent ambigus.
+      await this.fillMissingIdentities(gameId, orphans);
 
       const byKey = new Map<string, PSPlayer[]>();
       for (const player of found) {
@@ -231,6 +245,7 @@ export class PlayerAdoptionService {
    * pour que le départage qui suit en profite immédiatement.
    */
   private async fillMissingIdentities(
+    gameId: string,
     orphans: Array<{
       id: string;
       firstName: string | null;
@@ -239,18 +254,21 @@ export class PlayerAdoptionService {
       providerIds: unknown;
     }>,
   ): Promise<void> {
+    const provider = this.providerFor(gameId);
+    if (!provider?.fetchPlayerIdentities) return;
+
     const targets = orphans.filter((orphan) => !orphan.firstName && !orphan.lastName);
     const byProviderId = new Map<string, (typeof targets)[number]>();
     for (const orphan of targets) {
-      const id = (orphan.providerIds as Record<string, string> | null)?.leaguepedia;
+      const id = (orphan.providerIds as Record<string, string> | null)?.[provider.source];
       if (id) byProviderId.set(id, orphan);
     }
     if (byProviderId.size === 0) return;
 
-    const identities = await this.leaguepedia
+    const identities = await provider
       .fetchPlayerIdentities([...byProviderId.keys()])
       .catch((error) => {
-        this.logger.warn(`Identités Leaguepedia : ${String(error)}`);
+        this.logger.warn(`Identités ${provider.source} : ${String(error)}`);
         return new Map<string, { realName: string | null; nationality: string | null }>();
       });
 
@@ -266,7 +284,9 @@ export class PlayerAdoptionService {
       await this.prisma.player.update({ where: { id: orphan.id }, data });
       Object.assign(orphan, data);
     }
-    this.logger.log(`${identities.size} identité(s) Leaguepedia récupérée(s) pour départage`);
+    this.logger.log(
+      `${identities.size} identité(s) ${provider.source} récupérée(s) pour départage`,
+    );
   }
 
   /**
