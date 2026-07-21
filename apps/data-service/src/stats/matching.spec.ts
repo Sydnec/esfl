@@ -4,7 +4,9 @@ import {
   inferOpponentAlias,
   matchPlayer,
   normalizeName,
+  providerTeamMatches,
   pseudosProches,
+  toSlug,
   teamMatches,
   teamMatchesExact,
   teamNamesMatch,
@@ -183,5 +185,65 @@ describe('pseudosProches', () => {
 
   it('refuse un pseudo vide', () => {
     expect(pseudosProches('', 'ZywOo')).toBe(false);
+  });
+});
+
+describe('teamMatches — tag', () => {
+  const eac = { name: 'Esport Academy Copenhagen', acronym: 'EAC', aliases: [] };
+
+  it('rapproche une source qui abrège le nom au tag', () => {
+    expect(teamMatches('EAC', eac)).toBe(true);
+  });
+
+  it('sans tag local, le nom abrégé ne suffit pas', () => {
+    expect(teamMatches('EAC', { name: 'Esport Academy Copenhagen' })).toBe(false);
+  });
+
+  it('un tag d’une lettre ne rapproche rien', () => {
+    expect(teamMatches('X', { name: 'Karmine Corp', acronym: 'X' })).toBe(false);
+  });
+});
+
+describe('providerTeamMatches', () => {
+  const eac = { name: 'Esport Academy Copenhagen', acronym: 'EAC', aliases: [] };
+
+  it('rapproche par le nom quand la source le donne en entier', () => {
+    expect(providerTeamMatches({ name: 'Astralis' }, { name: 'Astralis' })).toBe(true);
+  });
+
+  it('rapproche par le slug quand le nom est réduit au tag', () => {
+    expect(
+      providerTeamMatches({ name: 'EAC', slug: 'esport-academy-copenhagen' }, eac),
+    ).toBe(true);
+  });
+
+  it('rapproche par égalité des tags de part et d’autre', () => {
+    expect(providerTeamMatches({ name: 'Autre chose', acronym: 'EAC' }, eac)).toBe(true);
+  });
+
+  it('ne rapproche pas deux équipes étrangères', () => {
+    expect(providerTeamMatches({ name: 'FOKUS', slug: 'fokus-cs', acronym: 'FKS' }, eac)).toBe(
+      false,
+    );
+  });
+});
+
+describe('toSlug', () => {
+  it('reproduit la forme des slugs de source', () => {
+    expect(toSlug('Esport Academy Copenhagen')).toBe('esport-academy-copenhagen');
+    expect(toSlug('G2 Ares')).toBe('g2-ares');
+    expect(toSlug('9z Team')).toBe('9z-team');
+  });
+});
+
+describe('teamNamesMatch — seuil d’inclusion', () => {
+  it('refuse l’inclusion d’un seul caractère', () => {
+    // « g » est contenu dans presque tout nom d'équipe.
+    expect(teamNamesMatch('G', 'Gentle Mates')).toBe(false);
+  });
+
+  it('garde les vrais noms courts d’organisation', () => {
+    expect(teamNamesMatch('G2', 'G2 Esports')).toBe(true);
+    expect(teamNamesMatch('T1', 'T1')).toBe(true);
   });
 });

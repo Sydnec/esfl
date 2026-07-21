@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bo3TeamMatches, mapBo3GameStats, mapBo3Games, toSlug } from './bo3.provider';
+import { mapBo3GameStats, mapBo3Games } from './bo3.provider';
 
 /** Manche bo3 factice. */
 function game(
@@ -215,41 +215,5 @@ describe('mapBo3Games', () => {
       sideByClan,
     );
     expect(games[0]).toMatchObject({ scoreA: null, scoreB: null });
-  });
-});
-
-describe('bo3TeamMatches', () => {
-  const eac = { name: 'Esport Academy Copenhagen', acronym: 'EAC', aliases: [] };
-
-  it('rapproche par le nom quand bo3 le donne en entier', () => {
-    expect(bo3TeamMatches({ id: 1, name: 'Astralis' }, { name: 'Astralis' })).toBe(true);
-  });
-
-  it('rapproche par le slug quand bo3 réduit le nom au tag', () => {
-    const ref = { id: 23942, name: 'EAC', slug: 'esport-academy-copenhagen', acronym: 'EAC' };
-    expect(bo3TeamMatches(ref, eac)).toBe(true);
-  });
-
-  it('rapproche par égalité de tag, sans slug exploitable', () => {
-    expect(bo3TeamMatches({ id: 2, name: 'EAC' }, eac)).toBe(true);
-  });
-
-  it('ne rapproche pas deux équipes étrangères', () => {
-    const ref = { id: 3, name: 'FOKUS', slug: 'fokus-cs', acronym: 'FKS' };
-    expect(bo3TeamMatches(ref, eac)).toBe(false);
-  });
-
-  it('sans tag local, un nom bo3 abrégé ne suffit pas', () => {
-    expect(bo3TeamMatches({ id: 4, name: 'EAC' }, { name: 'Esport Academy Copenhagen' })).toBe(
-      false,
-    );
-  });
-});
-
-describe('toSlug', () => {
-  it('reproduit la forme des slugs bo3', () => {
-    expect(toSlug('Esport Academy Copenhagen')).toBe('esport-academy-copenhagen');
-    expect(toSlug('G2 Ares')).toBe('g2-ares');
-    expect(toSlug('9z Team')).toBe('9z-team');
   });
 });

@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { Match, Prisma, Team } from '../../generated/client';
-import { normalizeName, teamMatches } from './matching';
+import { normalizeName, providerTeamMatches, toSlug } from './matching';
 import { politeFetch } from './polite-fetch';
 import type {
   GameStatsProvider,
@@ -329,43 +329,6 @@ export function mapBo3Games(
     });
 }
 
-/** Notre équipe vue du rapprochement : nom Pandascore, tag et alias appris. */
-interface LocalTeamRef {
-  name: string;
-  acronym?: string | null;
-  aliases?: string[];
-}
-
-/** Slug bo3 (« esport-academy-copenhagen ») ramené à un nom lisible. */
-function fromSlug(slug: string): string {
-  return slug.replace(/-/g, ' ');
-}
-
-/** Nom → slug bo3 : minuscules, séparateurs en tirets, ponctuation retirée. */
-export function toSlug(name: string): string {
-  return name
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
-
-/**
- * Rapproche une équipe bo3 de la nôtre. Le `name` bo3 se réduit parfois au seul
- * tag (« EAC » pour Esport Academy Copenhagen) : on retente alors sur le slug,
- * qui garde le nom complet, puis sur l'égalité des tags. Sans ces replis, la
- * corrélation adverse rate les équipes que bo3 abrège.
- */
-export function bo3TeamMatches(ref: Bo3TeamRef, team: LocalTeamRef): boolean {
-  const local = { name: team.name, aliases: team.aliases ?? [] };
-  if (teamMatches(ref.name, local)) return true;
-  if (ref.slug && teamMatches(fromSlug(ref.slug), local)) return true;
-  const tag = team.acronym ? normalizeName(team.acronym) : '';
-  if (!tag) return false;
-  return normalizeName(ref.name) === tag || normalizeName(ref.acronym ?? '') === tag;
-}
-
 /**
  * Provider stats CS2 via bo3.gg (remplace Grid). bo3 fournit ADR, rating,
  * clutchs, FK/FD et le vrai nom + pays des joueurs — bien au-delà de Grid.
@@ -554,7 +517,7 @@ export class Bo3StatsProvider implements GameStatsProvider {
         const otherId = ids[0] === anchor ? ids[1] : ids[0];
         const otherRef = await this.teamRefById(otherId);
         const otherTeam = idA != null ? teamB : teamA;
-        if (otherRef && bo3TeamMatches(otherRef, otherTeam)) {
+        if (otherRef && providerTeamMatches(otherRef, otherTeam)) {
           return idA != null
             ? { matchId: String(m.id), idA, idB: otherId, status: m.status }
             : { matchId: String(m.id), idA: otherId, idB, status: m.status };
@@ -577,8 +540,8 @@ export class Bo3StatsProvider implements GameStatsProvider {
       if (id === idA || id === idB) continue;
       const ref = await this.teamRefById(id);
       if (!ref) continue;
-      if (idA == null && bo3TeamMatches(ref, teamA)) idA = id;
-      else if (idB == null && bo3TeamMatches(ref, teamB)) idB = id;
+      if (idA == null && providerTeamMatches(ref, teamA)) idA = id;
+      else if (idB == null && providerTeamMatches(ref, teamB)) idB = id;
     }
     return [idA, idB];
   }

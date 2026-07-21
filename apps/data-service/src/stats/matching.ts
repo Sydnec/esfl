@@ -12,31 +12,91 @@ export function normalizeName(name: string): string {
     .replace(/[^a-z0-9]/g, '');
 }
 
-/** Deux noms d'équipe correspondent si l'un contient l'autre une fois normalisés. */
+/**
+ * Deux noms d'équipe correspondent par égalité normalisée, ou par inclusion.
+ *
+ * L'inclusion exige 2 caractères : « G » est contenu dans presque tout nom
+ * d'équipe et rapprocherait n'importe quoi. Le seuil ne peut pas monter plus
+ * haut, « G2 » et « T1 » étant de vrais noms d'organisation qu'il faut
+ * continuer à rapprocher de « G2 Esports » et « T1 ».
+ */
 export function teamNamesMatch(a: string, b: string): boolean {
   const na = normalizeName(a);
   const nb = normalizeName(b);
   if (!na || !nb) return false;
-  return na === nb || na.includes(nb) || nb.includes(na);
+  if (na === nb) return true;
+  return Math.min(na.length, nb.length) >= INCLUSION_MIN && (na.includes(nb) || nb.includes(na));
 }
 
-/** Équipe locale vue des providers : nom Pandascore + alias appris. */
+/** Longueur en deçà de laquelle une inclusion n'est plus un indice d'identité. */
+const INCLUSION_MIN = 2;
+
+/** Équipe locale vue des providers : nom Pandascore, tag et alias appris. */
 export interface TeamRef {
   name: string;
+  acronym?: string | null;
   aliases?: string[];
 }
 
+/** Un tag d'une seule lettre rapprocherait n'importe quoi. */
+const TAG_MIN = 2;
+
 /**
  * Un nom externe correspond à une équipe locale par son nom (rapprochement
- * flou, le nom Pandascore est fiable) ou par égalité exacte à l'un de ses
- * alias. Les alias sont matchés en exact — pas en sous-chaîne : un alias court
- * appris automatiquement (« LP ») ne doit jamais absorber une équipe tierce
- * dont le nom le contient (« LPL », « Liquid Pro »).
+ * flou, le nom Pandascore est fiable), par égalité exacte à l'un de ses alias,
+ * ou par égalité exacte à son TAG — abréger « Esport Academy Copenhagen » en
+ * « EAC » est un usage courant des sources, pas une particularité de l'une
+ * d'elles.
+ *
+ * Alias et tag sont matchés en exact, jamais en sous-chaîne : un alias court
+ * appris automatiquement (« LP ») ne doit pas absorber une équipe tierce dont
+ * le nom le contient (« LPL », « Liquid Pro »).
  */
 export function teamMatches(externalName: string, team: TeamRef): boolean {
   if (teamNamesMatch(externalName, team.name)) return true;
   const normalized = normalizeName(externalName);
-  return (team.aliases ?? []).some((alias) => normalizeName(alias) === normalized);
+  if (!normalized) return false;
+  if ((team.aliases ?? []).some((alias) => normalizeName(alias) === normalized)) return true;
+  const tag = team.acronym ? normalizeName(team.acronym) : '';
+  return tag.length >= TAG_MIN && normalized === tag;
+}
+
+/** Identité d'équipe telle qu'une source la publie. */
+export interface ProviderTeamRef {
+  name: string;
+  /** Nom canonique en minuscules-tirets, quand la source en expose un. */
+  slug?: string | null;
+  acronym?: string | null;
+}
+
+/**
+ * Rapproche l'identité publiée par une source de notre équipe. Étend
+ * `teamMatches` aux deux autres formes que les sources emploient : le slug, qui
+ * conserve le nom complet là où `name` est réduit au tag (bo3 nomme « EAC »
+ * l'équipe de slug `esport-academy-copenhagen`), et l'égalité des tags de part
+ * et d'autre.
+ */
+export function providerTeamMatches(ref: ProviderTeamRef, team: TeamRef): boolean {
+  if (teamMatches(ref.name, team)) return true;
+  if (ref.slug && teamMatches(fromSlug(ref.slug), team)) return true;
+  const tag = team.acronym ? normalizeName(team.acronym) : '';
+  if (tag.length < TAG_MIN || !ref.acronym) return false;
+  return normalizeName(ref.acronym) === tag;
+}
+
+/** Slug (« esport-academy-copenhagen ») ramené à un nom lisible. */
+export function fromSlug(slug: string): string {
+  return slug.replace(/-/g, ' ');
+}
+
+/** Nom → slug : la normalisation commune, séparateurs en tirets. */
+export function toSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
 }
 
 /**
