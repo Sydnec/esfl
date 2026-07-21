@@ -10,6 +10,7 @@ import {
   leaguepediaTeamNames,
   mapLeaguepediaGames,
   mapLeaguepediaRows,
+  objectiveShare,
   parseLeaguepediaRoster,
   scopeMatchRows,
 } from './leaguepedia.provider';
@@ -131,7 +132,34 @@ describe('mapLeaguepediaRows — KP%, damageShare, visionScore', () => {
       damageShare: 0.667,
       visionScore: 30,
       goldShare: 0.6,
+      // Part de vision de l'équipe : 30 / (30 + 50) = 0,375.
+      visionShare: 0.375,
     });
+  });
+});
+
+describe('objectiveShare', () => {
+  const game = {
+    Team1: 'G2 Esports',
+    Team2: 'Fnatic',
+    T1Barons: '1', T1Dragons: '3', T1Heralds: '1', T1Grubs: '3',
+    T2Barons: '0', T2Dragons: '1', T2Heralds: '0', T2Grubs: '3',
+  };
+
+  it('rapporte les objectifs neutres du camp du joueur au total de la game', () => {
+    // G2 : 1+3+1+3 = 8 ; Fnatic : 0+1+0+3 = 4 ; total 12.
+    expect(objectiveShare({ ...game, Team: 'G2 Esports' })).toBeCloseTo(8 / 12, 5);
+    expect(objectiveShare({ ...game, Team: 'Fnatic' })).toBeCloseTo(4 / 12, 5);
+  });
+
+  it('null quand la game n’a aucun objectif neutre', () => {
+    expect(
+      objectiveShare({ Team: 'G2 Esports', Team1: 'G2 Esports', Team2: 'Fnatic' }),
+    ).toBeNull();
+  });
+
+  it('null quand l’équipe du joueur ne correspond à aucun des deux camps', () => {
+    expect(objectiveShare({ ...game, Team: 'Karmine Corp' })).toBeNull();
   });
 });
 

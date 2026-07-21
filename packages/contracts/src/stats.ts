@@ -76,6 +76,13 @@ export const lolStatsSchema = z.object({
   visionScore: z.number().nullable().optional(),
   /** Part de l'or de l'équipe (gold joueur / gold équipe), moyenne sur les games. */
   goldShare: z.number().nullable().optional(),
+  /** Part du score de vision de l'équipe, moyenne sur les games (scoring v5). */
+  visionShare: z.number().nullable().optional(),
+  /**
+   * Part des objectifs neutres (barons, dragons, hérauts, grubs) pris par
+   * l'équipe. Métrique collective : identique pour les cinq joueurs d'un côté.
+   */
+  objControl: z.number().nullable().optional(),
   /**
    * Variantes par minute : une game longue gonfle mécaniquement les compteurs,
    * le scoring utilise ces taux plutôt que les totaux bruts.

@@ -121,13 +121,45 @@ export interface LeaguepediaRow {
   VisionScore?: string;
   /** Or total du joueur (part d'équipe → goldShare, or/min → GPM). */
   Gold?: string;
-  /** Wards de contrôle (roses) achetées : bonus Support. */
+  /** Wards de contrôle (roses) achetées : approximation du WPM (scoring v5). */
   ControlWards?: string;
+  /**
+   * Objectifs neutres pris par chaque côté (barons, dragons, hérauts, grubs).
+   * `Team1*` désigne l'équipe `Team1` de la game, pas notre côté A/B.
+   */
+  T1Barons?: string;
+  T1Dragons?: string;
+  T1Heralds?: string;
+  T1Grubs?: string;
+  T2Barons?: string;
+  T2Dragons?: string;
+  T2Heralds?: string;
+  T2Grubs?: string;
 }
 
 /** Retire la désambiguïsation Leaguepedia : "Faker (Lee Sang-hyeok)" → "Faker". */
 function stripDisambiguation(link: string): string {
   return link.replace(/\s*\(.*\)$/, '');
+}
+
+/**
+ * Part des objectifs neutres (barons, dragons, hérauts, grubs) prise par
+ * l'équipe du joueur sur la game. Métrique d'ÉQUIPE : les cinq joueurs d'un
+ * même côté partagent la valeur. Null si la game n'en compte aucun (partie
+ * très courte) ou si l'équipe du joueur ne se rattache pas aux deux camps.
+ */
+export function objectiveShare(row: LeaguepediaRow): number | null {
+  const somme = (...values: Array<string | undefined>) =>
+    values.reduce((total, value) => total + Number(value ?? 0), 0);
+  const t1 = somme(row.T1Barons, row.T1Dragons, row.T1Heralds, row.T1Grubs);
+  const t2 = somme(row.T2Barons, row.T2Dragons, row.T2Heralds, row.T2Grubs);
+  const total = t1 + t2;
+  if (total <= 0) return null;
+  const team = normalizeName(row.Team ?? '');
+  if (!team) return null;
+  if (team === normalizeName(row.Team1 ?? '')) return t1 / total;
+  if (team === normalizeName(row.Team2 ?? '')) return t2 / total;
+  return null;
 }
 
 /** Paires `nom=valeur` des Set-Cookie d'une réponse (sans les attributs). */
@@ -257,15 +289,19 @@ export function mapLeaguepediaRows(
   const matchRows = scopeMatchRows(rows, teamA, teamB);
   if (matchRows.length === 0) return [];
 
-  // Totaux d'équipe par game (kills, dégâts, or) : base des ratios KP%,
-  // damageShare et goldShare.
-  const teamTotals = new Map<string, { kills: number; damage: number; gold: number }>();
+  // Totaux d'équipe par game (kills, dégâts, or, vision) : base des ratios
+  // KP%, damageShare, goldShare et visionShare.
+  const teamTotals = new Map<
+    string,
+    { kills: number; damage: number; gold: number; vision: number }
+  >();
   for (const row of matchRows) {
     const key = `${row.GameId ?? ''}::${row.Team ?? ''}`;
-    const totals = teamTotals.get(key) ?? { kills: 0, damage: 0, gold: 0 };
+    const totals = teamTotals.get(key) ?? { kills: 0, damage: 0, gold: 0, vision: 0 };
     totals.kills += Number(row.Kills ?? 0);
     totals.damage += Number(row.DamageToChampions ?? 0);
     totals.gold += Number(row.Gold ?? 0);
+    totals.vision += Number(row.VisionScore ?? 0);
     teamTotals.set(key, totals);
   }
 
@@ -283,6 +319,10 @@ export function mapLeaguepediaRows(
     kpSum: number;
     shareSum: number;
     goldShareSum: number;
+    visionShareSum: number;
+    /** Somme et nombre de games où la part d'objectifs est connue. */
+    objSum: number;
+    objGames: number;
     team: string | null;
     role: string | null;
     raw: LeaguepediaRow[];
@@ -306,6 +346,9 @@ export function mapLeaguepediaRows(
       kpSum: 0,
       shareSum: 0,
       goldShareSum: 0,
+      visionShareSum: 0,
+      objSum: 0,
+      objGames: 0,
       team: null,
       role: null,
       raw: [],
@@ -333,6 +376,13 @@ export function mapLeaguepediaRows(
     aggregate.kpSum += team && team.kills > 0 ? (kills + assists) / team.kills : 0;
     aggregate.shareSum += team && team.damage > 0 ? damage / team.damage : 0;
     aggregate.goldShareSum += team && team.gold > 0 ? gold / team.gold : 0;
+    const vision = Number(row.VisionScore ?? 0);
+    aggregate.visionShareSum += team && team.vision > 0 ? vision / team.vision : 0;
+    const objShare = objectiveShare(row);
+    if (objShare !== null) {
+      aggregate.objSum += objShare;
+      aggregate.objGames += 1;
+    }
     aggregate.raw.push(row);
     // Détail de la game : champion + stats (pas de map en LoL), ratios
     // d'équipe inclus pour la vue « Avancé » d'une game précise.
@@ -394,6 +444,16 @@ export function mapLeaguepediaRows(
           visionScore: aggregate.vision,
           goldShare:
             aggregate.games > 0 ? Math.round((aggregate.goldShareSum / aggregate.games) * 1000) / 1000 : null,
+          // Scoring v5 : part de vision de l'équipe et contrôle des objectifs
+          // neutres, les deux composantes du sous-score Macro.
+          visionShare:
+            aggregate.games > 0
+              ? Math.round((aggregate.visionShareSum / aggregate.games) * 1000) / 1000
+              : null,
+          objControl:
+            aggregate.objGames > 0
+              ? Math.round((aggregate.objSum / aggregate.objGames) * 1000) / 1000
+              : null,
           killsPerMin: perMin(aggregate.kills),
           deathsPerMin: perMin(aggregate.deaths),
           assistsPerMin: perMin(aggregate.assists),
@@ -695,7 +755,10 @@ export class LeaguepediaStatsProvider implements GameStatsProvider {
     // → Gamelength_Number) ; un espace provoque une MWException côté Fandom.
     url.searchParams.set(
       'fields',
-      'SP.Link,SP.Role,SP.Champion,SP.Kills,SP.Deaths,SP.Assists,SP.CS,SP.PlayerWin,SP.Team,SP.DamageToChampions,SP.VisionScore,SP.Gold,SP.VisionWardsBoughtInGame=ControlWards,SG.Team1,SG.Team2,SG.Gamelength_Number=Gamelength,SG.GameId=GameId,SG.N_GameInMatch=GameNumber,SG.OverviewPage=OverviewPage,SG.DateTime_UTC=DateTime',
+      'SP.Link,SP.Role,SP.Champion,SP.Kills,SP.Deaths,SP.Assists,SP.CS,SP.PlayerWin,SP.Team,SP.DamageToChampions,SP.VisionScore,SP.Gold,SP.VisionWardsBoughtInGame=ControlWards,SG.Team1,SG.Team2,SG.Gamelength_Number=Gamelength,SG.GameId=GameId,SG.N_GameInMatch=GameNumber,SG.OverviewPage=OverviewPage,SG.DateTime_UTC=DateTime,' +
+        // Objectifs neutres par côté : base de l'ObjControl du scoring v5.
+        'SG.Team1Barons=T1Barons,SG.Team1Dragons=T1Dragons,SG.Team1RiftHeralds=T1Heralds,SG.Team1VoidGrubs=T1Grubs,' +
+        'SG.Team2Barons=T2Barons,SG.Team2Dragons=T2Dragons,SG.Team2RiftHeralds=T2Heralds,SG.Team2VoidGrubs=T2Grubs',
     );
     url.searchParams.set('where', `SG.DateTime_UTC >= '${from}' AND SG.DateTime_UTC <= '${to}'`);
 
