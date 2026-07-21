@@ -77,7 +77,7 @@ export class StatsIngestionService {
    * id que la source ne reconnaît pas. Les formes acceptées suivent l'id de
    * chaque source — Leaguepedia : nom canonique de la page (lien
    * lol.fandom.com/wiki/... ou nom) ; VLR : id numérique (lien vlr.gg/team/... ou
-   * nombre). Lève si le jeu n'a pas de fiche équipe (CS2/Grid) ou si la saisie
+   * nombre). Lève si le jeu n'a pas de fiche équipe ou si la saisie
    * ne correspond à rien chez la source.
    */
   async resolveTeamProviderId(
@@ -103,11 +103,11 @@ export class StatsIngestionService {
       const resolved = await this.leaguepedia.resolveTeamNames(name);
       providerTeamId = resolved[0] ?? name;
     } else {
-      // VLR : id numérique, dans un lien /team/<id>/... ou saisi brut.
-      const id = raw.match(/\/team\/(\d+)/)?.[1] ?? (/^\d+$/.test(raw) ? raw : null);
+      // VLR et bo3 : id numérique, dans un lien /team(s)/<id>/... ou saisi brut.
+      const id = raw.match(/\/teams?\/(\d+)/)?.[1] ?? (/^\d+$/.test(raw) ? raw : null);
       if (!id) {
         throw new BadRequestException(
-          `Id VLR attendu (lien vlr.gg/team/<id>/... ou nombre), reçu « ${raw} »`,
+          `Id numérique attendu chez ${provider.source} (lien vers la page équipe ou nombre), reçu « ${raw} »`,
         );
       }
       providerTeamId = id;
@@ -212,7 +212,7 @@ export class StatsIngestionService {
 
   /**
    * Suivi des matchs en cours pour les jeux dont le provider expose
-   * fetchLiveStats (page VLR vivante, series state Grid) : resynchronisés
+   * fetchLiveStats (page VLR vivante) : resynchronisés
    * à chaque cycle pour offrir le même affichage qu'un match terminé.
    * Sans retry : le cycle suivant repassera.
    */
@@ -621,61 +621,13 @@ export class StatsIngestionService {
     return teams.some((team) => teamMatches(name, team));
   }
 
-  /**
-   * Marque la couverture Grid des matchs CS2 (gridCovered) : les matchs que
-   * Grid ne référence pas n'auront jamais de stats et sont exclus du
-   * catalogue. Vérifiés : matchs sans verdict positif (null **et** false —
-   * Grid référence parfois une série tardivement, un false récent est
-   * re-vérifié à chaque cycle tant que le match est dans la fenêtre),
-   * équipes connues, entre J-2 et J+3. Les plus récents d'abord : ce sont
-   * eux qui conditionnent le live et l'ingestion en cours.
-   */
-  async checkGridCoverage(): Promise<number> {
-    const now = Date.now();
-    const matches = await this.prisma.match.findMany({
-      where: {
-        gameId: 'cs2',
-        gridCovered: { not: true },
-        teamAId: { not: null },
-        teamBId: { not: null },
-        scheduledAt: {
-          gte: new Date(now - 48 * 3600 * 1000),
-          lte: new Date(now + 72 * 3600 * 1000),
-        },
-      },
-      orderBy: { scheduledAt: 'desc' },
-      take: 30,
-    });
-
-    let checked = 0;
-    for (const match of matches) {
-      const reference = match.beginAt ?? match.scheduledAt;
-      if (!reference) continue;
-      const context = await this.loadContext(match);
-      if (!context.teamA || !context.teamB) continue;
-      const seriesId = await this.bo3.findMatchForTeams(reference, context.teamA, context.teamB);
-      const started = match.status !== 'not_started' || reference.getTime() < now;
-      if (seriesId) {
-        await this.prisma.match.update({ where: { id: match.id }, data: { gridCovered: true } });
-        checked += 1;
-      } else if (started) {
-        await this.prisma.match.update({ where: { id: match.id }, data: { gridCovered: false } });
-        checked += 1;
-      }
-    }
-    if (checked > 0) {
-      this.logger.log(`Couverture Grid vérifiée pour ${checked} match(s) CS2`);
-    }
-    return checked;
-  }
-
   /** Fusionne le détail des manches du provider (map, scores) avec celui de Pandascore (winner, durée). */
   private async mergeProviderGames(
     match: Match,
     providerGames: ProviderGameInfo[],
     sideByTeam: Map<string, 'A' | 'B'>,
   ): Promise<void> {
-    // Scores par côté : soit fournis directement (Grid), soit rattachés depuis
+    // Scores par côté : soit fournis directement (bo3), soit rattachés depuis
     // les scores bruts par nom d'équipe via le mapping joueurs (VLR).
     const resolved = providerGames.map((game) => {
       const base = { position: game.position, map: game.map, lengthSec: game.lengthSec };

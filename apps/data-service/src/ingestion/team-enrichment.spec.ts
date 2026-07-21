@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { PrismaService } from '../prisma.service';
 import type { IngestionService } from './ingestion.service';
+import type { Bo3StatsProvider } from '../stats/bo3.provider';
 import type { VlrStatsProvider } from '../stats/vlr.provider';
 import type { LeaguepediaStatsProvider } from '../stats/leaguepedia.provider';
 import type { TeamProfile, TeamSearchResult } from '../stats/provider';
@@ -38,7 +39,8 @@ function setup(opts: {
     fetchTeamProfile: vi.fn(async () => opts.profile ?? null),
   } as unknown as VlrStatsProvider;
   const leaguepedia = { source: 'leaguepedia', gameId: 'lol' } as LeaguepediaStatsProvider;
-  const service = new TeamEnrichmentService(prisma, ingestion, vlr, leaguepedia);
+  const bo3 = { source: 'bo3', gameId: 'cs2' } as Bo3StatsProvider;
+  const service = new TeamEnrichmentService(prisma, ingestion, bo3, vlr, leaguepedia);
   return { service, teamUpdates, applyStarterRoster, vlr };
 }
 

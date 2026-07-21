@@ -74,8 +74,8 @@ export interface StarterRef {
   externalId?: string | null;
   /**
    * Vrai nom civil quand la source l'expose (Leaguepedia `Players.Name`, VLR
-   * `name-real`). Sert à départager deux joueurs Pandascore homonymes : le
-   * pseudo ne suffit pas, le patronyme si. Grid ne l'expose pas à notre clé.
+   * `name-real`, bo3 `first_name`/`last_name`). Sert à départager deux joueurs
+   * Pandascore homonymes : le pseudo ne suffit pas, le patronyme si.
    */
   realName?: string | null;
   /** Photo du joueur quand la source l'expose (Leaguepedia). */
@@ -131,7 +131,7 @@ export interface GameStatsProvider {
   ): Promise<StarterRef[] | null>;
   /**
    * Instantané des stats d'un match en cours, pour les sources qui publient
-   * pendant la série (page VLR vivante, series state Grid). Optionnel : les
+   * pendant la série (page VLR vivante). Optionnel : les
    * jeux sans source live n'affichent que le score Pandascore. Retour null
    * sans bruit si rien n'est disponible — le cycle suivant repassera.
    */

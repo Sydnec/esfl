@@ -155,7 +155,6 @@ export class CatalogController {
       'sync-matches',
       'sync-rosters',
       'sync-live',
-      'check-grid-coverage',
       'sync-live-stats',
       'retry-stats-backfill',
       'backfill-history',
@@ -208,8 +207,7 @@ export class CatalogController {
 
   /**
    * Bulk « Relancer » : réenqueue l'ingestion de tous les matchs finis récents,
-   * suivis, sans stats mais récupérables (hors CS2 non couvert par Grid).
-   * Répare en masse les matchs recréés par un re-sync sans job d'ingestion
+   * suivis et sans stats. Répare en masse les matchs recréés par un re-sync sans job d'ingestion
    * (> 48h, jamais ré-ingérés seuls). Fenêtre en jours via `?days=` (défaut 7,
    * borné à 30).
    */

@@ -13,6 +13,9 @@ import { INGESTION_QUEUE } from './ingestion.constants';
  */
 const DEFAULT_BACKFILL_MONTHS = 4;
 
+/** Jobs répétables retirés du code, à purger de Redis au démarrage. */
+const OBSOLETE_SCHEDULERS = ['check-grid-coverage'];
+
 function defaultBackfillSince(): string {
   const since = new Date();
   since.setUTCMonth(since.getUTCMonth() - DEFAULT_BACKFILL_MONTHS);
@@ -43,6 +46,7 @@ export class IngestionScheduler implements OnModuleInit {
       this.logger.warn('PANDASCORE_TOKEN absent : ingestion désactivée');
       return;
     }
+    await this.dropObsoleteSchedulers();
     await this.queue.upsertJobScheduler('sync-series', { every: 12 * 3600 * 1000 }, {
       name: 'sync-series',
     });
@@ -55,17 +59,13 @@ export class IngestionScheduler implements OnModuleInit {
     await this.queue.upsertJobScheduler('sync-live', { every: 3 * 60 * 1000 }, {
       name: 'sync-live',
     });
-    // Couverture Grid des matchs CS2 (quota Grid indépendant de Pandascore).
-    await this.queue.upsertJobScheduler('check-grid-coverage', { every: 30 * 60 * 1000 }, {
-      name: 'check-grid-coverage',
-    });
     // Stats live des matchs en cours — jeux dont le provider expose
-    // fetchLiveStats : Valorant (page VLR) et CS2 (series state Grid).
+    // fetchLiveStats : Valorant (page VLR) et CS2 (bo3).
     await this.queue.upsertJobScheduler('sync-live-stats', { every: 3 * 60 * 1000 }, {
       name: 'sync-live-stats',
     });
-    // Rattrapage des sources publiées tardivement (Grid enregistre parfois un
-    // tournoi après la fenêtre de 48h, uploads ballchasing en retard) : ré-arme
+    // Rattrapage des sources publiées tardivement (une source enregistre
+    // parfois un tournoi après la fenêtre de 48h) : ré-arme
     // l'ingestion des matchs terminés restés sans stats, sur un horizon large.
     await this.queue.upsertJobScheduler('retry-stats-backfill', { every: 60 * 60 * 1000 }, {
       name: 'retry-stats-backfill',
@@ -93,5 +93,22 @@ export class IngestionScheduler implements OnModuleInit {
       () => this.logger.log(`Pandascore : ${this.pandascore.requestsLastHour} req sur la dernière heure`),
       3600 * 1000,
     ).unref();
+  }
+
+  /**
+   * Désenregistre les schedulers d'anciennes versions : un `upsertJobScheduler`
+   * survit dans Redis à la suppression de son code, et le processor bouclerait
+   * sur « Job inconnu ». Supprimable une fois tous les environnements passés.
+   */
+  private async dropObsoleteSchedulers(): Promise<void> {
+    for (const id of OBSOLETE_SCHEDULERS) {
+      try {
+        if (await this.queue.removeJobScheduler(id)) {
+          this.logger.log(`Scheduler obsolète supprimé : ${id}`);
+        }
+      } catch (error) {
+        this.logger.warn(`Suppression du scheduler ${id} : ${String(error)}`);
+      }
+    }
   }
 }

@@ -65,7 +65,6 @@ const JOB_LABELS: Record<string, string> = {
   'sync-live': 'Fenêtre live (scores)',
   'sync-live-stats': 'Stats live',
   'sync-competition': 'Sync d’une compétition',
-  'check-grid-coverage': 'Couverture Grid (CS2)',
 };
 
 /**
@@ -129,10 +128,6 @@ export class CatalogService {
           : {}),
         // Irrécupérable ou tier c/d : masquée partout (accueil, board, scoring).
         competition: { hidden: false, OR: [{ tier: null }, { tier: { notIn: ['c', 'd'] } }] },
-        // CS2 : les matchs que Grid ne référence pas n'auront jamais de
-        // stats — on ne les expose nulle part (accueil, board, scoring).
-        // OR explicite : un NOT exclurait aussi les null (pas encore vérifiés).
-        OR: [{ gameId: { not: 'cs2' } }, { gridCovered: true }, { gridCovered: null }],
       },
       orderBy: { scheduledAt: 'asc' },
       take: 500,
@@ -286,8 +281,8 @@ export class CatalogService {
   /**
    * Complétude des stats d'une journée Paris (base du gel des scores côté
    * scoring) : la journée est complète quand tous ses matchs sont terminés et
-   * que tous les finis récupérables (non-forfait, hors CS2 non couvert par
-   * Grid, compétitions visibles de tier autorisé) ont leurs stats.
+   * que tous les finis récupérables (non-forfait, compétitions visibles de
+   * tier autorisé) ont leurs stats.
    */
   async dayCompleteness(date: string) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
@@ -313,7 +308,6 @@ export class CatalogService {
         forfeit: true,
         beginAt: true,
         scheduledAt: true,
-        gridCovered: true,
         _count: { select: { stats: true } },
       },
     });
@@ -325,10 +319,7 @@ export class CatalogService {
       (match) => match.status !== 'finished' && match.status !== 'canceled',
     );
     const finished = dayMatches.filter((match) => match.status === 'finished' && !match.forfeit);
-    const missing = finished.filter(
-      (match) =>
-        match._count.stats === 0 && !(match.gameId === 'cs2' && match.gridCovered === false),
-    );
+    const missing = finished.filter((match) => match._count.stats === 0);
     return {
       date,
       totalMatches: dayMatches.length,
@@ -457,9 +448,8 @@ export class CatalogService {
    * Ids des matchs finis récents, dans une compétition suivie, sans stats mais
    * a priori récupérables : la source a la donnée, il manque juste le job
    * d'ingestion (matchs recréés par un re-sync, > 48h, donc jamais ré-ingérés
-   * seuls). CS2 hors couverture Grid (gridCovered=false) est écarté — il
-   * n'aura jamais de stats ; la couverture non vérifiée (null) est retentée.
-   * `null` = fantasy-service injoignable : on ne tente rien plutôt que tout.
+   * seuls). `null` = fantasy-service injoignable : on ne tente rien plutôt
+   * que tout.
    */
   async reingestableMatchIds(
     followedCompetitionIds: string[] | null,
@@ -476,7 +466,6 @@ export class CatalogService {
         teamBId: { not: null },
         stats: { none: {} },
         competitionId: { in: followedCompetitionIds },
-        NOT: { gameId: 'cs2', gridCovered: false },
       },
       select: { id: true },
       orderBy: { endAt: 'desc' },
@@ -854,7 +843,7 @@ export class CatalogService {
     // sans stats et l'activité restent sur 48 h.
     const finished7j = await this.prisma.match.findMany({
       where: { status: 'finished', endAt: { gte: new Date(now - 7 * 24 * 3600 * 1000) } },
-      select: { id: true, gameId: true, name: true, endAt: true, gridCovered: true },
+      select: { id: true, gameId: true, name: true, endAt: true },
       orderBy: { endAt: 'desc' },
     });
     // Les stats ne sont ingérées que pour les compétitions suivies : l'ensemble
@@ -928,7 +917,6 @@ export class CatalogService {
     const SANS_STATS_MAX = 100;
     const sansStats = finished
       .filter((match) => !withStats.has(match.id))
-      // Les CS2 hors couverture Grid n'auront jamais de stats : signalés à part.
       .slice(0, SANS_STATS_MAX)
       .map((match) => ({ ...match, endAt: match.endAt?.toISOString() ?? null }));
 

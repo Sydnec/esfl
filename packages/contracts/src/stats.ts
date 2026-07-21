@@ -9,15 +9,15 @@ export const cs2StatsSchema = z.object({
   kills: z.number(),
   deaths: z.number(),
   assists: z.number(),
-  /** Average damage per round — indisponible via Grid open access, null. */
+  /** Average damage per round. */
   adr: z.number().nullable(),
-  /** Rating HLTV-like si disponible — indisponible via Grid open access, null. */
+  /** Rating maison de la source (échelle propre, informatif). */
   rating: z.number().nullable(),
-  /** Bombes posées (objectives Grid). Optionnel : absent des ingestions antérieures. */
+  /** Bombes posées. Optionnel : absent des ingestions antérieures et de bo3. */
   plants: z.number().nullable().optional(),
-  /** Bombes défusées (objectives Grid). */
+  /** Bombes défusées. */
   defuses: z.number().nullable().optional(),
-  /** Manches ouvertes (firstKill agrégé sur les games Grid). */
+  /** Manches ouvertes (first kills). */
   firstKills: z.number().nullable().optional(),
 });
 export type Cs2Stats = z.infer<typeof cs2StatsSchema>;

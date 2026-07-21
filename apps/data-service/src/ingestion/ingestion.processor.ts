@@ -10,7 +10,7 @@ import { TeamEnrichmentService } from './team-enrichment.service';
 export { INGESTION_QUEUE };
 export type { IngestionJobName };
 
-// Concurrence > 1 : les attentes de throttle par hôte (VLR 1 s, Grid 3,5 s,
+// Concurrence > 1 : les attentes de throttle par hôte (VLR 1 s, bo3 3-6 s,
 // Cargo 6 s, ballchasing 1 s) se recouvrent entre jobs de jeux différents —
 // la file avance au rythme cumulé des sources au lieu du rythme d'une seule.
 // politeFetch réserve les créneaux par hôte de façon atomique : le rate limit
@@ -45,9 +45,6 @@ export class IngestionProcessor extends WorkerHost {
         break;
       case 'sync-competition':
         await this.ingestion.syncCompetition((job.data as { competitionId: string }).competitionId);
-        break;
-      case 'check-grid-coverage':
-        await this.statsIngestion.checkGridCoverage();
         break;
       case 'sync-live-stats':
         await this.statsIngestion.syncLiveStats();

@@ -351,8 +351,8 @@ export class PlayerAdoptionService {
       teamName: candidate.current_team?.name ?? null,
       role: candidate.role,
       // Patronyme et nationalité affichés à l'admin : quand l'automatisme n'a
-      // pas pu trancher (CS2 notamment, Grid ne nous donne pas le vrai nom),
-      // c'est ce qui permet de décider sur pièces plutôt qu'au jugé.
+      // pas pu trancher, c'est ce qui permet de décider sur pièces plutôt
+      // qu'au jugé.
       realName: [candidate.first_name, candidate.last_name].filter(Boolean).join(' ') || null,
       nationality: candidate.nationality,
     }));

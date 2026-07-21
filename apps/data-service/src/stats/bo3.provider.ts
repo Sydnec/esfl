@@ -184,7 +184,6 @@ export class Bo3StatsProvider implements GameStatsProvider {
 
   /** Live : mêmes ressources sans exiger le statut « finished ». */
   async fetchLiveStats(match: Match, context: MatchContext): Promise<ProviderResult | null> {
-    if (match.gridCovered === false) return null;
     return this.buildResult(match, context, { silent: true, requireFinished: false });
   }
 
@@ -242,15 +241,6 @@ export class Bo3StatsProvider implements GameStatsProvider {
       pageUrl: matchId,
       teamIds: { A: idA != null ? String(idA) : null, B: idB != null ? String(idB) : null },
     };
-  }
-
-  /**
-   * Couverture bo3 d'une rencontre (pour `checkGridCoverage`) : résout le match
-   * bo3 correspondant. Renvoie l'id de match ou null.
-   */
-  async findMatchForTeams(reference: Date, teamA: Team, teamB: Team): Promise<string | null> {
-    const resolved = await this.resolveMatch(reference, teamA, teamB, null);
-    return resolved?.matchId ?? null;
   }
 
   /**

@@ -2,7 +2,7 @@
  * Fusion des détails de manches (gamesSummary) provenant de plusieurs
  * sources : Pandascore (winner, durée) et providers de stats (map, scores).
  * Chaque source n'écrase que ses champs non nuls — un sync Pandascore ne
- * doit pas effacer l'enrichissement VLR/Grid, et réciproquement.
+ * doit pas effacer l'enrichissement VLR/bo3, et réciproquement.
  */
 export function mergeGamesSummary(
   existing: unknown,

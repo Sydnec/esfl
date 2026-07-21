@@ -9,8 +9,8 @@ import { GameId } from '@esfl/contracts';
  * sur la population réelle (Valorant médiane 69, CS2 recalibré médiane 70).
  *
  * Contraintes de données assumées :
- * - CS2 (Grid open-access) : ni ADR, ni KAST, ni clutchs. Modèle adapté sur
- *   KPR/DPR/FKPR/objectifs, constantes recalibrées. Aucun bonus contextuel.
+ * - CS2 (bo3.gg) : formule HLTV fidèle (KPR/DPR/ADR/KAST). Le KAST n'est pas
+ *   publié par bo3, il est imputé neutre — voir `CS2_KAST_NEUTRE`.
  * - Valorant : formule VLR complète. Bonus FK/FD du match et clutchs (sans
  *   rôle).
  * - LoL : KDA/KP/GPM/VSM. Bonus par rôle (Support, Jungler approximé). Le bonus

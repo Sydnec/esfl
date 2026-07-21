@@ -7,7 +7,7 @@ export const INGESTION_QUEUE = 'data-ingestion';
 /**
  * Horizon (en jours) du rattrapage `retry-stats-backfill` : au-delà, on renonce
  * à ré-armer l'ingestion d'un match resté sans stats. Couvre les sources
- * publiées tardivement (Grid enregistre parfois un tournoi après la fenêtre de
+ * publiées tardivement (une source enregistre parfois un tournoi après la fenêtre de
  * 48h ; uploads RL/ballchasing communautaires souvent en retard) tout en
  * bornant le nombre de matchs re-sondés à chaque cycle. Surcharge : env
  * `STATS_BACKFILL_DAYS`. */
@@ -95,7 +95,6 @@ export type IngestionJobName =
   | 'sync-live'
   | 'sync-competition'
   | 'ingest-stats'
-  | 'check-grid-coverage'
   | 'sync-live-stats'
   | 'retry-stats-backfill'
   | 'backfill-history'

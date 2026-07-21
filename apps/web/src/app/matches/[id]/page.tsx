@@ -130,7 +130,7 @@ export default function MatchPage() {
   const running = match.status === 'running';
   const finished = match.status === 'finished';
   // Lien vers la page de stats originale : chemin VLR à préfixer, URL complète
-  // (Leaguepedia) telle quelle ; le seriesId Grid n'est pas un lien.
+  // (Leaguepedia) telle quelle ; l'id de match bo3 n'est pas un lien.
   const sourceUrl = match.statsPageUrl
     ? match.statsPageUrl.startsWith('http')
       ? match.statsPageUrl
@@ -367,8 +367,8 @@ export default function MatchPage() {
             const columns = cumulative
               ? chosen
               : chosen.filter((column) => PER_MAP_KEYS.has(column.key));
-            // Agent/champion visible sur les deux vues ; pas d'agents en CS2
-            // (Grid n'en fournit pas, la colonne ne rendrait que des « · »).
+            // Agent/champion visible sur les deux vues ; pas d'agents en CS2,
+            // la colonne ne rendrait que des « · ».
             // Les points fantasy restent sur l'essentiel (la vue avancée tient
             // ainsi en largeur).
             const withAgents = match.gameId !== 'cs2' && mapTabs.length > 0;

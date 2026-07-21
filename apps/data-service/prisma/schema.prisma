@@ -50,7 +50,7 @@ model Team {
   aliases      String[] @default([]) @map("aliases")
   /**
    * Identifiant de l'équipe chez chaque source spécialisée : { vlr: "1184",
-   * leaguepedia: "T1", grid: "47369" }. Appris UNIQUEMENT depuis un match
+   * leaguepedia: "T1", bo3: "794" }. Appris UNIQUEMENT depuis un match
    * résolu (les deux équipes reconnues) → fiable et persistant. Sert à taper
    * la bonne page équipe pour les rosters, sans recherche par nom (fragile).
    */
@@ -86,12 +86,12 @@ model CompetitionTeam {
 
 model Player {
   id           String  @id @default(cuid())
-  /** Null pour les joueurs créés depuis une source de stats (VLR, Grid…). */
+  /** Null pour les joueurs créés depuis une source de stats (VLR, bo3…). */
   pandascoreId Int?    @unique @map("pandascore_id")
   gameId       String  @map("game_id")
   /** Pseudo du joueur pro. */
   name         String
-  /** Origine de la fiche : pandascore | vlr | grid | leaguepedia | octane | seed. */
+  /** Origine de la fiche : pandascore | vlr | bo3 | leaguepedia | seed. */
   source       String  @default("pandascore")
   firstName    String? @map("first_name")
   lastName     String? @map("last_name")
@@ -183,8 +183,6 @@ model Match {
   gamesSummary  Json?       @map("games_summary")
   /** true une fois l'événement match.finished publié (idempotence). */
   finishedEventSent Boolean @default(false) @map("finished_event_sent")
-  /** CS2 : la série est-elle référencée par Grid ? (null = pas encore vérifié) */
-  gridCovered   Boolean?    @map("grid_covered")
   /** URL de la page de stats chez le provider (mémorisée au premier fetch). */
   statsPageUrl  String?     @map("stats_page_url")
   /**
@@ -216,7 +214,7 @@ model PlayerMatchStats {
   matchId    String   @map("match_id")
   playerId   String   @map("player_id")
   gameId     String   @map("game_id")
-  /** Provider d'origine : pandascore, grid, vlr, leaguepedia, octane, seed. */
+  /** Provider d'origine : pandascore, bo3, vlr, leaguepedia, seed. */
   source     String
   raw        Json
   normalized Json

@@ -112,7 +112,7 @@ export interface MatchSummary {
   streamUrl?: string | null;
   gamesSummary?: GameSummaryEntry[] | null;
   /** Page de stats chez le provider : chemin VLR, URL wiki Leaguepedia,
-   * URL replay ballchasing, ou seriesId Grid (non cliquable). */
+   * ou id de match bo3 (non cliquable). */
   statsPageUrl?: string | null;
   /** Snapshot de l'équipe au moment des stats (nom/tag figés, pas de logo). */
   teamASnapshot?: TeamSnapshot | null;

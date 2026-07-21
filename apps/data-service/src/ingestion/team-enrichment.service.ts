@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import type { Team } from '../../generated/client';
 import { providerUpdate } from '../common/field-precedence';
 import { normalizeName } from '../stats/matching';
+import { Bo3StatsProvider } from '../stats/bo3.provider';
 import { LeaguepediaStatsProvider } from '../stats/leaguepedia.provider';
 import { VlrStatsProvider } from '../stats/vlr.provider';
 import type { GameStatsProvider } from '../stats/provider';
@@ -17,16 +18,17 @@ import { IngestionService } from './ingestion.service';
 @Injectable()
 export class TeamEnrichmentService {
   private readonly logger = new Logger(TeamEnrichmentService.name);
-  /** Sources d'enrichissement par jeu (Grid/ballchasing n'exposent pas de fiche équipe). */
+  /** Sources d'enrichissement par jeu : celles qui exposent une fiche équipe. */
   private readonly providers: GameStatsProvider[];
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly ingestion: IngestionService,
+    bo3: Bo3StatsProvider,
     vlr: VlrStatsProvider,
     leaguepedia: LeaguepediaStatsProvider,
   ) {
-    this.providers = [vlr, leaguepedia];
+    this.providers = [bo3, vlr, leaguepedia];
   }
 
   async enrichTeam(teamId: string): Promise<void> {
@@ -91,7 +93,7 @@ export class TeamEnrichmentService {
       );
       return;
     }
-    // Le nom Pandascore reste utile au matching par nom (Grid, ballchasing…) :
+    // Le nom Pandascore reste utile au matching par nom (bo3, VLR…) :
     // s'il est remplacé, on le garde en alias.
     const aliases = [...(team.aliases ?? [])];
     if (

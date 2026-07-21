@@ -15,7 +15,6 @@ interface HealthMatch {
   gameId: string;
   name: string;
   endAt: string | null;
-  gridCovered: boolean | null;
 }
 
 interface RunningMatch {
@@ -44,7 +43,6 @@ const SYNC_JOBS: Array<{ job: string; label: string }> = [
   { job: 'sync-rosters', label: 'Rosters' },
   { job: 'sync-live', label: 'Fenêtre live (scores, statuts)' },
   { job: 'sync-live-stats', label: 'Stats live' },
-  { job: 'check-grid-coverage', label: 'Couverture bo3 (CS2)' },
 ];
 
 const STATE_LABELS: Record<QueueJob['state'], string> = {
@@ -495,7 +493,7 @@ export default function AdminPage() {
             </div>
             <p className={styles.hint}>
               Matchs suivis, finis dans les 48 h, sans stats. « Relancer » réenfile l’ingestion ;
-              le bouton en masse relance d’un coup tous ceux qui ont une couverture.
+              le bouton en masse les relance tous d’un coup.
             </p>
             {health.sansStats.length === 0 ? (
               <p className={styles.empty}>Tous les matchs récents ont leurs stats.</p>
@@ -507,7 +505,6 @@ export default function AdminPage() {
                       <th>Jeu</th>
                       <th>Match</th>
                       <th>Fin</th>
-                      <th>bo3</th>
                       <th />
                     </tr>
                   </thead>
@@ -523,17 +520,6 @@ export default function AdminPage() {
                           <Link href={`/matches/${match.id}`}>{match.name}</Link>
                         </td>
                         <td>{match.endAt ? formatDateTime(match.endAt) : ''}</td>
-                        <td>
-                          {match.gameId !== 'cs2' ? (
-                            ''
-                          ) : match.gridCovered === false ? (
-                            <span className={styles.warn}>hors couverture</span>
-                          ) : match.gridCovered ? (
-                            <span className={styles.ok}>couvert</span>
-                          ) : (
-                            'à vérifier'
-                          )}
-                        </td>
                         <td>
                           <div className={styles.searchRow}>
                             <button

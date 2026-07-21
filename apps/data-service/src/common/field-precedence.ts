@@ -1,6 +1,6 @@
 /**
  * Précédence des sources par champ : les providers de stats (VLR, Leaguepedia,
- * Grid…) sont source de vérité, Pandascore n'est qu'un fallback. Chaque entité
+ * bo3…) sont source de vérité, Pandascore n'est qu'un fallback. Chaque entité
  * (Team, Player) porte un Json `fieldSources` — `{ name: "vlr", role:
  * "leaguepedia" }` — listant les champs possédés par un provider. Null = tout
  * appartient encore à Pandascore.

@@ -166,20 +166,18 @@ export class IngestionService {
       }
     }
 
-    // Stats de tous les matchs finis (hors forfait) depuis `since`. CS2 encore
-    // non vérifié (gridCovered null) inclus : la vérif de couverture fera le tri.
+    // Stats de tous les matchs finis (hors forfait) depuis `since`.
     const finished = await this.prisma.match.findMany({
       where: {
         status: 'finished',
         forfeit: false,
         endAt: { gte: since },
         competition: { hidden: false, AND: [TIER_ALLOWED] },
-        OR: [{ gameId: { not: 'cs2' } }, { gridCovered: true }, { gridCovered: null }],
       },
       select: { id: true, gameId: true },
     });
     // Entrelacement round-robin par jeu : la file mélange les hôtes (VLR,
-    // Cargo, Grid, ballchasing) et le worker concurrent recouvre leurs
+    // Cargo, bo3) et le worker concurrent recouvre leurs
     // attentes — une file groupée par jeu avancerait au rythme d'une seule
     // source.
     const byGame = new Map<string, Array<{ id: string }>>();
@@ -709,7 +707,7 @@ export class IngestionService {
    * Rattrapage des sources publiées tardivement : ré-arme l'ingestion des
    * stats pour tout match terminé encore sans stats dans l'horizon
    * (`STATS_BACKFILL_DAYS`, surchargeable par env). Le flux normal n'enqueue
-   * qu'une fois dans les 48h de la fin du match ; si la source (Grid, upload
+   * qu'une fois dans les 48h de la fin du match ; si la source (bo3, upload
    * ballchasing…) ne publie qu'après, le match reste sans stats à vie. Ici on
    * relance `enqueueIngestStats` : la dédup par jobId sert d'auto-throttle
    * (une chaîne de retries vivante n'est pas doublée, une chaîne échouée
@@ -750,7 +748,7 @@ export class IngestionService {
    * source ne référence pas la rencontre) et qu'aucun match n'a de stats. On
    * s'appuie sur le diagnostic d'échec, pas sur l'âge : une compétition jamais
    * ingérée (ex. LCK non suivie) reste récupérable et n'est PAS masquée — seul
-   * un échec confirmé à la source compte (cas XSE, absente du feed Grid).
+   * un échec confirmé à la source compte (match absent du feed provider).
    * Idempotent et réversible : repasse `hidden` à false dès qu'une stat arrive.
    */
   async flagUnrecoverableCompetitions(): Promise<number> {

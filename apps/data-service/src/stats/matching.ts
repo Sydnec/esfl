@@ -1,6 +1,6 @@
 /**
  * Rapprochement d'entités entre sources externes (ballchasing, Leaguepedia,
- * VLR, Grid) et notre référentiel Pandascore. Pur pour être testable.
+ * VLR, bo3) et notre référentiel Pandascore. Pur pour être testable.
  */
 
 /** Minuscules, sans diacritiques, sans ponctuation/espaces. */

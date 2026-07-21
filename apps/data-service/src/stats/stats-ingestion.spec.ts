@@ -438,6 +438,7 @@ describe('resolveTeamProviderId', () => {
   function withProviders(overrides: {
     leaguepedia?: Partial<LeaguepediaStatsProvider>;
     vlr?: Partial<VlrStatsProvider>;
+    bo3?: Partial<Bo3StatsProvider>;
   }) {
     const { prisma } = fakePrisma();
     return new StatsIngestionService(
@@ -445,7 +446,7 @@ describe('resolveTeamProviderId', () => {
       { add: vi.fn() } as never,
       { add: vi.fn(), getJob: vi.fn(async () => undefined) } as never,
       { emitMatchUpdated: vi.fn() } as never,
-      { gameId: 'cs2', source: 'bo3' } as Bo3StatsProvider,
+      { gameId: 'cs2', source: 'bo3', ...overrides.bo3 } as Bo3StatsProvider,
       { gameId: 'valorant', source: 'vlr', ...overrides.vlr } as VlrStatsProvider,
       { gameId: 'lol', source: 'leaguepedia', ...overrides.leaguepedia } as LeaguepediaStatsProvider,
     );
@@ -485,13 +486,18 @@ describe('resolveTeamProviderId', () => {
     );
   });
 
-  it('refuse une saisie VLR non numérique et un jeu sans fiche équipe (CS2)', async () => {
+  it('refuse une saisie non numérique là où la source a des ids numériques', async () => {
     const ingestion = withProviders({ vlr: { fetchTeamProfile: vi.fn(async () => ({})) } });
     await expect(ingestion.resolveTeamProviderId(valoTeam, 'Weibo Gaming')).rejects.toThrow(
-      /Id VLR attendu/,
+      /Id numérique attendu chez vlr/,
     );
-    await expect(ingestion.resolveTeamProviderId(cs2Team, '123')).rejects.toThrow(
-      /Aucune fiche équipe/,
-    );
+  });
+
+  it('CS2 : id bo3 accepté (la fiche équipe existe désormais)', async () => {
+    const ingestion = withProviders({
+      bo3: { fetchTeamProfile: vi.fn(async () => ({ name: 'Astralis', acronym: 'AST' })) },
+    });
+    const res = await ingestion.resolveTeamProviderId(cs2Team, '794');
+    expect(res).toMatchObject({ source: 'bo3', providerTeamId: '794' });
   });
 });
