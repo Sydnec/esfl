@@ -6,6 +6,7 @@ import { useParams } from 'next/navigation';
 import { GAME_LABELS } from '@esfl/contracts';
 import { Avatar } from '@/components/Avatar';
 import { request } from '@/lib/api';
+import { pointsDefinitifs } from '@/lib/format';
 import { flagEmoji } from '@/lib/flags';
 import { formatStat, STAT_COLUMNS } from '@/lib/stat-columns';
 import type { FantasyPointsLine, PlayerMatchHistoryLine, PlayerRef } from '@/lib/types';
@@ -46,7 +47,18 @@ export default function PlayerPage() {
         if (cancelled) return;
         setPlayer(detail);
         setHistory(lines);
-        setPoints(new Map(fantasyPoints.map((line) => [line.matchId, line.points])));
+        // Un match en cours porte une note provisoire : hors historique et
+        // hors moyenne tant qu'il n'est pas terminé.
+        const termines = new Set(
+          lines.filter((line) => pointsDefinitifs(line.match.status)).map((line) => line.matchId),
+        );
+        setPoints(
+          new Map(
+            fantasyPoints
+              .filter((line) => termines.has(line.matchId))
+              .map((line) => [line.matchId, line.points]),
+          ),
+        );
       } catch {
         if (!cancelled) setError('Joueur introuvable');
       }
@@ -145,7 +157,10 @@ export default function PlayerPage() {
                       <td className={styles.competitionCell}>{match.competition.name}</td>
                       <td>
                         <span className={styles.matchCell}>
-                          <span className={styles.matchTeam} title={match.teamA?.name ?? 'À déterminer'}>
+                          <span
+                            className={styles.matchTeam}
+                            title={match.teamA?.name ?? 'À déterminer'}
+                          >
                             <Avatar
                               src={match.teamA?.imageUrl}
                               label={match.teamA?.name ?? 'TBD'}
@@ -173,7 +188,10 @@ export default function PlayerPage() {
                               {match.scoreB ?? '·'}
                             </span>
                           </span>
-                          <span className={styles.matchTeam} title={match.teamB?.name ?? 'À déterminer'}>
+                          <span
+                            className={styles.matchTeam}
+                            title={match.teamB?.name ?? 'À déterminer'}
+                          >
                             <Avatar
                               src={match.teamB?.imageUrl}
                               label={match.teamB?.name ?? 'TBD'}

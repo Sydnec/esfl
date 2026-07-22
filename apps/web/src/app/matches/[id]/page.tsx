@@ -9,7 +9,7 @@ import { gameProfile } from '@/lib/game-profile';
 import { request } from '@/lib/api';
 import { flagEmoji } from '@/lib/flags';
 import { agentIconSrc } from '@/lib/agents';
-import { formatDateTime, formatKickoff } from '@/lib/format';
+import { formatDateTime, formatKickoff, pointsDefinitifs } from '@/lib/format';
 import { lolRoleRank } from '@/lib/roles';
 import { formatStat, PER_MAP_KEYS, STAT_COLUMNS } from '@/lib/stat-columns';
 import { useMatchUpdates } from '@/lib/useMatchUpdates';
@@ -79,9 +79,12 @@ export default function MatchPage() {
         setStats(lines);
         if (lines.length > 0) {
           const ids = lines.map((line) => line.playerId).join(',');
+          const definitifs = pointsDefinitifs(detail.status);
           const [refs, fantasyPoints] = await Promise.all([
             request<PlayerRef[]>(`/data/players/by-ids?ids=${ids}`),
-            request<FantasyPointsLine[]>(`/scoring/players?playerIds=${ids}`),
+            definitifs
+              ? request<FantasyPointsLine[]>(`/scoring/players?playerIds=${ids}`)
+              : Promise.resolve([] as FantasyPointsLine[]),
           ]);
           setPlayers(new Map(refs.map((player) => [player.id, player])));
           setPoints(
@@ -158,7 +161,9 @@ export default function MatchPage() {
   // Game en cours d'un match live : la première sans vainqueur. Sa puce garde
   // le même format, avec « en cours » à la place de la durée (Leaguepedia ne
   // publie la durée réelle qu'en fin de game, toute estimation serait fausse).
-  const liveGamePosition = running ? (games.find((game) => game.winner == null)?.position ?? null) : null;
+  const liveGamePosition = running
+    ? (games.find((game) => game.winner == null)?.position ?? null)
+    : null;
 
   // Groupement par le côté snapshoté à l'ingestion (survit aux transferts) ;
   // repli sur l'équipe courante du joueur pour les lignes historiques.
@@ -184,7 +189,12 @@ export default function MatchPage() {
         <span className={styles.corner}>
           {running &&
             (match.streamUrl ? (
-              <a className={styles.liveLink} href={match.streamUrl} target="_blank" rel="noreferrer">
+              <a
+                className={styles.liveLink}
+                href={match.streamUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
                 ● live
               </a>
             ) : (
@@ -196,10 +206,15 @@ export default function MatchPage() {
             vs drapeau · nom/tag · logo (les cases restent en place même vides). */}
         <div className={styles.teamsRow}>
           <span className={styles.slotLogo}>
-            {match.teamA && <Avatar src={match.teamA.imageUrl} label={match.teamA.name} size={40} />}
+            {match.teamA && (
+              <Avatar src={match.teamA.imageUrl} label={match.teamA.name} size={40} />
+            )}
           </span>
           <span className={styles.slotName}>
-            <span className={styles.teamName}>{match.teamA?.name ?? 'TBD'} <span className={styles.slotFlag}>{flagEmoji(match.teamA?.location)}</span></span>
+            <span className={styles.teamName}>
+              {match.teamA?.name ?? 'TBD'}{' '}
+              <span className={styles.slotFlag}>{flagEmoji(match.teamA?.location)}</span>
+            </span>
             {match.teamA?.acronym && <span className={styles.teamTag}>{match.teamA.acronym}</span>}
           </span>
           <span className={styles.center}>
@@ -224,11 +239,16 @@ export default function MatchPage() {
             </span>
           </span>
           <span className={`${styles.slotName} ${styles.slotNameRight}`}>
-            <span className={styles.teamName}><span className={styles.slotFlag}>{flagEmoji(match.teamB?.location)}</span> {match.teamB?.name ?? 'TBD'}</span>
+            <span className={styles.teamName}>
+              <span className={styles.slotFlag}>{flagEmoji(match.teamB?.location)}</span>{' '}
+              {match.teamB?.name ?? 'TBD'}
+            </span>
             {match.teamB?.acronym && <span className={styles.teamTag}>{match.teamB.acronym}</span>}
           </span>
           <span className={styles.slotLogo}>
-            {match.teamB && <Avatar src={match.teamB.imageUrl} label={match.teamB.name} size={40} />}
+            {match.teamB && (
+              <Avatar src={match.teamB.imageUrl} label={match.teamB.name} size={40} />
+            )}
           </span>
         </div>
       </div>
@@ -256,8 +276,7 @@ export default function MatchPage() {
             // Durée au-dessus du score : celle de la game finie ; la game en
             // cours affiche « en cours » (même format de puce, pas de durée
             // estimée : Leaguepedia ne publie qu'en fin de game).
-            const ongoing =
-              showDuration && !game.lengthSec && game.position === liveGamePosition;
+            const ongoing = showDuration && !game.lengthSec && game.position === liveGamePosition;
             const duration = showDuration
               ? game.lengthSec
                 ? formatLength(game.lengthSec)
@@ -375,7 +394,7 @@ export default function MatchPage() {
             // Les points fantasy restent sur l'essentiel (la vue avancée tient
             // ainsi en largeur).
             const withAgents = match.gameId !== 'cs2' && mapTabs.length > 0;
-            const withPoints = cumulative && !advanced;
+            const withPoints = cumulative && !advanced && pointsDefinitifs(match.status);
             const agentLabel = profil.libellePersonnage;
             return (
               <div key={side} className={styles.teamStats}>
