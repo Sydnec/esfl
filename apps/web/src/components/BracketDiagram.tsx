@@ -42,6 +42,37 @@ function tag(team: TeamRef | null): string {
 }
 
 /**
+ * Ce qu'on affiche dans un créneau encore vide, à partir du match qui l'alimente.
+ *
+ * « TBD » n'apprend rien alors que l'arbre sait déjà d'où viendra l'équipe : le
+ * connecteur est tracé depuis ce match précis. On verbalise donc une relation
+ * DÉJÀ affichée, sans rien affirmer de neuf. Le détail part en `title`, faute
+ * de place dans une carte de 170 px.
+ */
+export function creneauAPourvoir(alimentateur: MatchSummary | null): {
+  texte: string;
+  detail?: string;
+} {
+  if (!alimentateur) return { texte: 'TBD' };
+  const a = tag(alimentateur.teamA);
+  const b = tag(alimentateur.teamB);
+  const vainqueur =
+    alimentateur.status === 'finished'
+      ? [alimentateur.teamA, alimentateur.teamB].find(
+          (equipe) => equipe && equipe.id === alimentateur.winnerTeamId,
+        )
+      : null;
+  // Match joué : l'équipe qualifiée est connue, même si la source n'a pas
+  // encore rempli le tour suivant.
+  if (vainqueur) return { texte: tag(vainqueur), detail: `Qualifié : ${vainqueur.name}` };
+  // Les deux adversaires sont connus mais pas encore départagés.
+  if (alimentateur.teamA && alimentateur.teamB) {
+    return { texte: `${a} ou ${b}`, detail: `Vainqueur de ${alimentateur.name}` };
+  }
+  return { texte: 'TBD' };
+}
+
+/**
  * Arbre par phase : gère la double élimination (GSL) en séparant upper / lower
  * bracket en deux sous-arbres. Chaque sous-arbre est un arbre à élimination
  * simple (colonnes par tour + connecteurs i → ceil(i/2)).
@@ -72,6 +103,8 @@ export function BracketDiagram({ matches }: { matches: MatchSummary[] }) {
 interface Placed extends MatchSummary {
   rank: number;
   index: number;
+  /** Colonne dans le sous-arbre : sert à retrouver la colonne alimentante. */
+  col: number;
   cx: number;
   cy: number;
 }
@@ -124,11 +157,33 @@ function SubBracket({ matches, label }: { matches: MatchSummary[]; label?: strin
     });
   }
 
+  // Enfants d'une carte : mêmes indices que les connecteurs déjà tracés
+  // (i → 2i-1 et 2i, dans la colonne de gauche). On ne prétend donc rien de
+  // plus que ce que l'arbre affiche.
+  const parIndex = new Map<string, MatchSummary>();
+  for (const [rank, liste] of byRank) {
+    for (const m of liste) parIndex.set(`${rank}-${m.index}`, m);
+  }
+  const alimentateurs = (rank: number, index: number, col: number) => {
+    const childRank = ranks[col - 1];
+    if (childRank === undefined) return { a: null, b: null };
+    return {
+      a: parIndex.get(`${childRank}-${index * 2 - 1}`) ?? null,
+      b: parIndex.get(`${childRank}-${index * 2}`) ?? null,
+    };
+  };
+
   const cardW = COL_W - 30;
   const placed: Placed[] = [];
   ranks.forEach((rank, col) => {
     for (const m of byRank.get(rank)!) {
-      placed.push({ ...m, rank, cx: col * COL_W + cardW / 2, cy: cy.get(key(rank, m.index)) ?? 0 });
+      placed.push({
+        ...m,
+        rank,
+        col,
+        cx: col * COL_W + cardW / 2,
+        cy: cy.get(key(rank, m.index)) ?? 0,
+      });
     }
   });
   const width = ranks.length * COL_W;
@@ -219,12 +274,14 @@ function SubBracket({ matches, label }: { matches: MatchSummary[]; label?: strin
                   score={m.scoreA}
                   won={winnerSide === 'A'}
                   started={started}
+                  alimentateur={alimentateurs(m.rank, m.index, m.col).a}
                 />
                 <BracketRow
                   team={m.teamB}
                   score={m.scoreB}
                   won={winnerSide === 'B'}
                   started={started}
+                  alimentateur={alimentateurs(m.rank, m.index, m.col).b}
                 />
               </Link>
             );
@@ -241,18 +298,25 @@ function BracketRow({
   score,
   won,
   started,
+  alimentateur,
 }: {
   team: TeamRef | null;
   score: number | null;
   won: boolean;
   started: boolean;
+  /** Match dont sort l'équipe attendue, quand le créneau est encore vide. */
+  alimentateur?: MatchSummary | null;
 }) {
+  const attente = team ? null : creneauAPourvoir(alimentateur ?? null);
   return (
     <span className={`${styles.row} ${won ? styles.won : ''}`}>
       <span className={styles.teamInfo}>
         {team && <Avatar src={team.imageUrl} label={team.name} size={16} />}
-        <span className={styles.tag} title={team?.name}>
-          {tag(team)}
+        <span
+          className={`${styles.tag} ${attente && attente.detail ? styles.attente : ''}`}
+          title={team?.name ?? attente?.detail}
+        >
+          {attente ? attente.texte : tag(team)}
         </span>
       </span>
       {/* Match pas commencé : rien (pas de 0 trompeur). Lancé : score, 0 compris. */}

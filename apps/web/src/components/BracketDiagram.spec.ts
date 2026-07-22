@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { roundOf } from './BracketDiagram';
+import { creneauAPourvoir, roundOf } from './BracketDiagram';
 
 /**
  * Le rang place la colonne, l'index place la carte DANS la colonne et relie
@@ -32,5 +32,51 @@ describe('roundOf', () => {
 
   it('rend null hors d’un tour à élimination', () => {
     expect(roundOf('Group A: TL vs VIT')).toBeNull();
+  });
+});
+
+describe('creneauAPourvoir', () => {
+  const equipe = (id: string, acronym: string) => ({
+    id,
+    name: `Team ${acronym}`,
+    acronym,
+    imageUrl: null,
+  });
+  const base = {
+    id: 'm1',
+    name: 'Round of 32 match 11',
+    winnerTeamId: null,
+    status: 'not_started',
+  };
+
+  it('nomme les deux adversaires quand le match alimentant n’est pas joué', () => {
+    const res = creneauAPourvoir({
+      ...base,
+      teamA: equipe('a', 'NEMI'),
+      teamB: equipe('b', 'G2'),
+    } as never);
+    expect(res.texte).toBe('NEMI ou G2');
+    expect(res.detail).toContain('Round of 32 match 11');
+  });
+
+  it('affiche le qualifié dès que le match alimentant est joué', () => {
+    const res = creneauAPourvoir({
+      ...base,
+      status: 'finished',
+      winnerTeamId: 'b',
+      teamA: equipe('a', 'NEMI'),
+      teamB: equipe('b', 'G2'),
+    } as never);
+    expect(res.texte).toBe('G2');
+    expect(res.detail).toContain('Qualifié');
+  });
+
+  it('reste à TBD sans match alimentant', () => {
+    expect(creneauAPourvoir(null)).toEqual({ texte: 'TBD' });
+  });
+
+  it('reste à TBD quand le match alimentant est lui-même indéterminé', () => {
+    const res = creneauAPourvoir({ ...base, teamA: null, teamB: null } as never);
+    expect(res.texte).toBe('TBD');
   });
 });

@@ -146,3 +146,10 @@
 .extraLink:hover {
   color: var(--color-text);
 }
+
+/* Créneau non encore pourvu, déduit du match alimentant : plus discret qu'une
+   équipe réellement qualifiée, pour ne pas se lire comme un fait acquis. */
+.attente {
+  color: var(--color-muted);
+  font-style: italic;
+}
