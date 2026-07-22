@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { GAME_IDS, GAME_LABELS, GameId } from '@esfl/contracts';
-import { request } from '@/lib/api';
+import { cheminCatalogue, request } from '@/lib/api';
 import { useMatchUpdates } from '@/lib/useMatchUpdates';
 import type { Competition, MatchSummary } from '@/lib/types';
 import { MatchGrid } from './MatchCard';
@@ -46,7 +46,7 @@ export function MatchesOverview() {
 
   useEffect(() => {
     setExcluded(loadExcluded());
-    request<Competition[]>('/data/competitions')
+    request<Competition[]>(cheminCatalogue())
       .then(setCompetitions)
       .catch(() => undefined);
     void loadMatches();

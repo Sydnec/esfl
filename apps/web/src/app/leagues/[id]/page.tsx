@@ -7,7 +7,7 @@ import { GAME_IDS, GAME_LABELS, GameId } from '@esfl/contracts';
 import { useAuth } from '@/components/AuthProvider';
 import { Avatar } from '@/components/Avatar';
 import { MatchGrid } from '@/components/MatchCard';
-import { API_URL, ApiError, request } from '@/lib/api';
+import { API_URL, ApiError, cheminCatalogue, request } from '@/lib/api';
 import { formatDateTime, formatDayChip, parisDateOf } from '@/lib/format';
 import type {
   Competition,
@@ -96,7 +96,9 @@ export default function LeaguePage() {
       const [days, board, allCompetitions, memberRefs] = await Promise.all([
         authedFetch<MatchDaySummary[]>(`/fantasy/leagues/${id}/matchdays`),
         authedFetch<LeaderboardEntry[]>(`/scoring/leagues/${id}/leaderboard`),
-        request<Competition[]>('/data/competitions'),
+        request<Competition[]>(
+          cheminCatalogue(detail.competitions.map((entry) => entry.competitionId)),
+        ),
         request<PublicUserRef[]>(
           `/auth/users?ids=${(detail.members ?? []).map((member) => member.userId).join(',')}`,
         ),
@@ -365,7 +367,11 @@ export default function LeaguePage() {
               {myEntry ? `${myEntry.rank}e · ${myEntry.points} pts` : 'Non classé'}
             </span>
           </div>
-          <button className={styles.copyBtn} onClick={copyInvite} title="Copier le code d’invitation">
+          <button
+            className={styles.copyBtn}
+            onClick={copyInvite}
+            title="Copier le code d’invitation"
+          >
             <span className={styles.copyCode}>{league.inviteCode}</span>
             <span className={styles.copyHint}>{copied ? 'copié ✓' : 'copier'}</span>
           </button>
@@ -510,7 +516,9 @@ export default function LeaguePage() {
           )}
         </h2>
         {matchDays.length === 0 ? (
-          <p className={styles.empty}>Aucune journée sur les compétitions suivies pour le moment.</p>
+          <p className={styles.empty}>
+            Aucune journée sur les compétitions suivies pour le moment.
+          </p>
         ) : (
           <div className={styles.timelineWrap}>
             <button

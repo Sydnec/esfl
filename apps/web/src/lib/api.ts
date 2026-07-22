@@ -48,3 +48,24 @@ export const authApi = {
   refresh: () => request<AuthResponse>('/auth/refresh', { method: 'POST' }),
   logout: () => request<{ ok: true }>('/auth/logout', { method: 'POST' }),
 };
+
+/**
+ * Fenêtre du catalogue de compétitions proposées au choix : J-1 à J+7. Sans
+ * elle, les listes remontent tout l'historique et deviennent inutilisables.
+ */
+const CATALOGUE_AVANT_MS = 24 * 3600 * 1000;
+const CATALOGUE_APRES_MS = 7 * 24 * 3600 * 1000;
+
+/**
+ * Chemin du catalogue restreint à la fenêtre. `ids` force l'inclusion de
+ * compétitions hors fenêtre, typiquement celles déjà suivies par une ligue,
+ * dont il faut encore afficher le nom.
+ */
+export function cheminCatalogue(ids: string[] = []): string {
+  const params = new URLSearchParams({
+    from: new Date(Date.now() - CATALOGUE_AVANT_MS).toISOString(),
+    to: new Date(Date.now() + CATALOGUE_APRES_MS).toISOString(),
+  });
+  if (ids.length > 0) params.set('ids', ids.join(','));
+  return `/data/competitions?${params.toString()}`;
+}

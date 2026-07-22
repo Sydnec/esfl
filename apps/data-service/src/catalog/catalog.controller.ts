@@ -54,8 +54,20 @@ export class CatalogController {
   }
 
   @Get('competitions')
-  competitions(@Query('gameId') gameId?: string, @Query('search') search?: string) {
-    return this.catalog.listCompetitions(gameId, search);
+  competitions(
+    @Query('gameId') gameId?: string,
+    @Query('search') search?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('ids') ids?: string,
+  ) {
+    return this.catalog.listCompetitions(
+      gameId,
+      search,
+      parseDate(from, 'from'),
+      parseDate(to, 'to'),
+      parseIds(ids),
+    );
   }
 
   @Get('competitions/:id')
@@ -300,7 +312,10 @@ export class CatalogController {
     // renommages) via Leaguepedia ; sinon la saisie est utilisée telle quelle.
     const resolved = await this.statsIngestion.resolveLeaguepediaNames(alias ?? '');
     const names = resolved.length > 0 ? resolved : [alias ?? ''];
-    const { aliases, matchIds, added, redundant } = await this.catalog.addTeamAliases(teamId, names);
+    const { aliases, matchIds, added, redundant } = await this.catalog.addTeamAliases(
+      teamId,
+      names,
+    );
     await Promise.all(
       matchIds.map((id) => enqueueIngestStats(this.ingestionQueue, id, true, true)),
     );
@@ -415,7 +430,11 @@ export class CatalogController {
       providerIds,
       // Ce que la source dit de cette identité : permet de vérifier d'un coup
       // d'œil qu'on n'a pas rattaché la mauvaise équipe.
-      profile: { name: profile.name, acronym: profile.acronym, roster: profile.roster?.length ?? 0 },
+      profile: {
+        name: profile.name,
+        acronym: profile.acronym,
+        roster: profile.roster?.length ?? 0,
+      },
       reingested: matchIds.length,
     };
   }

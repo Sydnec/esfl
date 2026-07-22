@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { GAME_IDS, GAME_LABELS, GameId } from '@esfl/contracts';
 import { useAuth } from '@/components/AuthProvider';
-import { ApiError, request } from '@/lib/api';
+import { ApiError, cheminCatalogue, request } from '@/lib/api';
 import type { Competition, League } from '@/lib/types';
 import styles from './page.module.css';
 
@@ -25,7 +25,7 @@ export default function NewLeaguePage() {
   }, [loading, user, router]);
 
   useEffect(() => {
-    request<Competition[]>('/data/competitions')
+    request<Competition[]>(cheminCatalogue())
       .then(setCompetitions)
       .catch(() => setError('Référentiel des compétitions indisponible'));
   }, []);

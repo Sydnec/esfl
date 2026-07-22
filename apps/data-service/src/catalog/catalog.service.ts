@@ -33,7 +33,11 @@ function normalizeVlrPath(raw: string): string | null {
  * est renvoyée telle quelle (l'admin a tapé le nom directement).
  */
 /** Nombre de manches jouées (manches décidées, sinon somme des scores, sinon 1). */
-function statMaps(match: { scoreA: number | null; scoreB: number | null; gamesSummary: unknown }): number {
+function statMaps(match: {
+  scoreA: number | null;
+  scoreB: number | null;
+  gamesSummary: unknown;
+}): number {
   const games = Array.isArray(match.gamesSummary)
     ? (match.gamesSummary as Array<{ winner?: unknown }>)
     : [];
@@ -121,13 +125,38 @@ export class CatalogService {
     return rows.map((row) => row.matchId);
   }
 
-  listCompetitions(gameId?: string, search?: string) {
+  /**
+   * Catalogue des compétitions proposables.
+   *
+   * `from`/`to` restreignent aux compétitions qui ont au moins un match dans la
+   * fenêtre : sans quoi les listes de choix accumulent tout l'historique et
+   * deviennent inutilisables. `ids` force l'inclusion de compétitions hors
+   * fenêtre (celles déjà suivies par une ligne, dont il faut encore le nom).
+   */
+  listCompetitions(gameId?: string, search?: string, from?: Date, to?: Date, ids?: string[]) {
+    const fenetre =
+      from || to
+        ? {
+            matches: {
+              some: { scheduledAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } },
+            },
+          }
+        : null;
+    const portee = [
+      ...(fenetre ? [fenetre] : []),
+      ...(ids && ids.length > 0 ? [{ id: { in: ids } }] : []),
+    ];
     return this.prisma.competition.findMany({
       where: {
         // Irrécupérables masquées + tier c/d exclus (catalogue restreint S/A/B,
         // tier null accepté) : jamais proposées au parcours ni au suivi.
         hidden: false,
-        OR: [{ tier: null }, { tier: { notIn: ['c', 'd'] } }],
+        // Deux OR distincts : un seul objet `where` ne peut pas porter la clé
+        // deux fois, ils passent donc par un AND explicite.
+        AND: [
+          { OR: [{ tier: null }, { tier: { notIn: ['c', 'd'] } }] },
+          ...(portee.length > 0 ? [{ OR: portee }] : []),
+        ],
         ...(gameId ? { gameId } : {}),
         ...(search ? { name: { contains: search, mode: 'insensitive' as const } } : {}),
       },
@@ -143,7 +172,12 @@ export class CatalogService {
     });
     // Masquée (irrécupérable) ou tier c/d = introuvable côté public : bloque
     // aussi la validation de suivi côté fantasy (leagues.service l'appelle).
-    if (!competition || competition.hidden || competition.tier === 'c' || competition.tier === 'd') {
+    if (
+      !competition ||
+      competition.hidden ||
+      competition.tier === 'c' ||
+      competition.tier === 'd'
+    ) {
       throw new NotFoundException('Compétition introuvable');
     }
     return competition;
@@ -278,7 +312,10 @@ export class CatalogService {
     });
     // Rôle du snapshot au match d'abord (vérité du moment T), repli sur le rôle
     // courant de la fiche pour les lignes historiques sans snapshot.
-    return rows.map(({ player, ...rest }) => ({ ...rest, role: rest.role ?? player?.role ?? null }));
+    return rows.map(({ player, ...rest }) => ({
+      ...rest,
+      role: rest.role ?? player?.role ?? null,
+    }));
   }
 
   /**
@@ -366,9 +403,7 @@ export class CatalogService {
       missingCount: missing.length,
       complete: pending.length === 0 && missing.length === 0,
       /** Matchs finis avec stats : à re-noter une dernière fois avant le gel. */
-      scoredMatchIds: finished
-        .filter((match) => match._count.stats > 0)
-        .map((match) => match.id),
+      scoredMatchIds: finished.filter((match) => match._count.stats > 0).map((match) => match.id),
     };
   }
 
@@ -423,9 +458,9 @@ export class CatalogService {
       orderBy: { endAt: 'desc' },
       take: 300,
     });
-    const teamIds = [
-      ...new Set(matches.flatMap((match) => [match.teamAId, match.teamBId])),
-    ].filter((id): id is string => Boolean(id));
+    const teamIds = [...new Set(matches.flatMap((match) => [match.teamAId, match.teamBId]))].filter(
+      (id): id is string => Boolean(id),
+    );
     const teams = new Map(
       (
         await this.prisma.team.findMany({
@@ -474,7 +509,10 @@ export class CatalogService {
       const suggestion = (match.statsSuggestion ?? []) as Array<{ side: 'A' | 'B'; name: string }>;
       const namesBySide = new Map<'A' | 'B', string[]>();
       for (const candidate of suggestion) {
-        namesBySide.set(candidate.side, [...(namesBySide.get(candidate.side) ?? []), candidate.name]);
+        namesBySide.set(candidate.side, [
+          ...(namesBySide.get(candidate.side) ?? []),
+          candidate.name,
+        ]);
       }
       for (const [side, names] of namesBySide) {
         add(side === 'A' ? match.teamAId : match.teamBId, match, names);
@@ -529,7 +567,9 @@ export class CatalogService {
     }
     const path = normalizeVlrPath(rawUrl);
     if (!path) {
-      throw new BadRequestException('URL VLR.gg invalide (attendu : lien, chemin, ou id de match).');
+      throw new BadRequestException(
+        'URL VLR.gg invalide (attendu : lien, chemin, ou id de match).',
+      );
     }
     await this.prisma.match.update({ where: { id: matchId }, data: { statsPageUrl: path } });
     return { statsPageUrl: path };
@@ -721,7 +761,8 @@ export class CatalogService {
         ? [...groups.values()].flatMap((group) => clustersParPseudo(group))
         : [...groups.values()];
 
-    const details: Array<{ gameId: string; garde: string; absorbees: string[]; stats: number }> = [];
+    const details: Array<{ gameId: string; garde: string; absorbees: string[]; stats: number }> =
+      [];
     let fichesAbsorbees = 0;
     let statsDeplacees = 0;
 
@@ -730,7 +771,8 @@ export class CatalogService {
       // Fiche gardée : celle qui porte déjà l'identité Pandascore (elle est la
       // référence du reste du système), sinon la plus fournie en stats.
       const sorted = [...group].sort((a, b) => {
-        if ((a.pandascoreId != null) !== (b.pandascoreId != null)) return a.pandascoreId != null ? -1 : 1;
+        if ((a.pandascoreId != null) !== (b.pandascoreId != null))
+          return a.pandascoreId != null ? -1 : 1;
         return (statsByPlayer.get(b.id) ?? 0) - (statsByPlayer.get(a.id) ?? 0);
       });
       const [keep, ...absorbed] = sorted;
@@ -749,7 +791,10 @@ export class CatalogService {
       statsDeplacees += moved;
       if (dryRun) continue;
 
-      await this.mergePlayerInto(keep.id, absorbed.map((player) => player.id));
+      await this.mergePlayerInto(
+        keep.id,
+        absorbed.map((player) => player.id),
+      );
     }
 
     return { scope, dryRun, groupes: details.length, fichesAbsorbees, statsDeplacees, details };
@@ -774,11 +819,17 @@ export class CatalogService {
       for (const player of all.filter((p) => p.id !== keepId)) {
         Object.assign(merged, (player.providerIds as Record<string, string> | null) ?? {});
       }
-      Object.assign(merged, (all.find((p) => p.id === keepId)?.providerIds as Record<string, string> | null) ?? {});
+      Object.assign(
+        merged,
+        (all.find((p) => p.id === keepId)?.providerIds as Record<string, string> | null) ?? {},
+      );
 
       await tx.player.update({
         where: { id: keepId },
-        data: { providerIds: Object.keys(merged).length > 0 ? merged : Prisma.DbNull, active: true },
+        data: {
+          providerIds: Object.keys(merged).length > 0 ? merged : Prisma.DbNull,
+          active: true,
+        },
       });
       await tx.player.deleteMany({ where: { id: { in: absorbedIds } } });
     });
@@ -1008,9 +1059,7 @@ export class CatalogService {
       playersWithProviderId,
       playersWithPandascoreId,
     ] = await Promise.all([
-      this.prisma.competition
-        .groupBy({ by: ['gameId'], _count: { _all: true } })
-        .then(countByGame),
+      this.prisma.competition.groupBy({ by: ['gameId'], _count: { _all: true } }).then(countByGame),
       this.prisma.team.groupBy({ by: ['gameId'], _count: { _all: true } }).then(countByGame),
       this.prisma.team
         .groupBy({ by: ['gameId'], where: notNullJson, _count: { _all: true } })
@@ -1129,9 +1178,9 @@ export class CatalogService {
       );
     const ids = [...new Set(targets.map((target) => target.matchId))];
     const existing = new Set(
-      (
-        await this.prisma.match.findMany({ where: { id: { in: ids } }, select: { id: true } })
-      ).map((match) => match.id),
+      (await this.prisma.match.findMany({ where: { id: { in: ids } }, select: { id: true } })).map(
+        (match) => match.id,
+      ),
     );
     let removed = 0;
     for (const { job, matchId } of targets) {
@@ -1149,13 +1198,7 @@ export class CatalogService {
    * lisible. Les jobs `ingest-stats` portent un matchId résolu en nom de match.
    */
   async queueSnapshot(queue: Queue) {
-    const counts = await queue.getJobCounts(
-      'waiting',
-      'active',
-      'delayed',
-      'failed',
-      'completed',
-    );
+    const counts = await queue.getJobCounts('waiting', 'active', 'delayed', 'failed', 'completed');
     const [waiting, active, delayed, failed] = await Promise.all([
       queue.getWaiting(0, 49),
       queue.getActive(0, 49),
