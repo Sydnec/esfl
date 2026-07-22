@@ -636,8 +636,8 @@ export class IngestionService {
    * détecter rapidement débuts et fins de match (cadence 3 min, quota tenu).
    */
   async syncLiveWindow(): Promise<void> {
-    const lance = await this.cycleLive.passer(() => this.passeLiveWindow());
-    if (lance === null) {
+    const { lance } = await this.cycleLive.passer(() => this.passeLiveWindow());
+    if (!lance) {
       this.logger.warn('Fenêtre live déjà en cours : tir ignoré');
     }
   }

@@ -16,11 +16,11 @@ import { FantasyClient } from '../fantasy-client/fantasy.client';
 import {
   enqueueEnrichTeam,
   enqueueIngestStats,
+  enqueuePlayersMerged,
   INGESTION_QUEUE,
   IngestionJobName,
 } from '../ingestion/ingestion.constants';
 import { PlayerAdoptionService } from '../ingestion/player-adoption.service';
-import { ScoringClient } from '../scoring-client/scoring.client';
 import { TeamEnrichmentService } from '../ingestion/team-enrichment.service';
 import { StatsIngestionService } from '../stats/stats-ingestion';
 import { CatalogService } from './catalog.service';
@@ -46,7 +46,6 @@ export class CatalogController {
     private readonly statsIngestion: StatsIngestionService,
     private readonly enrichment: TeamEnrichmentService,
     private readonly adoption: PlayerAdoptionService,
-    private readonly scoring: ScoringClient,
     @InjectQueue(INGESTION_QUEUE) private readonly ingestionQueue: Queue,
   ) {}
 
@@ -149,8 +148,8 @@ export class CatalogController {
 
   /** Complétude des stats d'une journée Paris (gel des scores, appel interne scoring). */
   @Get('internal/days/:date/completeness')
-  dayCompleteness(@Param('date') date: string) {
-    return this.catalog.dayCompleteness(date);
+  dayCompleteness(@Param('date') date: string, @Query('uncovered') uncovered?: string) {
+    return this.catalog.dayCompleteness(date, uncovered === 'true');
   }
 
   /**
@@ -394,7 +393,11 @@ export class CatalogController {
     // les joueurs : la fusion les laisserait accrochées à une fiche supprimée.
     // On les TRANSFÈRE plutôt que de faire re-noter : une journée gelée refuse
     // tout recalcul, et la note d'époque est précisément ce que le gel protège.
-    await Promise.all(rapport.fusions.map((f) => this.scoring.playersMerged(f.garde, f.absorbees)));
+    // Par la file : les retries garantissent que le transfert aboutit même si
+    // le scoring-service est momentanément absent.
+    await Promise.all(
+      rapport.fusions.map((f) => enqueuePlayersMerged(this.ingestionQueue, f.garde, f.absorbees)),
+    );
     return rapport;
   }
 

@@ -10,8 +10,12 @@ export const INGESTION_QUEUE = 'data-ingestion';
  * publiées tardivement (une source enregistre parfois un tournoi après la fenêtre de
  * 48h ; uploads RL/ballchasing communautaires souvent en retard) tout en
  * bornant le nombre de matchs re-sondés à chaque cycle. Surcharge : env
- * `STATS_BACKFILL_DAYS`. */
-export const STATS_BACKFILL_DAYS = 14;
+ * `STATS_BACKFILL_DAYS`.
+ *
+ * Ne doit pas dépasser `FENETRE_ARBITRAGE_MS` : au-delà, `relanceInutile`
+ * renonce dès la première tentative, et ré-armer ne ferait qu'interroger la
+ * source à chaque cycle pour abandonner aussitôt. */
+export const STATS_BACKFILL_DAYS = 7;
 
 /**
  * Fenêtre pendant laquelle un échec d'ingestion reste ARBITRABLE : c'est celle
@@ -96,7 +100,35 @@ export async function enqueueEnrichTeam(queue: Queue, teamId: string): Promise<v
   );
 }
 
+/**
+ * Transfert des notes fantasy après une fusion de fiches.
+ *
+ * Passe par la file et non par un appel direct : les deux schémas sont
+ * étanches, donc si le scoring-service est absent au moment de la fusion, rien
+ * ne rattrape plus tard — `recomputeAll` épargne les journées gelées, qui sont
+ * précisément le cas pour lequel on transfère au lieu de re-noter. Les retries
+ * de BullMQ donnent la durabilité gratuitement.
+ */
+export async function enqueuePlayersMerged(
+  queue: Queue,
+  keepId: string,
+  absorbedIds: string[],
+): Promise<void> {
+  if (absorbedIds.length === 0) return;
+  await queue.add(
+    'players-merged',
+    { keepId, absorbedIds },
+    {
+      attempts: 8,
+      backoff: { type: 'exponential', delay: 30 * 1000 },
+      removeOnComplete: true,
+      removeOnFail: 100,
+    },
+  );
+}
+
 export type IngestionJobName =
+  | 'players-merged'
   | 'sync-series'
   | 'sync-matches'
   | 'sync-rosters'

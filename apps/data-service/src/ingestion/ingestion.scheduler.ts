@@ -116,7 +116,7 @@ export class IngestionScheduler implements OnModuleInit {
       },
     );
     this.logger.log(
-      'Jobs d’ingestion planifiés (séries 12h, matchs 15min, live 3min, rosters 24h, adoption 6h, backfill 1h)',
+      'Jobs d’ingestion planifiés (séries 12h, matchs 15min, live 1min, rosters 24h, adoption 6h, backfill 1h)',
     );
 
     // Premier démarrage (base vide) : backfill historique en arrière-plan

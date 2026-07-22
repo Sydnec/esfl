@@ -122,7 +122,12 @@ export class DataClient {
   }
 
   /** Complétude des stats d'une journée Paris (gel des scores). */
-  dayCompleteness(date: string): Promise<DayCompleteness> {
-    return this.get<DayCompleteness>(`/data/internal/days/${date}/completeness`);
+  /**
+   * `avecNonCouverts` déclenche côté data une requête supplémentaire : à ne
+   * demander que pour noter les rosters, pas pour décider d'un gel.
+   */
+  dayCompleteness(date: string, avecNonCouverts = false): Promise<DayCompleteness> {
+    const suffixe = avecNonCouverts ? '?uncovered=true' : '';
+    return this.get<DayCompleteness>(`/data/internal/days/${date}/completeness${suffixe}`);
   }
 }

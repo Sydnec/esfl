@@ -1,7 +1,9 @@
+import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
+import type { Queue } from 'bullmq';
 import { GAME_IDS, GameId } from '@esfl/contracts';
 import { Sequenceur } from '../common/sequenceur';
-import { ScoringClient } from '../scoring-client/scoring.client';
+import { enqueuePlayersMerged, INGESTION_QUEUE } from './ingestion.constants';
 import { pandascoreUpdate } from '../common/field-precedence';
 import { reassignPlayerStats } from '../common/player-merge';
 import { PandascoreClient } from '../pandascore/pandascore.client';
@@ -133,7 +135,7 @@ export class PlayerAdoptionService {
     bo3: Bo3StatsProvider,
     vlr: VlrStatsProvider,
     leaguepedia: LeaguepediaStatsProvider,
-    private readonly scoring: ScoringClient,
+    @InjectQueue(INGESTION_QUEUE) private readonly queue: Queue,
   ) {
     this.providers = [bo3, vlr, leaguepedia];
   }
@@ -170,12 +172,12 @@ export class PlayerAdoptionService {
       this.logger.warn('Adoption ignorée : PANDASCORE_TOKEN absent');
       return report;
     }
-    const resultat = await this.sequenceur.passer(() => this.passe(report));
-    if (!resultat) {
+    const { lance, valeur } = await this.sequenceur.passer(() => this.passe(report));
+    if (!lance) {
       this.logger.warn('Adoption déjà en cours : passage ignoré');
       return report;
     }
-    return resultat;
+    return valeur ?? report;
   }
 
   private async passe(report: AdoptionReport): Promise<AdoptionReport> {
@@ -372,8 +374,9 @@ export class PlayerAdoptionService {
       if (holder.id === orphan.id) return 'ignore';
       await this.mergeOrphanInto(holder.id, orphan.id);
       // Les notes du doublon suivent la fiche gardée : elles vivent dans le
-      // schéma scoring, qu'aucune clé étrangère ne relie aux joueurs.
-      await this.scoring.playersMerged(holder.id, [orphan.id]);
+      // schéma scoring, qu'aucune clé étrangère ne relie aux joueurs. Par la
+      // file, pour que l'indisponibilité du scoring ne les perde pas.
+      await enqueuePlayersMerged(this.queue, holder.id, [orphan.id]);
       // Alias = toutes les identités secondaires, l'id principal de la fiche
       // gardée exclu (sinon il figurerait à la fois en principal et en alias).
       const known = new Set([...holder.pandascoreAliasIds, ...aliasIds, candidate.id]);

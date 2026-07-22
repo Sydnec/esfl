@@ -65,8 +65,11 @@ export function creneauAPourvoir(alimentateur: MatchSummary | null): {
   // Match joué : l'équipe qualifiée est connue, même si la source n'a pas
   // encore rempli le tour suivant.
   if (vainqueur) return { texte: tag(vainqueur), detail: `Qualifié : ${vainqueur.name}` };
+  // Match déjà joué mais sans vainqueur connu (forfait, annulation, données
+  // incomplètes) : annoncer « A ou B » laisserait croire l'issue en suspens.
+  const joue = alimentateur.status === 'finished' || alimentateur.status === 'canceled';
   // Les deux adversaires sont connus mais pas encore départagés.
-  if (alimentateur.teamA && alimentateur.teamB) {
+  if (!joue && alimentateur.teamA && alimentateur.teamB) {
     return { texte: `${a} ou ${b}`, detail: `Vainqueur de ${alimentateur.name}` };
   }
   return { texte: 'TBD' };
@@ -229,6 +232,8 @@ function SubBracket({ matches, label }: { matches: MatchSummary[]; label?: strin
             // Avant le coup d'envoi : pas de score (0-0 trompeur). Une fois lancé
             // (running/finished), on affiche les scores, 0 compris.
             const started = live || m.status === 'finished';
+            // Calculé une fois pour les deux créneaux de la carte.
+            const feeders = alimentateurs(m.rank, m.index, m.col);
             return (
               <Link
                 key={m.id}
@@ -274,14 +279,14 @@ function SubBracket({ matches, label }: { matches: MatchSummary[]; label?: strin
                   score={m.scoreA}
                   won={winnerSide === 'A'}
                   started={started}
-                  alimentateur={alimentateurs(m.rank, m.index, m.col).a}
+                  alimentateur={feeders.a}
                 />
                 <BracketRow
                   team={m.teamB}
                   score={m.scoreB}
                   won={winnerSide === 'B'}
                   started={started}
-                  alimentateur={alimentateurs(m.rank, m.index, m.col).b}
+                  alimentateur={feeders.b}
                 />
               </Link>
             );

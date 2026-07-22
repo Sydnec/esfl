@@ -14,12 +14,18 @@
 export class Sequenceur {
   private enCours = false;
 
-  /** Exécute `traitement`, ou rend `null` si un passage court déjà. */
-  async passer<T>(traitement: () => Promise<T>): Promise<T | null> {
-    if (this.enCours) return null;
+  /**
+   * Exécute `traitement`, sauf si un passage court déjà.
+   *
+   * `lance` est explicite plutôt qu'un `null` de retour : un traitement peut
+   * légitimement rendre null, et l'appelant journaliserait alors « déjà en
+   * cours » à tort.
+   */
+  async passer<T>(traitement: () => Promise<T>): Promise<{ lance: boolean; valeur?: T }> {
+    if (this.enCours) return { lance: false };
     this.enCours = true;
     try {
-      return await traitement();
+      return { lance: true, valeur: await traitement() };
     } finally {
       this.enCours = false;
     }

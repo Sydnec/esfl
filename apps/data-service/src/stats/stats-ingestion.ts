@@ -293,12 +293,12 @@ export class StatsIngestionService {
    * Sans retry : le cycle suivant repassera.
    */
   async syncLiveStats(): Promise<number> {
-    const synced = await this.cycleStatsLive.passer(() => this.passeLiveStats());
-    if (synced === null) {
+    const { lance, valeur } = await this.cycleStatsLive.passer(() => this.passeLiveStats());
+    if (!lance) {
       this.logger.warn('Stats live déjà en cours : tir ignoré');
       return 0;
     }
-    return synced;
+    return valeur ?? 0;
   }
 
   private async passeLiveStats(): Promise<number> {
@@ -345,7 +345,7 @@ export class StatsIngestionService {
    * dérive de schéma, on la signale. Un seul avertissement par match, sinon un
    * changement de format en produirait un par joueur.
    */
-  private verifierForme(match: Match, source: string, result: ProviderResult): void {
+  private async verifierForme(match: Match, source: string, result: ProviderResult): Promise<void> {
     const schema = statsSchemasByGame[match.gameId as GameId];
     if (!schema) return;
     let ecart: z.ZodError | null = null;
@@ -361,8 +361,11 @@ export class StatsIngestionService {
       .slice(0, 3)
       .map((issue) => `${issue.path.join('.') || '(racine)'} : ${issue.message}`)
       .join(', ');
-    this.logger.warn(`Forme inattendue des stats ${source} sur ${match.name} — ${details}`);
-    void this.alertes.echec(source, `forme des stats inattendue sur ${match.name}`);
+    this.logger.warn(`Forme inattendue des stats ${source} sur ${match.name} : ${details}`);
+    // Compteur DISTINCT de celui des pannes : ici l'ingestion fonctionne et
+    // persiste, seule la forme dérive. Les confondre ferait annoncer « source
+    // en échec » alors que les stats arrivent.
+    await this.alertes.echec(`${source}:forme`, `forme inattendue sur ${match.name}`);
   }
 
   private async persistResult(
@@ -371,7 +374,7 @@ export class StatsIngestionService {
     source: string,
     result: ProviderResult,
   ): Promise<number> {
-    this.verifierForme(match, source, result);
+    await this.verifierForme(match, source, result);
     const index = buildPlayerIndex(context.players);
     // Index par id provider (VLR) : rapprochement fiable au-delà du pseudo.
     const byProviderId = new Map<string, NamedPlayer>();

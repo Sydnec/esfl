@@ -194,22 +194,28 @@ export class ScoringService {
    */
   async reassignPoints(keepId: string, absorbedIds: string[]): Promise<number> {
     if (absorbedIds.length === 0) return 0;
-    const gardees = await this.prisma.fantasyPoints.findMany({
-      where: { playerId: keepId },
-      select: { matchId: true },
-    });
-    const dejaNotes = new Set(gardees.map((row) => row.matchId));
-    const entrantes = await this.prisma.fantasyPoints.findMany({
-      where: { playerId: { in: absorbedIds } },
-      select: { id: true, matchId: true },
-    });
-    const conflits = entrantes.filter((row) => dejaNotes.has(row.matchId)).map((row) => row.id);
-    if (conflits.length > 0) {
-      await this.prisma.fantasyPoints.deleteMany({ where: { id: { in: conflits } } });
-    }
-    const { count } = await this.prisma.fantasyPoints.updateMany({
-      where: { playerId: { in: absorbedIds } },
-      data: { playerId: keepId },
+    // Transaction, comme `reassignPlayerStats` : entre la purge des conflits et
+    // le transfert, une interruption détruirait des notes sans les remplacer,
+    // et la fiche absorbée est supprimée juste après côté data — irrécupérable.
+    const count = await this.prisma.$transaction(async (tx) => {
+      const gardees = await tx.fantasyPoints.findMany({
+        where: { playerId: keepId },
+        select: { matchId: true },
+      });
+      const dejaNotes = new Set(gardees.map((row) => row.matchId));
+      const entrantes = await tx.fantasyPoints.findMany({
+        where: { playerId: { in: absorbedIds } },
+        select: { id: true, matchId: true },
+      });
+      const conflits = entrantes.filter((row) => dejaNotes.has(row.matchId)).map((row) => row.id);
+      if (conflits.length > 0) {
+        await tx.fantasyPoints.deleteMany({ where: { id: { in: conflits } } });
+      }
+      const { count: transferees } = await tx.fantasyPoints.updateMany({
+        where: { playerId: { in: absorbedIds } },
+        data: { playerId: keepId },
+      });
+      return transferees;
     });
     if (count > 0) {
       this.logger.log(`Fusion : ${count} note(s) transférée(s) vers ${keepId}`);
@@ -291,7 +297,7 @@ export class ScoringService {
     // Indisponible (data-service muet) : ensemble vide, donc comportement
     // inchangé plutôt qu'une exclusion hasardeuse.
     const nonCouverts = new Set(
-      (await this.data.dayCompleteness(date).catch(() => null))?.uncoveredPlayerIds ?? [],
+      (await this.data.dayCompleteness(date, true).catch(() => null))?.uncoveredPlayerIds ?? [],
     );
     // Matchs de la journée par ligue (mémoïsé par ligue).
     const dayMatchesByLeague = new Map<string, string[]>();

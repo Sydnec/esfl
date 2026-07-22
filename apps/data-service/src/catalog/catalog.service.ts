@@ -446,7 +446,7 @@ export class CatalogService {
    * lui, reste comptabilisé : il se corrige par un alias depuis /admin, et
    * c'est justement cette pression qui doit rester visible.
    */
-  async dayCompleteness(date: string) {
+  async dayCompleteness(date: string, avecNonCouverts = false) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       throw new BadRequestException('Date attendue au format YYYY-MM-DD');
     }
@@ -501,8 +501,11 @@ export class CatalogService {
        * scoring les écarte de la moyenne au lieu de leur compter 0. À ne pas
        * confondre avec un joueur resté sur le banc, dont le match, lui, est
        * bien récupéré.
+       *
+       * Calculé à la demande : seul le calcul des scores de roster s'en sert,
+       * alors que le gel des journées appelle cette méthode dix fois par cycle.
        */
-      uncoveredPlayerIds: await this.playersOfUncoveredMatches(finished),
+      uncoveredPlayerIds: avecNonCouverts ? await this.playersOfUncoveredMatches(finished) : [],
     };
   }
 

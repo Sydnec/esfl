@@ -5,6 +5,7 @@ import { StatsIngestionService } from '../stats/stats-ingestion';
 import { INGESTION_QUEUE, IngestionJobName } from './ingestion.constants';
 import { IngestionService } from './ingestion.service';
 import { PlayerAdoptionService } from './player-adoption.service';
+import { ScoringClient } from '../scoring-client/scoring.client';
 import { TeamEnrichmentService } from './team-enrichment.service';
 
 export { INGESTION_QUEUE };
@@ -24,6 +25,7 @@ export class IngestionProcessor extends WorkerHost {
     private readonly statsIngestion: StatsIngestionService,
     private readonly teamEnrichment: TeamEnrichmentService,
     private readonly adoption: PlayerAdoptionService,
+    private readonly scoring: ScoringClient,
     @InjectQueue(INGESTION_QUEUE) private readonly queue: Queue,
   ) {
     super();
@@ -52,6 +54,11 @@ export class IngestionProcessor extends WorkerHost {
       case 'sync-live-stats':
         await this.statsIngestion.syncLiveStats();
         break;
+      case 'players-merged': {
+        const { keepId, absorbedIds } = job.data as { keepId: string; absorbedIds: string[] };
+        await this.scoring.playersMerged(keepId, absorbedIds);
+        break;
+      }
       case 'adopt-orphan-players': {
         const rapport = await this.adoption.adoptOrphans();
         // Arriéré : on relance sans attendre le prochain tir à 6 h. Le critère

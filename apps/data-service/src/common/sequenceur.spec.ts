@@ -16,11 +16,16 @@ describe('Sequenceur', () => {
       return 'fini';
     });
     await Promise.resolve();
-    expect(await sequenceur.passer(async () => 'doublon')).toBeNull();
+    expect(await sequenceur.passer(async () => 'doublon')).toEqual({ lance: false });
     expect(passages).toBe(1);
 
     debloquer();
-    expect(await premier).toBe('fini');
+    expect(await premier).toEqual({ lance: true, valeur: 'fini' });
+  });
+
+  it('distingue un traitement qui rend null d’un passage ignoré', async () => {
+    const sequenceur = new Sequenceur();
+    expect(await sequenceur.passer(async () => null)).toEqual({ lance: true, valeur: null });
   });
 
   it('rend le verrou après le passage, y compris sur erreur', async () => {
@@ -30,6 +35,9 @@ describe('Sequenceur', () => {
         throw new Error('boum');
       }),
     ).rejects.toThrow('boum');
-    expect(await sequenceur.passer(async () => 'reparti')).toBe('reparti');
+    expect(await sequenceur.passer(async () => 'reparti')).toEqual({
+      lance: true,
+      valeur: 'reparti',
+    });
   });
 });

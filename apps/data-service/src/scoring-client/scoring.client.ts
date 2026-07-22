@@ -18,22 +18,19 @@ export class ScoringClient {
    * notes restent accrochées à une fiche supprimée et la fiche gardée perd son
    * historique.
    *
-   * Échec toléré : la fusion, elle, a bien eu lieu. On journalise plutôt que de
-   * la faire échouer, un recalcul ultérieur rattrapant le reliquat.
+   * LÈVE en cas d'échec, volontairement : l'appel vit dans un job BullMQ dont
+   * les retries assurent la durabilité. Avaler l'erreur laisserait les notes
+   * orphelines à vie, sans rattrapage possible sur une journée gelée.
    */
   async playersMerged(keepId: string, absorbedIds: string[]): Promise<void> {
     if (absorbedIds.length === 0) return;
-    try {
-      const response = await fetch(`${this.baseUrl}/scoring/internal/players/merged`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ keepId, absorbedIds }),
-      });
-      if (!response.ok) {
-        this.logger.warn(`scoring players/merged → ${response.status}`);
-      }
-    } catch (error) {
-      this.logger.warn(`scoring-service injoignable : ${String(error)}`);
+    const response = await fetch(`${this.baseUrl}/scoring/internal/players/merged`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ keepId, absorbedIds }),
+    });
+    if (!response.ok) {
+      throw new Error(`scoring players/merged → ${response.status}`);
     }
   }
 }
