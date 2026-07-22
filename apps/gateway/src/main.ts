@@ -1,8 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { createProxyMiddleware } from 'http-proxy-middleware';
-import { verify } from 'jsonwebtoken';
-import type { NextFunction, Request, Response } from 'express';
 import { AppModule } from './app.module';
+import { bloquerRoutesInternes, contexteUtilisateur } from './user-context';
 
 async function bootstrap() {
   // Secret JWT obligatoire : sans lui, `verify` avec une clé vide accepterait
@@ -21,41 +20,10 @@ async function bootstrap() {
     credentials: true,
   });
 
-  // Les routes internes (purges, rosters bruts…) ne sont jamais exposées :
-  // les services s'appellent en direct via *_SERVICE_URL, pas via le gateway.
-  app.use((req: Request, res: Response, next: NextFunction) => {
-    if (req.path.includes('/internal/')) {
-      res.status(404).end();
-      return;
-    }
-    next();
-  });
-
-  // Contexte utilisateur : un Bearer token valide devient un en-tête x-user-id
-  // (et x-user-admin pour les comptes admin) pour les services internes.
-  // Les x-user-* entrants sont toujours écrasés.
-  app.use((req: Request, _res: Response, next: NextFunction) => {
-    delete req.headers['x-user-id'];
-    delete req.headers['x-user-admin'];
-    const header = req.headers.authorization;
-    if (header?.startsWith('Bearer ')) {
-      try {
-        const payload = verify(header.slice(7), jwtSecret) as {
-          sub?: string;
-          isAdmin?: boolean;
-        };
-        if (payload.sub) {
-          req.headers['x-user-id'] = payload.sub;
-          if (payload.isAdmin === true) {
-            req.headers['x-user-admin'] = '1';
-          }
-        }
-      } catch {
-        // token invalide ou expiré : la requête reste anonyme
-      }
-    }
-    next();
-  });
+  // Ces deux middlewares portent la sécurité du gateway et vivent à part pour
+  // être testés unitairement (cf. `user-context.spec.ts`).
+  app.use(bloquerRoutesInternes);
+  app.use(contexteUtilisateur(jwtSecret));
 
   const routes: Array<[prefix: string, target: string]> = [
     ['/auth', process.env.AUTH_SERVICE_URL ?? 'http://localhost:4001'],

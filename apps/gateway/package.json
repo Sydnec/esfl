@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "nest start --watch",
     "build": "nest build",
-    "start:prod": "node dist/main.js"
+    "start:prod": "node dist/main.js",
+    "test": "vitest run"
   },
   "dependencies": {
     "@esfl/contracts": "workspace:*",
@@ -23,6 +24,7 @@
     "@types/express": "^5.0.0",
     "@types/jsonwebtoken": "^9.0.0",
     "@types/node": "^24.0.0",
-    "typescript": "^5.8.0"
+    "typescript": "^5.8.0",
+    "vitest": "^3.0.0"
   }
 }

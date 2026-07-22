@@ -7,7 +7,8 @@
     "build": "nest build",
     "start:prod": "node dist/main.js",
     "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev"
+    "prisma:migrate": "prisma migrate dev",
+    "test": "vitest run"
   },
   "dependencies": {
     "@esfl/contracts": "workspace:*",
@@ -30,6 +31,7 @@
     "@types/express": "^5.0.0",
     "@types/node": "^24.0.0",
     "prisma": "^6.0.0",
-    "typescript": "^5.8.0"
+    "typescript": "^5.8.0",
+    "vitest": "^3.0.0"
   }
 }
