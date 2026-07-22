@@ -169,6 +169,10 @@ describe('retryStatsBackfill', () => {
 function rosterSetup(opts: {
   localPlayers: Array<Record<string, unknown>>;
   pandascorePlayers: Array<{ id: number; name: string; role?: string | null }>;
+  /** Matchs notés récents de l'équipe, du plus récent au plus ancien. */
+  matchsRecents?: string[];
+  /** Joueurs de l'équipe vus dans ces matchs (union des lineups). */
+  joueursVus?: string[];
 }) {
   const created: Array<Record<string, unknown>> = [];
   const playerUpdates: Array<{ id: string; data: Record<string, unknown> }> = [];
@@ -206,6 +210,11 @@ function rosterSetup(opts: {
           return { count: 0 };
         },
       ),
+    },
+    // Balayage par participation : matchs notés récents et lineups associés.
+    match: { findMany: vi.fn(async () => (opts.matchsRecents ?? []).map((id) => ({ id }))) },
+    playerMatchStats: {
+      findMany: vi.fn(async () => (opts.joueursVus ?? []).map((playerId) => ({ playerId }))),
     },
   } as unknown as PrismaService;
   const pandascore = {
@@ -284,6 +293,41 @@ describe('syncRostersForCompetition (repurposé : adoption + fallback, zéro cr�
     expect(adoption?.data).toMatchObject({ pandascoreId: 501 });
     expect(adoption?.data).not.toHaveProperty('source');
     expect(adoption?.data).not.toHaveProperty('name');
+  });
+
+  it('le balayage sort du cinq un joueur absent des derniers matchs', async () => {
+    const { service, updateManys } = rosterSetup({
+      localPlayers: [],
+      pandascorePlayers: [],
+      matchsRecents: ['m1', 'm2', 'm3'],
+      joueursVus: ['p1', 'p2', 'p3', 'p4', 'p5'],
+    });
+    await service.syncRostersForCompetition('comp-1');
+    const balayage = updateManys.find((u) => u.where.active === true);
+    expect(balayage?.data).toMatchObject({ active: false });
+    expect(balayage?.where).toMatchObject({ id: { notIn: ['p1', 'p2', 'p3', 'p4', 'p5'] } });
+  });
+
+  it('aucun balayage sous trois matchs notés : trop peu pour juger', async () => {
+    const { service, updateManys } = rosterSetup({
+      localPlayers: [],
+      pandascorePlayers: [],
+      matchsRecents: ['m1', 'm2'],
+      joueursVus: ['p1', 'p2', 'p3', 'p4', 'p5'],
+    });
+    await service.syncRostersForCompetition('comp-1');
+    expect(updateManys.find((u) => u.where.active === true)).toBeUndefined();
+  });
+
+  it('aucun balayage si les lineups ne couvrent pas un cinq (capture trouée)', async () => {
+    const { service, updateManys } = rosterSetup({
+      localPlayers: [],
+      pandascorePlayers: [],
+      matchsRecents: ['m1', 'm2', 'm3'],
+      joueursVus: ['p1', 'p2', 'p3', 'p4'],
+    });
+    await service.syncRostersForCompetition('comp-1');
+    expect(updateManys.find((u) => u.where.active === true)).toBeUndefined();
   });
 
   it('le fallback actif Pandascore épargne les fiches provider non adoptées', async () => {

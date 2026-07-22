@@ -27,6 +27,18 @@ import {
 /** Durée de cache des rosters spécialisés (une équipe apparaît dans N compétitions). */
 const STARTER_CACHE_TTL_MS = 6 * 3600 * 1000;
 
+/**
+ * Matchs récents qui définissent le cinq actuel d'une équipe. Trois absorbe un
+ * remplaçant ponctuel sans traîner un joueur parti depuis un mois.
+ */
+const MATCHS_RECENTS = 3;
+
+/**
+ * Effectif d'un cinq, identique aux trois jeux. En dessous, la capture de
+ * stats des matchs retenus est trop trouée pour en déduire un roster.
+ */
+const EFFECTIF_COMPLET = 5;
+
 /** Rang des tiers Pandascore (s le plus haut). Sert à choisir le tier d'une série. */
 const TIER_RANK: Record<string, number> = { s: 5, a: 4, b: 3, c: 2, d: 1 };
 
@@ -317,6 +329,12 @@ export class IngestionService {
    * Marque `active` les seuls titulaires : source spécialisée du jeu si elle
    * répond, sinon fallback sur le roster courant Pandascore. Garde-fou : on ne
    * désactive jamais toute une équipe sur une liste vide.
+   *
+   * Le fallback Pandascore laisse deux trous, tous deux visibles en CS2 où
+   * bo3 n'expose pas de titulaires : une équipe dont Pandascore rend un roster
+   * VIDE n'est jamais réconciliée, et les fiches créées par le provider (sans
+   * pandascoreId) échappent de toute façon à son verdict. D'où le balayage par
+   * participation en dernier recours.
    */
   private async reconcileActiveRoster(team: Team, pandascoreIds: number[]): Promise<void> {
     const starters = await this.fetchSpecializedStarters(team);
@@ -336,6 +354,47 @@ export class IngestionService {
         where: { teamId: team.id, pandascoreId: { in: pandascoreIds } },
         data: { active: true },
       });
+    }
+    await this.sweepRosterParParticipation(team);
+  }
+
+  /**
+   * Dernier recours : le cinq actuel se déduit de qui a réellement joué les
+   * derniers matchs de l'équipe. Ne fait que DÉSACTIVER — les recrues entrent
+   * par les lineups des matchs, jamais par ici — et n'est appelé que si aucune
+   * source de roster n'a tranché, pour ne pas contredire un titulaire annoncé
+   * par Leaguepedia ou VLR qui n'a pas encore joué.
+   *
+   * Deux garde-fous contre les captures de stats trouées : il faut au moins
+   * MATCHS_RECENTS matchs notés, et leur union doit couvrir un cinq complet.
+   */
+  private async sweepRosterParParticipation(team: Team): Promise<void> {
+    const recents = await this.prisma.match.findMany({
+      where: {
+        status: 'finished',
+        OR: [{ teamAId: team.id }, { teamBId: team.id }],
+        stats: { some: {} },
+      },
+      orderBy: { scheduledAt: 'desc' },
+      take: MATCHS_RECENTS,
+      select: { id: true },
+    });
+    if (recents.length < MATCHS_RECENTS) return;
+
+    const lignes = await this.prisma.playerMatchStats.findMany({
+      where: { matchId: { in: recents.map((match) => match.id) }, player: { teamId: team.id } },
+      select: { playerId: true },
+      distinct: ['playerId'],
+    });
+    const titulaires = lignes.map((ligne) => ligne.playerId);
+    if (titulaires.length < EFFECTIF_COMPLET) return;
+
+    const { count } = await this.prisma.player.updateMany({
+      where: { teamId: team.id, active: true, id: { notIn: titulaires } },
+      data: { active: false },
+    });
+    if (count > 0) {
+      this.logger.log(`Roster « ${team.name} » : ${count} joueur(s) sortis du cinq`);
     }
   }
 
@@ -457,6 +516,30 @@ export class IngestionService {
         await this.syncRostersForCompetition(competition.id);
       } catch (error) {
         this.logger.error(`syncRosters ${competition.name} : ${String(error)}`);
+      }
+    }
+    await this.sweepRostersSansSourceDeTitulaires();
+  }
+
+  /**
+   * Balaye les équipes dont AUCUNE source ne publie de titulaires : leur roster
+   * ne peut se déduire que des matchs joués, et la boucle ci-dessus ne visite
+   * que les compétitions actives, laissant les autres avec d'anciens joueurs
+   * indéfiniment. Purement local (aucun appel externe), donc peu coûteux même
+   * sur tout le référentiel.
+   *
+   * Branché sur la CAPACITÉ du provider : le jour où bo3 publiera des
+   * titulaires, ce balayage cessera de lui être appliqué sans rien changer ici.
+   */
+  private async sweepRostersSansSourceDeTitulaires(): Promise<void> {
+    const jeux = GAME_IDS.filter((game) => !this.providerFor(game)?.fetchStarters);
+    if (jeux.length === 0) return;
+    const teams = await this.prisma.team.findMany({ where: { gameId: { in: [...jeux] } } });
+    for (const team of teams) {
+      try {
+        await this.sweepRosterParParticipation(team);
+      } catch (error) {
+        this.logger.warn(`Balayage roster « ${team.name} » : ${String(error)}`);
       }
     }
   }
