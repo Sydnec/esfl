@@ -162,6 +162,8 @@ interface PlayerAccumulator {
   /** Manches couvertes par un KAST connu, et sa somme pondérée. */
   kastRounds: number;
   kastWeighted: number;
+  /** Idem pour le rating : manches où il est publié, et sa somme pondérée. */
+  ratingRounds: number;
   ratingWeighted: number;
   perMap: Prisma.JsonArray;
   raw: Bo3GamePlayerStat[];
@@ -219,6 +221,7 @@ export function mapBo3GameStats(
         damage: 0,
         kastRounds: 0,
         kastWeighted: 0,
+        ratingRounds: 0,
         ratingWeighted: 0,
         perMap: [],
         raw: [],
@@ -226,6 +229,12 @@ export function mapBo3GameStats(
       byPlayer.set(key, acc);
     }
 
+    // L'équipe peut manquer sur une ligne et être présente sur la suivante :
+    // sans cette reprise, une première map incomplète condamnait le joueur à
+    // rester sans côté pour toute la rencontre.
+    if (acc.teamId < 0) {
+      acc.teamId = row.team_clan?.team_id ?? row.team_clan?.team?.id ?? -1;
+    }
     acc.rounds += rounds;
     acc.kills += row.kills ?? 0;
     acc.deaths += row.death ?? 0;
@@ -236,7 +245,13 @@ export function mapBo3GameStats(
     acc.clutches += row.clutches ?? 0;
     acc.headshots += row.headshots ?? 0;
     acc.damage += row.damage ?? (row.adr ?? 0) * rounds;
-    acc.ratingWeighted += (row.player_rating ?? 0) * rounds;
+    // Rating et KAST suivent la même règle : une map sans valeur ne compte pas
+    // au dénominateur. Imputer 0 tirerait la moyenne vers le bas alors que la
+    // donnée est seulement absente (map en cours, parsing en retard).
+    if (row.player_rating != null) {
+      acc.ratingRounds += rounds;
+      acc.ratingWeighted += row.player_rating * rounds;
+    }
     if (row.kast != null) {
       acc.kastRounds += rounds;
       acc.kastWeighted += row.kast * rounds;
@@ -287,7 +302,7 @@ export function mapBo3GameStats(
       adr: round2(acc.damage / acc.rounds),
       // Fraction bo3 ramenée en pourcentage, comme le KAST Valorant.
       kast: acc.kastRounds > 0 ? round1((acc.kastWeighted / acc.kastRounds) * 100) : null,
-      rating: round3(acc.ratingWeighted / acc.rounds),
+      rating: acc.ratingRounds > 0 ? round3(acc.ratingWeighted / acc.ratingRounds) : null,
       // bo3 n'expose pas les plants/defuses par joueur.
       plants: null,
       defuses: null,
@@ -438,7 +453,15 @@ export class Bo3StatsProvider implements GameStatsProvider {
       // Statut déjà connu quand la résolution vient du scan de fenêtre : on
       // n'interroge bo3 que sur le chemin « match mémorisé ».
       const status = resolved.status ?? (await this.getMatch(matchId))?.status;
-      if (status && status !== 'finished') return null;
+      // Statut indéterminé : on s'abstient. Poursuivre figerait comme
+      // définitives les stats d'un match peut-être encore en cours — ce que ce
+      // garde existe précisément pour empêcher. Le retry repassera.
+      if (status !== 'finished') {
+        if (!silent && !status) {
+          this.logger.warn(`bo3 : statut de ${match.name} indéterminé, ingestion différée`);
+        }
+        return null;
+      }
     }
 
     const gamesList = await this.get<Bo3List<Bo3Game>>(

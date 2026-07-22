@@ -6,7 +6,6 @@ import {
   cs2Rating,
   LOL_LAMBDA,
   LolDistributions,
-  lolRating,
   lolRatingV5,
   mapsPlayed,
   noteDepuisRating,
@@ -108,16 +107,6 @@ describe('formules de rating — ancrages', () => {
     expect(fragger).toBeGreaterThan(soutien);
   });
 
-  it('LoL : la formule récompense chaque composante, à toutes choses égales', () => {
-    // Ancrage relatif plutôt qu'absolu : un seuil chiffré serait à réécrire à
-    // chaque recalibrage, alors que le sens de variation, lui, ne bouge pas.
-    const reference = { kda: 3, kp: 64, gpm: 400, vsm: 1.9 };
-    const base = lolRating(reference);
-    expect(lolRating({ ...reference, kda: 5 })).toBeGreaterThan(base);
-    expect(lolRating({ ...reference, kp: 75 })).toBeGreaterThan(base);
-    expect(lolRating({ ...reference, gpm: 480 })).toBeGreaterThan(base);
-    expect(lolRating({ ...reference, vsm: 2.6 })).toBeGreaterThan(base);
-  });
 });
 
 describe('canonicalLolRole', () => {

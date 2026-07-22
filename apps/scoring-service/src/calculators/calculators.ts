@@ -95,8 +95,10 @@ export function canonicalLolRole(role: string | null | undefined): string {
 // ─── Conversion Rating → Note (ÉDITABLE) ────────────────────────────────────
 
 /**
- * Dispersion de référence des ratings, commune aux trois jeux. C'est le σ
- * naturel du rating VLR mesuré sur la population réelle (0,202).
+ * Dispersion de référence des ratings, commune aux trois jeux : le σ naturel du
+ * rating VLR mesuré sur la population. Ne sert plus à convertir — la courbe
+ * raisonne directement en écarts-types — mais reste la cible que `LOL_LAMBDA`
+ * vise, le rating LoL étant construit et non mesuré.
  */
 export const SIGMA_REF = 0.2;
 
@@ -195,22 +197,17 @@ export function valorantRating(i: {
   return i.kpr * 0.55 + i.apr * 0.23 + i.adr * 0.0025 + i.kast * 0.0031 - i.dpr * 0.87 + 0.61;
 }
 
-/** LoL (impact global, données complètes). KP % entier, GPM = or/min, VSM = vision/min. */
-export function lolRating(i: { kda: number; kp: number; gpm: number; vsm: number }): number {
-  return i.kda * 0.05 + i.kp * 0.005 + i.gpm * 0.001 + i.vsm * 0.1 + 0.15;
-}
-
 /**
  * LoL de SECOURS quand GPM (et souvent VSM) manquent : Leaguepedia n'a le détail
  * complet que pour les ligues majeures (bots Riot) ; les ligues mineures sont
  * saisies à la main, souvent limitées au KDA/KP. On surpondère alors ce qui est
  * toujours présent (KDA plafonné + Kill Participation).
  *
- * ATTENTION : sa distribution n'est PAS celle de `lolRating`, alors que les deux
- * partagent la ligne `lol` de `CALIBRAGE_JEU`. Aucune ligue ne l'emprunte
- * aujourd'hui (0 sur 5 242 lignes mesurées), mais le jour où une ligue mineure y
- * bascule, ses notes seront décentrées d'autant. Il faudra alors mesurer sa
- * médiane à part et lui donner son propre calibrage.
+ * ATTENTION : sa distribution n'est PAS celle de `lolRatingV5`, alors que les
+ * deux partagent la ligne `lol` de `CALIBRAGE_JEU`, calibrée sur la seconde.
+ * Aucune ligue ne l'emprunte aujourd'hui (0 sur 5 242 lignes mesurées), mais le
+ * jour où une ligue mineure y bascule, ses notes seront décentrées d'autant. Il
+ * faudra alors mesurer sa médiane à part et lui donner son propre calibrage.
  */
 export function lolFallbackRating(i: { kda: number; kp: number }): number {
   return i.kda * 0.06 + i.kp * 0.008 + 0.2;
@@ -474,9 +471,6 @@ function base(player: PlayerStatLine, ctx: MatchScoringContext): BaseResult {
   const kda = Math.min(LOL_KDA_MAX, (num(n, 'kills') + num(n, 'assists')) / Math.max(1, deaths));
   // killParticipation stocké en fraction (0-1) → pourcentage entier attendu.
   const kp = num(n, 'killParticipation') * 100;
-  const gpm = num(n, 'goldPerMin');
-  const vsm = num(n, 'visionPerMin');
-
   // LoL-Rating : sous-scores standardisés DANS le rôle. Demande les parts
   // d'équipe (dégâts, or, vision) ; le contrôle des objectifs peut manquer sur
   // une partie trop courte, son Z tombe alors à 0 sans fausser le reste.
@@ -504,11 +498,7 @@ function base(player: PlayerStatLine, ctx: MatchScoringContext): BaseResult {
     return { player, rating, derived };
   }
 
-  // Repli historique quand les parts d'équipe manquent (ligues mineures).
-  if (has(n, 'goldPerMin') && gpm > 0) {
-    const derived = { kda, kp, gpm, vsm };
-    return { player, rating: lolRating(derived), derived };
-  }
+  // Repli quand les parts d'équipe manquent (ligues mineures saisies à la main).
   const derived = { kda, kp, fallback: 1 };
   return { player, rating: lolFallbackRating({ kda, kp }), derived };
 }
