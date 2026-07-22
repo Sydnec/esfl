@@ -226,9 +226,12 @@ describe('scoreMatch — bonus contextuels', () => {
         role,
         teamSide: 'A' as const,
         normalized: {
-          kills: 3,
-          deaths: 3,
-          assists: 6,
+          // (K+A)/D doit approcher le KDA médian du rôle, sinon c'est cette
+          // composante qui décale la note. Dix morts rendent l'arrondi du
+          // numérateur négligeable, K/D/A étant des entiers.
+          kills: 4,
+          deaths: 10,
+          assists: Math.round(d.kda.moyenne * 10) - 4,
           damageShare: d.dpmg.moyenne * d.visionShare.moyenne * 0 + d.dpmg.moyenne * 0.2,
           goldShare: 0.2,
           killParticipation: d.kp.moyenne,
@@ -240,9 +243,9 @@ describe('scoreMatch — bonus contextuels', () => {
     };
     const [sup] = scoreMatch([median('Support')], { rounds: 0 });
     const [top] = scoreMatch([median('Top')], { rounds: 0 });
-    // Défaite des deux côtés : même modificateur de résultat, donc même note.
-    // C'est l'égalité entre postes qui compte ; l'écart à 50 vient du seul
-    // modificateur de résultat, qui pèse ~4 points sur la courbe actuelle.
+    // C'est l'égalité entre postes qui compte : deux joueurs médians de rôles
+    // aux profils opposés obtiennent la même note. L'écart résiduel à 50 vient
+    // du modificateur de défaite et de l'arrondi du KDA, qui est discret.
     expect(sup.points).toBe(top.points);
     expect(Math.abs(sup.points - 50)).toBeLessThanOrEqual(5);
   });
@@ -292,6 +295,7 @@ describe('lolRatingV5 — standardisation par rôle', () => {
   const metrique = (moyenne: number, sigma: number) => ({ moyenne, sigma });
   const distributions: LolDistributions = {
     SUP: {
+      kda: metrique(4.4, 3.0),
       dpmg: metrique(0.5, 0.1),
       kp: metrique(0.7, 0.1),
       // Un support voit BEAUCOUP plus qu'un mid : c'est tout l'enjeu.
@@ -299,6 +303,7 @@ describe('lolRatingV5 — standardisation par rôle', () => {
       objControl: metrique(0.5, 0.2),
     },
     MID: {
+      kda: metrique(4.4, 3.0),
       dpmg: metrique(1.3, 0.2),
       kp: metrique(0.65, 0.1),
       visionShare: metrique(0.15, 0.03),
@@ -313,6 +318,7 @@ describe('lolRatingV5 — standardisation par rôle', () => {
       role,
       dpmg: d.dpmg.moyenne,
       kp: d.kp.moyenne,
+      kda: d.kda.moyenne,
       visionShare: d.visionShare.moyenne,
       objControl: d.objControl.moyenne,
       win: true,
@@ -351,11 +357,11 @@ describe('lolRatingV5 — standardisation par rôle', () => {
 
   it('reste dans [0, 2] : la note convertie ne peut ni dépasser 100 ni passer sous 0', () => {
     const max = lolRatingV5(
-      { role: 'MID', dpmg: 99, kp: 99, visionShare: 99, objControl: 99, win: true },
+      { role: 'MID', dpmg: 99, kp: 99, kda: 99, visionShare: 99, objControl: 99, win: true },
       distributions,
     );
     const min = lolRatingV5(
-      { role: 'MID', dpmg: -99, kp: -99, visionShare: -99, objControl: -99, win: false },
+      { role: 'MID', dpmg: -99, kp: -99, kda: -99, visionShare: -99, objControl: -99, win: false },
       distributions,
     );
     expect(max).toBeLessThanOrEqual(2);

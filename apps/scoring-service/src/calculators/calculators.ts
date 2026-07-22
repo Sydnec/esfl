@@ -213,7 +213,7 @@ export function lolFallbackRating(i: { kda: number; kp: number }): number {
 // ─── LoL-Rating 1.0 : sous-scores standardisés PAR RÔLE ─────────────────────
 
 /** Métriques du LoL-Rating, chacune standardisée dans son rôle. */
-export type LolMetrique = 'dpmg' | 'kp' | 'visionShare' | 'objControl';
+export type LolMetrique = 'dpmg' | 'kp' | 'kda' | 'visionShare' | 'objControl';
 
 /** Une métrique du joueur sur le match, avant standardisation. */
 export interface LolMetriques {
@@ -221,6 +221,8 @@ export interface LolMetriques {
   dpmg: number;
   /** Participation aux kills, en fraction (0-1). */
   kp: number;
+  /** (K+A)/D plafonné : tient lieu du KAST de la spec, absent de Leaguepedia. */
+  kda: number;
   /** Part du score de vision de l'équipe. */
   visionShare: number;
   /** Part des objectifs neutres pris par l'équipe. */
@@ -249,30 +251,35 @@ export type LolDistributions = Record<string, Record<LolMetrique, { moyenne: num
 // 0, donc une note neutre, plutôt que d'être jugé contre le mauvais poste.
 export const LOL_DISTRIBUTIONS: LolDistributions = {
   TOP: {
+    kda: { moyenne: 3.4896, sigma: 2.8717 },
     dpmg: { moyenne: 1.1027, sigma: 0.1829 },
     kp: { moyenne: 0.505, sigma: 0.1371 },
     visionShare: { moyenne: 0.1336, sigma: 0.0206 },
     objControl: { moyenne: 0.4998, sigma: 0.2019 },
   },
   JUN: {
+    kda: { moyenne: 4.2527, sigma: 2.965 },
     dpmg: { moyenne: 0.8193, sigma: 0.1382 },
     kp: { moyenne: 0.7101, sigma: 0.1171 },
     visionShare: { moyenne: 0.1787, sigma: 0.0229 },
     objControl: { moyenne: 0.4999, sigma: 0.202 },
   },
   MID: {
+    kda: { moyenne: 4.3554, sigma: 3.0327 },
     dpmg: { moyenne: 1.1703, sigma: 0.1709 },
     kp: { moyenne: 0.6292, sigma: 0.1288 },
     visionShare: { moyenne: 0.1325, sigma: 0.0216 },
     objControl: { moyenne: 0.4997, sigma: 0.2021 },
   },
   ADC: {
+    kda: { moyenne: 4.569, sigma: 3.1109 },
     dpmg: { moyenne: 1.1261, sigma: 0.1563 },
     kp: { moyenne: 0.6463, sigma: 0.1279 },
     visionShare: { moyenne: 0.1318, sigma: 0.0243 },
     objControl: { moyenne: 0.5, sigma: 0.202 },
   },
   SUP: {
+    kda: { moyenne: 4.4321, sigma: 3.0241 },
     dpmg: { moyenne: 0.6161, sigma: 0.1429 },
     kp: { moyenne: 0.7332, sigma: 0.1199 },
     visionShare: { moyenne: 0.4235, sigma: 0.0353 },
@@ -301,9 +308,9 @@ export const POIDS_ROLE_LOL: Record<string, { combat: number; macro: number }> =
 /**
  * Facteur d'échelle du tanh, fixé à `σ_raw / SIGMA_REF` pour que le rating ait
  * la dispersion de référence commune aux trois jeux. σ du score pondéré mesuré
- * à 0,582 sur la population : 0,582 / 0,20 = 2,91.
+ * à 0,563 sur la population : 0,563 / 0,20 = 2,81.
  */
-export const LOL_LAMBDA = 2.91;
+export const LOL_LAMBDA = 2.81;
 
 /** Modificateur de résultat : reflète la victoire sans écraser l'individuel. */
 export const LOL_BONUS_RESULTAT = 0.03;
@@ -335,7 +342,10 @@ export function lolRatingV5(
 ): number {
   const z = (metrique: LolMetrique, valeur: number) =>
     zRole(distributions, input.role, metrique, valeur);
-  const combat = 0.5 * z('dpmg', input.dpmg) + 0.5 * z('kp', input.kp);
+  // Trois composantes comme dans la spec, le KDA prenant la place du KAST
+  // qu'elle prévoyait : sans lui, ni les kills ni les morts n'entraient dans le
+  // rating, et un 16/3/12 gagnant pouvait finir quatrième de sa propre équipe.
+  const combat = (z('dpmg', input.dpmg) + z('kp', input.kp) + z('kda', input.kda)) / 3;
   // Le WPM de la spec est hors de portée : la table Cargo n'expose aucun champ
   // de wards. Les deux poids restants sont renormalisés à somme 1.
   const macro = 0.667 * z('visionShare', input.visionShare) + 0.333 * z('objControl', input.objControl);
@@ -455,6 +465,7 @@ function base(player: PlayerStatLine, ctx: MatchScoringContext): BaseResult {
     const metriques = {
       dpmg: num(n, 'damageShare') / goldShare,
       kp: num(n, 'killParticipation'),
+      kda,
       visionShare: num(n, 'visionShare'),
       objControl: num(n, 'objControl'),
     };
@@ -463,7 +474,9 @@ function base(player: PlayerStatLine, ctx: MatchScoringContext): BaseResult {
       role: canonicalLolRole(player.role),
       win: n.win === true,
     });
-    return { player, rating, derived: { ...metriques, kda, kp } };
+    // `kp` en pourcentage dans le breakdown, comme pour les autres jeux ;
+    // le rating, lui, consomme la fraction portée par `metriques`.
+    return { player, rating, derived: { ...metriques, kp } };
   }
 
   // Repli historique quand les parts d'équipe manquent (ligues mineures).
