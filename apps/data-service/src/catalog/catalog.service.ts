@@ -311,8 +311,14 @@ export class CatalogService {
   /**
    * Complétude des stats d'une journée Paris (base du gel des scores côté
    * scoring) : la journée est complète quand tous ses matchs sont terminés et
-   * que tous les finis récupérables (non-forfait, compétitions visibles de
-   * tier autorisé) ont leurs stats.
+   * que tous les finis RÉCUPÉRABLES ont leurs stats.
+   *
+   * Un match diagnostiqué `no-coverage` n'est pas récupérable : la source ne le
+   * référence pas, il n'aura jamais de stats. L'y compter empêcherait la
+   * journée d'être complète et la ferait geler à l'échéance de trois jours,
+   * avec un classement figé sur des données partielles. Un `name-mismatch`,
+   * lui, reste comptabilisé : il se corrige par un alias depuis /admin, et
+   * c'est justement cette pression qui doit rester visible.
    */
   async dayCompleteness(date: string) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
@@ -338,6 +344,7 @@ export class CatalogService {
         forfeit: true,
         beginAt: true,
         scheduledAt: true,
+        statsFailureKind: true,
         _count: { select: { stats: true } },
       },
     });
@@ -349,7 +356,9 @@ export class CatalogService {
       (match) => match.status !== 'finished' && match.status !== 'canceled',
     );
     const finished = dayMatches.filter((match) => match.status === 'finished' && !match.forfeit);
-    const missing = finished.filter((match) => match._count.stats === 0);
+    const missing = finished.filter(
+      (match) => match._count.stats === 0 && match.statsFailureKind !== 'no-coverage',
+    );
     return {
       date,
       totalMatches: dayMatches.length,
@@ -478,8 +487,10 @@ export class CatalogService {
    * Ids des matchs finis récents, dans une compétition suivie, sans stats mais
    * a priori récupérables : la source a la donnée, il manque juste le job
    * d'ingestion (matchs recréés par un re-sync, > 48h, donc jamais ré-ingérés
-   * seuls). `null` = fantasy-service injoignable : on ne tente rien plutôt
-   * que tout.
+   * seuls). Les matchs que la source ne référence pas (`no-coverage`) sont
+   * écartés : les réenfiler à chaque passage coûte une résolution complète pour
+   * un échec certain. `null` = fantasy-service injoignable : on ne tente rien
+   * plutôt que tout.
    */
   async reingestableMatchIds(
     followedCompetitionIds: string[] | null,
@@ -496,6 +507,7 @@ export class CatalogService {
         teamBId: { not: null },
         stats: { none: {} },
         competitionId: { in: followedCompetitionIds },
+        NOT: { statsFailureKind: 'no-coverage' },
       },
       select: { id: true },
       orderBy: { endAt: 'desc' },
