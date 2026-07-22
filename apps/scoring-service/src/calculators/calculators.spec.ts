@@ -368,6 +368,19 @@ describe('lolRatingV5 — standardisation par rôle', () => {
     expect(min).toBeGreaterThanOrEqual(0);
   });
 
+  it('une métrique absente est neutre, jamais une contre-performance', () => {
+    // objControl vaut 0,50 en moyenne pour 0,20 d'écart-type : le lire comme 0
+    // pèserait −2,5σ, soit près de trente points retirés pour une donnée
+    // simplement non publiée.
+    const reference = median('SUP');
+    const complet = lolRatingV5(reference, distributions);
+    const sansObjectifs = lolRatingV5({ ...reference, objControl: null }, distributions);
+    const objectifsAZero = lolRatingV5({ ...reference, objControl: 0 }, distributions);
+
+    expect(sansObjectifs).toBeCloseTo(complet, 10);
+    expect(objectifsAZero).toBeLessThan(complet - 0.05);
+  });
+
   it('sans table de calibrage, la formule est neutre plutôt que fausse', () => {
     expect(lolRatingV5(median('MID'), {})).toBeCloseTo(1.03, 5);
   });

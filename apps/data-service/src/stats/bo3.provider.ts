@@ -344,36 +344,64 @@ export class Bo3StatsProvider implements GameStatsProvider {
   readonly source = 'bo3';
   readonly gameId = 'cs2' as const;
   private readonly logger = new Logger(Bo3StatsProvider.name);
-  private readonly cache = new Map<string, { at: number; value: unknown }>();
+  /** La PROMESSE est mémorisée, pas sa valeur : cf. `cached`. */
+  private readonly cache = new Map<string, { at: number; reponse: Promise<unknown> }>();
 
   /**
-   * Mémoïse un appel dont la réponse est stable sur quelques minutes (liste de
-   * matchs d'une fenêtre, fiche équipe). Le résultat `null` est caché aussi :
-   * une équipe introuvable le reste, la re-chercher à chaque match du backfill
-   * coûterait autant qu'un vrai appel.
+   * Appel brut, en distinguant deux situations que `null` seul confondait :
+   * la source a répondu et ne connaît pas (`{ ok: true, data: null }`), ou la
+   * requête a échoué (`{ ok: false }`). Sans cette distinction, une panne
+   * passagère se mémorisait comme un vide légitime.
    */
-  private async cached<T>(key: string, load: () => Promise<T>): Promise<T> {
-    const hit = this.cache.get(key);
-    if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.value as T;
-    const value = await load();
-    if (this.cache.size >= CACHE_MAX_ENTRIES) this.cache.clear();
-    this.cache.set(key, { at: Date.now(), value });
-    return value;
-  }
-
-  private async get<T>(path: string): Promise<T | null> {
+  private async recuperer<T>(path: string): Promise<{ ok: true; data: T | null } | { ok: false }> {
     const spacing = BO3_MIN_SPACING_MS + Math.floor(Math.random() * BO3_JITTER_MS);
     try {
       const response = await politeFetch(`${BO3_API}${path}`, {}, spacing);
       if (!response.ok) {
         this.logger.warn(`bo3 ${path} → ${response.status}`);
-        return null;
+        return { ok: false };
       }
-      return (await response.json()) as T;
+      return { ok: true, data: (await response.json()) as T };
     } catch (error) {
       this.logger.warn(`bo3 ${path} : ${String(error)}`);
-      return null;
+      return { ok: false };
     }
+  }
+
+  /**
+   * Mémoïse un appel dont la réponse est stable sur quelques minutes (liste de
+   * matchs d'une fenêtre, fiche équipe).
+   *
+   * Deux propriétés, chacune corrigeant un défaut opposé du cache précédent.
+   *
+   * 1. La PROMESSE est posée avant le premier await, donc les appels
+   *    concurrents du même chemin la partagent. Avec cinq workers sur la même
+   *    journée, l'ancienne version lançait cinq requêtes identiques — le
+   *    gaspillage que le cache devait justement supprimer.
+   * 2. Un ÉCHEC n'est jamais mémorisé : l'entrée est retirée pour que l'appel
+   *    suivant retente. Auparavant, un seul 429 condamnait toute une fenêtre
+   *    pendant dix minutes, et tous ses matchs échouaient sans requête.
+   */
+  private cached<T>(path: string): Promise<T | null> {
+    const hit = this.cache.get(path);
+    if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.reponse as Promise<T | null>;
+
+    const reponse = this.recuperer<T>(path).then((resultat) => {
+      if (!resultat.ok) {
+        this.cache.delete(path);
+        return null;
+      }
+      return resultat.data;
+    });
+    if (this.cache.size >= CACHE_MAX_ENTRIES) this.cache.clear();
+    this.cache.set(path, { at: Date.now(), reponse });
+    return reponse;
+  }
+
+  /** Appel non mémoïsé : un échec y est indiscernable d'une absence. */
+  private async get<T>(path: string): Promise<T | null> {
+    const resultat = await this.recuperer<T>(path);
+    return resultat.ok ? resultat.data : null;
   }
 
   async fetchStats(match: Match, context: MatchContext): Promise<ProviderResult | null> {
@@ -500,7 +528,7 @@ export class Bo3StatsProvider implements GameStatsProvider {
         `/matches?page%5Blimit%5D=${MATCH_PAGE_SIZE}&page%5Boffset%5D=${page * MATCH_PAGE_SIZE}` +
         `&sort=-start_date&filter%5Bmatches.discipline_id%5D%5Beq%5D=${CS2_DISCIPLINE}` +
         `&filter%5Bmatches.start_date%5D%5Bgt%5D=${gt}&filter%5Bmatches.start_date%5D%5Blt%5D=${lt}`;
-      const list = await this.cached(path, () => this.get<Bo3List<Bo3Match>>(path));
+      const list = await this.cached<Bo3List<Bo3Match>>(path);
       const results = list?.results ?? [];
       for (const m of results) {
         if (!m.team1_id || !m.team2_id) continue;
@@ -563,7 +591,7 @@ export class Bo3StatsProvider implements GameStatsProvider {
 
   private async teamRefById(teamId: number): Promise<Bo3TeamRef | null> {
     const path = `/teams?page%5Blimit%5D=1&filter%5Bteams.id%5D%5Beq%5D=${teamId}`;
-    const list = await this.cached(path, () => this.get<Bo3List<Bo3TeamRef>>(path));
+    const list = await this.cached<Bo3List<Bo3TeamRef>>(path);
     return list?.results?.[0] ?? null;
   }
 
@@ -587,7 +615,7 @@ export class Bo3StatsProvider implements GameStatsProvider {
     const path =
       `/teams?page%5Blimit%5D=20&filter%5Bteams.discipline_id%5D%5Beq%5D=${CS2_DISCIPLINE}` +
       `&filter%5Bteams.name%5D%5Blike%5D=${encodeURIComponent(name)}`;
-    const list = await this.cached(path, () => this.get<Bo3List<Bo3TeamRef>>(path));
+    const list = await this.cached<Bo3List<Bo3TeamRef>>(path);
     const results = list?.results ?? [];
     const wanted = normalizeName(name);
     const exact = results.filter((t) => normalizeName(t.name) === wanted);
@@ -608,7 +636,7 @@ export class Bo3StatsProvider implements GameStatsProvider {
     const slug = toSlug(name);
     if (!slug) return null;
     const path = `/teams?page%5Blimit%5D=2&filter%5Bteams.slug%5D%5Beq%5D=${encodeURIComponent(slug)}`;
-    const list = await this.cached(path, () => this.get<Bo3List<Bo3TeamRef>>(path));
+    const list = await this.cached<Bo3List<Bo3TeamRef>>(path);
     const results = list?.results ?? [];
     return results.length === 1 ? results[0] : null;
   }

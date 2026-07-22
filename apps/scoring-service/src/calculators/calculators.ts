@@ -68,6 +68,12 @@ function numOr(source: Record<string, unknown>, key: string, fallback: number): 
   return has(source, key) ? (source[key] as number) : fallback;
 }
 
+/** Valeur si publiée, sinon `null` — la distinguer de 0 est ce qui évite de
+ * transformer une donnée absente en contre-performance. */
+function numOrNull(source: Record<string, unknown>, key: string): number | null {
+  return has(source, key) ? (source[key] as number) : null;
+}
+
 // Valeurs neutres d'imputation (médianes population), pour ne pas pénaliser un
 // trou de données de la source (VLR muet sur KAST/ADR sur certains matchs).
 const VALO_KAST_NEUTRE = 71;
@@ -215,18 +221,22 @@ export function lolFallbackRating(i: { kda: number; kp: number }): number {
 /** Métriques du LoL-Rating, chacune standardisée dans son rôle. */
 export type LolMetrique = 'dpmg' | 'kp' | 'kda' | 'visionShare' | 'objControl';
 
-/** Une métrique du joueur sur le match, avant standardisation. */
+/**
+ * Une métrique du joueur sur le match, avant standardisation. `null` signale
+ * une donnée non publiée, traitée comme neutre — à ne pas confondre avec 0,
+ * qui est une valeur mesurée.
+ */
 export interface LolMetriques {
   /** Damage-to-Gold : part de dégâts de l'équipe / part d'or de l'équipe. */
-  dpmg: number;
+  dpmg: number | null;
   /** Participation aux kills, en fraction (0-1). */
-  kp: number;
+  kp: number | null;
   /** (K+A)/D plafonné : tient lieu du KAST de la spec, absent de Leaguepedia. */
-  kda: number;
+  kda: number | null;
   /** Part du score de vision de l'équipe. */
-  visionShare: number;
+  visionShare: number | null;
   /** Part des objectifs neutres pris par l'équipe. */
-  objControl: number;
+  objControl: number | null;
 }
 
 /**
@@ -315,13 +325,23 @@ export const LOL_LAMBDA = 2.81;
 /** Modificateur de résultat : reflète la victoire sans écraser l'individuel. */
 export const LOL_BONUS_RESULTAT = 0.03;
 
-/** Écart à la moyenne du rôle, en écarts-types, borné à ±3. */
+/**
+ * Écart à la moyenne du rôle, en écarts-types, borné à ±3.
+ *
+ * Une métrique ABSENTE rend 0, soit la moyenne du rôle, et non l'écart qu'un
+ * zéro numérique produirait. La nuance est décisive : la part d'objectifs vaut
+ * 0,50 en moyenne pour 0,20 d'écart-type, si bien qu'un `objControl` manquant
+ * lu comme 0 pèserait −2,5σ. Sur un support, cela retirerait près de trente
+ * points de note pour une donnée simplement non publiée — la requête des
+ * objectifs étant explicitement best-effort côté Leaguepedia.
+ */
 function zRole(
   distributions: LolDistributions,
   role: string,
   metrique: LolMetrique,
-  valeur: number,
+  valeur: number | null,
 ): number {
+  if (valeur === null || !Number.isFinite(valeur)) return 0;
   const reference = distributions[role]?.[metrique] ?? distributions.Autre?.[metrique];
   if (!reference || reference.sigma <= 0) return 0;
   return clamp((valeur - reference.moyenne) / reference.sigma, -LOL_Z_CLIP, LOL_Z_CLIP);
@@ -340,7 +360,7 @@ export function lolRatingV5(
   input: LolMetriques & { role: string; win: boolean },
   distributions: LolDistributions = LOL_DISTRIBUTIONS,
 ): number {
-  const z = (metrique: LolMetrique, valeur: number) =>
+  const z = (metrique: LolMetrique, valeur: number | null) =>
     zRole(distributions, input.role, metrique, valeur);
   // Trois composantes comme dans la spec, le KDA prenant la place du KAST
   // qu'elle prévoyait : sans lui, ni les kills ni les morts n'entraient dans le
@@ -462,12 +482,13 @@ function base(player: PlayerStatLine, ctx: MatchScoringContext): BaseResult {
   // une partie trop courte, son Z tombe alors à 0 sans fausser le reste.
   const goldShare = num(n, 'goldShare');
   if (has(n, 'visionShare') && goldShare > 0) {
+    const damageShare = numOrNull(n, 'damageShare');
     const metriques = {
-      dpmg: num(n, 'damageShare') / goldShare,
-      kp: num(n, 'killParticipation'),
+      dpmg: damageShare === null ? null : damageShare / goldShare,
+      kp: numOrNull(n, 'killParticipation'),
       kda,
-      visionShare: num(n, 'visionShare'),
-      objControl: num(n, 'objControl'),
+      visionShare: numOrNull(n, 'visionShare'),
+      objControl: numOrNull(n, 'objControl'),
     };
     const rating = lolRatingV5({
       ...metriques,
@@ -476,7 +497,11 @@ function base(player: PlayerStatLine, ctx: MatchScoringContext): BaseResult {
     });
     // `kp` en pourcentage dans le breakdown, comme pour les autres jeux ;
     // le rating, lui, consomme la fraction portée par `metriques`.
-    return { player, rating, derived: { ...metriques, kp } };
+    // Le breakdown reste numérique : `null` y devient 0, c'est un affichage.
+    const derived = Object.fromEntries(
+      Object.entries({ ...metriques, kp }).map(([cle, valeur]) => [cle, valeur ?? 0]),
+    );
+    return { player, rating, derived };
   }
 
   // Repli historique quand les parts d'équipe manquent (ligues mineures).
