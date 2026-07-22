@@ -30,13 +30,12 @@ describe('evaluerCoherence', () => {
     expect(result.raison).toMatch(/3 absente/);
   });
 
-  it('signale un roster de map incomplet', () => {
+  it('tolère un roster partiel (pas de relance sans fin sur un joueur manquant)', () => {
     const result = evaluerCoherence(
       { gameId: 'cs2', gamesSummary: [{ position: 1, scoreA: 13, scoreB: 11, winner: 'A' }] },
       stats([{ position: 1, rounds: 24 }], 8),
     );
-    expect(result.coherent).toBe(false);
-    expect(result.raison).toMatch(/incomplète/);
+    expect(result.coherent).toBe(true);
   });
 
   it('signale un compte de manches tronqué (snapshot figé en cours de map)', () => {

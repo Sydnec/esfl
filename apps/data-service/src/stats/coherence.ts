@@ -8,8 +8,10 @@ import { MapStatsEntry } from '@esfl/contracts';
  *
  * Deux niveaux, indexés par `position` (uniforme aux 3 jeux) :
  *  1. Couverture : chaque map/game JOUÉE dans `gamesSummary` doit apparaître dans
- *     le `perMap` des stats avec l'effectif attendu (map entièrement absente ou
- *     roster incomplet → incohérent).
+ *     le `perMap` des stats. Seule une map/game TOTALEMENT absente est bloquante
+ *     (un roster partiel est toléré : une source rend parfois 9/10 joueurs sur
+ *     une game, et pour CS2 un fetch partiel est de toute façon rattrapé par le
+ *     niveau 2).
  *  2. Rounds : pour les jeux à manches dont le provider publie `rounds` par map
  *     (CS2), le nombre de manches des stats doit égaler `scoreA + scoreB` de
  *     `gamesSummary` (snapshot figé en cours de map → moins de rounds).
@@ -17,9 +19,6 @@ import { MapStatsEntry } from '@esfl/contracts';
  * Pure lecture, aucun appel externe : réutilisable côté ingestion (décider d'une
  * relance) comme côté complétude d'une journée (décider d'un gel).
  */
-
-/** Joueurs attendus par map jouée (les deux équipes réunies). */
-const JOUEURS_PAR_MAP: Record<string, number> = { cs2: 10, valorant: 10, lol: 10 };
 
 /**
  * Jeux dont on sait dériver le nombre de manches par map depuis les stats
@@ -95,19 +94,14 @@ export function evaluerCoherence(
   if (jouees.length === 0) return { coherent: true };
 
   const parPosition = entreesParPosition(stats);
-  const attendus = JOUEURS_PAR_MAP[match.gameId] ?? 1;
 
-  // Niveau 1 : couverture.
+  // Niveau 1 : couverture. On ne bloque que sur une map/game TOTALEMENT absente
+  // des stats — un roster partiel resterait incohérent à vie (source qui ne
+  // publie jamais un joueur) et ferait tourner la relance jusqu'à J+3 pour rien.
   for (const { position } of jouees) {
     const couvrant = parPosition.get(position) ?? [];
-    if (couvrant.length < attendus) {
-      return {
-        coherent: false,
-        raison:
-          couvrant.length === 0
-            ? `map/game ${position} absente des stats`
-            : `map/game ${position} incomplète (${couvrant.length}/${attendus} joueurs)`,
-      };
+    if (couvrant.length === 0) {
+      return { coherent: false, raison: `map/game ${position} absente des stats` };
     }
   }
 

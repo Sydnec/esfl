@@ -277,20 +277,26 @@ export class StatsIngestionService {
     // Stats présentes mais incohérentes avec la structure du match (source
     // encore en train de figer/corriger) : relance tant que la journée n'est
     // pas gelée. Le fetch a réussi, aucun retry ne se déclencherait sinon.
-    const apres = await this.prisma.match.findUnique({
-      where: { id: match.id },
-      select: { gameId: true, gamesSummary: true },
-    });
-    const statsPersistees = await this.prisma.playerMatchStats.findMany({
-      where: { matchId: match.id },
-      select: { perMap: true },
-    });
-    const coherence = evaluerCoherence(apres ?? match, statsPersistees);
-    if (!coherence.coherent && avantGel(match.endAt ?? match.beginAt ?? match.scheduledAt)) {
-      this.logger.warn(
-        `${match.name} : stats incohérentes (${coherence.raison}), relance planifiée`,
-      );
-      throw new Error(`Stats incohérentes pour ${match.name} : ${coherence.raison}`);
+    // Réservé au flux AUTOMATIQUE : une relance manuelle (force) rafraîchit une
+    // fois et rend la main sans échouer — le backfill horaire poursuit la
+    // relance auto si le match reste incohérent. `apres` relit le gamesSummary
+    // que persistResult vient de fusionner (scores de map ajoutés).
+    if (!force) {
+      const apres = await this.prisma.match.findUnique({
+        where: { id: match.id },
+        select: { gameId: true, gamesSummary: true },
+      });
+      const statsPersistees = await this.prisma.playerMatchStats.findMany({
+        where: { matchId: match.id },
+        select: { perMap: true },
+      });
+      const coherence = evaluerCoherence(apres ?? match, statsPersistees);
+      if (!coherence.coherent && avantGel(match.endAt ?? match.beginAt ?? match.scheduledAt)) {
+        this.logger.warn(
+          `${match.name} : stats incohérentes (${coherence.raison}), relance planifiée`,
+        );
+        throw new Error(`Stats incohérentes pour ${match.name} : ${coherence.raison}`);
+      }
     }
   }
 
