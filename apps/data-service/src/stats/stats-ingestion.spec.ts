@@ -579,7 +579,12 @@ describe('recordFailureDiagnosis — deux équipes déjà identifiées', () => {
     const ingestion = new StatsIngestionService(
       prisma,
       { echec: vi.fn(), succes: vi.fn() } as never,
-      ...([{}, {}, {}, {}, {}, {}] as never[]),
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
     );
     const suggest = vi.fn(async () => [{ side: 'A' as const, name: 'Autre' }]);
     const provider = { source: 'vlr', suggestTeamNames: suggest } as never;
