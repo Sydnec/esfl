@@ -3,7 +3,7 @@ import { parisDate } from '@esfl/contracts';
 import type { PrismaService } from '../prisma.service';
 import type { DataClient } from '../clients/data.client';
 import type { FantasyClient } from '../clients/fantasy.client';
-import { ScoringService } from './scoring.service';
+import { picksComptes, ScoringService } from './scoring.service';
 
 /**
  * Tests du gel des journées : une date gelée est immuable (recalculs bloqués,
@@ -74,7 +74,11 @@ describe('gel des journées', () => {
     const date = daysAgo(2);
     const { service, prisma } = setup({
       frozen: [date],
-      match: { id: 'm1', name: 'X vs Y', beginAt: new Date(Date.now() - 2 * 24 * 3600 * 1000).toISOString() },
+      match: {
+        id: 'm1',
+        name: 'X vs Y',
+        beginAt: new Date(Date.now() - 2 * 24 * 3600 * 1000).toISOString(),
+      },
     });
     const result = await service.computeForMatch('m1');
     expect(result).toEqual({ playersScored: 0, rostersUpdated: 0 });
@@ -87,7 +91,11 @@ describe('gel des journées', () => {
     const { service, deletes } = setup({
       frozen: [frozenDate],
       scoredMatches: {
-        gelé: { id: 'gelé', name: 'A vs B', beginAt: new Date(Date.now() - 5 * 24 * 3600 * 1000).toISOString() },
+        gelé: {
+          id: 'gelé',
+          name: 'A vs B',
+          beginAt: new Date(Date.now() - 5 * 24 * 3600 * 1000).toISOString(),
+        },
         libre: { id: 'libre', name: 'C vs D', beginAt: new Date().toISOString() },
       },
     });
@@ -129,5 +137,26 @@ describe('gel des journées', () => {
     });
     expect(await service.freezeEligibleDays()).toEqual([]);
     expect(frozenUpserts).toEqual([]);
+  });
+});
+
+describe('picksComptes', () => {
+  it('écarte le pick dont le match n’a pas été récupéré', () => {
+    const notes = new Map([['a', 80]]);
+    expect(picksComptes(['a', 'b'], notes, new Set(['b']))).toEqual(['a']);
+  });
+
+  it('garde le pick resté sur le banc : son match, lui, est récupéré', () => {
+    const notes = new Map([['a', 80]]);
+    expect(picksComptes(['a', 'b'], notes, new Set())).toEqual(['a', 'b']);
+  });
+
+  it('garde un joueur noté ailleurs le même jour, même signalé non couvert', () => {
+    const notes = new Map([['a', 80]]);
+    expect(picksComptes(['a'], notes, new Set(['a']))).toEqual(['a']);
+  });
+
+  it('rend une liste vide quand toute la journée est un trou', () => {
+    expect(picksComptes(['a', 'b'], new Map(), new Set(['a', 'b']))).toEqual([]);
   });
 });

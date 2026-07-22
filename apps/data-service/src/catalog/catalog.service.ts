@@ -456,6 +456,8 @@ export class CatalogService {
         beginAt: true,
         scheduledAt: true,
         statsFailureKind: true,
+        teamAId: true,
+        teamBId: true,
         _count: { select: { stats: true } },
       },
     });
@@ -478,7 +480,35 @@ export class CatalogService {
       complete: pending.length === 0 && missing.length === 0,
       /** Matchs finis avec stats : à re-noter une dernière fois avant le gel. */
       scoredMatchIds: finished.filter((match) => match._count.stats > 0).map((match) => match.id),
+      /**
+       * Joueurs dont un match du jour n'a AUCUNE stat. Un trou de récupération
+       * ne doit pas être imputé au joueur, donc au manager qui l'a pické : le
+       * scoring les écarte de la moyenne au lieu de leur compter 0. À ne pas
+       * confondre avec un joueur resté sur le banc, dont le match, lui, est
+       * bien récupéré.
+       */
+      uncoveredPlayerIds: await this.playersOfUncoveredMatches(finished),
     };
+  }
+
+  /** Titulaires des équipes engagées dans un match fini sans la moindre stat. */
+  private async playersOfUncoveredMatches(
+    finished: Array<{ teamAId: string | null; teamBId: string | null; _count: { stats: number } }>,
+  ): Promise<string[]> {
+    const teamIds = [
+      ...new Set(
+        finished
+          .filter((match) => match._count.stats === 0)
+          .flatMap((match) => [match.teamAId, match.teamBId])
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    if (teamIds.length === 0) return [];
+    const players = await this.prisma.player.findMany({
+      where: { teamId: { in: teamIds } },
+      select: { id: true },
+    });
+    return players.map((player) => player.id);
   }
 
   /** Détail d'un match avec équipes résolues (page match). */

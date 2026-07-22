@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { GameId, parisDate } from '@esfl/contracts';
+import { GameId, parisDate, FREEZE_DEADLINE_DAYS } from '@esfl/contracts';
 import {
   MatchScoringContext,
   PlayerStatLine,
@@ -22,9 +22,24 @@ const TOP_PLAYERS_PER_GAME = 100;
 /** Fenêtre de balayage du gel automatique (jours en arrière depuis hier). */
 const FREEZE_SCAN_DAYS = 10;
 /** Échéance dure : une journée incomplète est gelée quand même à J+3. */
-const FREEZE_DEADLINE_DAYS = 3;
 /** TTL du cache mémoire des dates gelées. */
 const FROZEN_CACHE_TTL_MS = 60_000;
+
+/**
+ * Picks qui entrent dans la moyenne du jour.
+ *
+ * Un pick sans note dont le match n'a PAS été récupéré en sort, numérateur et
+ * dénominateur : le trou est de notre côté, le manager n'a pas à le payer.
+ * Celui dont le match est bien récupéré garde son 0, il n'a réellement pas
+ * joué. Un joueur qui a une note ailleurs le même jour reste compté.
+ */
+export function picksComptes(
+  playerIds: string[],
+  notes: Map<string, number>,
+  nonCouverts: Set<string>,
+): string[] {
+  return playerIds.filter((id) => notes.has(id) || !nonCouverts.has(id));
+}
 
 @Injectable()
 export class ScoringService {
@@ -67,7 +82,9 @@ export class ScoringService {
    * Recalcule (idempotent) les points fantasy d'un match puis les scores
    * des rosters de la journée correspondante.
    */
-  async computeForMatch(matchId: string): Promise<{ playersScored: number; rostersUpdated: number }> {
+  async computeForMatch(
+    matchId: string,
+  ): Promise<{ playersScored: number; rostersUpdated: number }> {
     const match = await this.data.getMatch(matchId);
     // Journée gelée : ses notes sont immuables (stats.ingested tardif ou
     // recompute admin compris). Dégeler la date d'abord pour corriger.
@@ -125,7 +142,11 @@ export class ScoringService {
    * version courante (distributions incluses). À lancer après la mise à jour
    * des stats ingérées.
    */
-  async resetAndRecompute(): Promise<{ matches: number; playersScored: number; datesUpdated: number }> {
+  async resetAndRecompute(): Promise<{
+    matches: number;
+    playersScored: number;
+    datesUpdated: number;
+  }> {
     // Les journées gelées sont épargnées, même par la bascule : leurs points
     // et scores restent tels quels (dégeler la date d'abord pour tout refaire).
     const frozen = await this.frozenDates();
@@ -219,6 +240,12 @@ export class ScoringService {
       : rosters;
 
     let updated = 0;
+    // Joueurs pénalisés par un trou de récupération, une fois pour la journée.
+    // Indisponible (data-service muet) : ensemble vide, donc comportement
+    // inchangé plutôt qu'une exclusion hasardeuse.
+    const nonCouverts = new Set(
+      (await this.data.dayCompleteness(date).catch(() => null))?.uncoveredPlayerIds ?? [],
+    );
     // Matchs de la journée par ligue (mémoïsé par ligue).
     const dayMatchesByLeague = new Map<string, string[]>();
     for (const roster of impacted) {
@@ -227,7 +254,12 @@ export class ScoringService {
         const competitionIds = roster.league.competitions.map((entry) => entry.competitionId);
         dayMatchesByLeague.set(leagueId, await this.matchIdsForDate(competitionIds, date));
       }
-      updated += await this.scoreRoster(roster, date, dayMatchesByLeague.get(leagueId) ?? []);
+      updated += await this.scoreRoster(
+        roster,
+        date,
+        dayMatchesByLeague.get(leagueId) ?? [],
+        nonCouverts,
+      );
     }
     return updated;
   }
@@ -272,6 +304,7 @@ export class ScoringService {
     roster: FantasyRoster,
     date: string,
     dayMatchIds: string[],
+    nonCouverts: Set<string> = new Set(),
   ): Promise<number> {
     const playerIds = roster.picks.map((pick) => pick.playerId);
     if (playerIds.length === 0 || dayMatchIds.length === 0) return 0;
@@ -285,8 +318,10 @@ export class ScoringService {
       _avg: { points: true },
     });
     const byPlayer = new Map(rows.map((row) => [row.playerId, row._avg.points ?? 0]));
-    const total = playerIds.reduce((sum, id) => sum + (byPlayer.get(id) ?? 0), 0);
-    const points = Math.round((total / playerIds.length) * 100) / 100;
+    const comptes = picksComptes(playerIds, byPlayer, nonCouverts);
+    if (comptes.length === 0) return 0;
+    const total = comptes.reduce((sum, id) => sum + (byPlayer.get(id) ?? 0), 0);
+    const points = Math.round((total / comptes.length) * 100) / 100;
 
     await this.prisma.rosterScore.upsert({
       where: { rosterId: roster.id },
@@ -332,7 +367,9 @@ export class ScoringService {
    */
   async pointStats() {
     const [rows, meta] = await Promise.all([
-      this.prisma.fantasyPoints.findMany({ select: { gameId: true, points: true, playerId: true } }),
+      this.prisma.fantasyPoints.findMany({
+        select: { gameId: true, points: true, playerId: true },
+      }),
       this.data.getPlayerMeta(),
     ]);
     const metaById = new Map(meta.map((entry) => [entry.id, entry]));
@@ -345,9 +382,13 @@ export class ScoringService {
     >();
     const perPlayer = new Map<string, { gameId: string; sum: number; n: number }>();
     for (const row of rows) {
-      const hist =
-        histByGame.get(row.gameId) ??
-        { buckets: new Array(bucketCount).fill(0), count: 0, sum: 0, min: 100, max: 0 };
+      const hist = histByGame.get(row.gameId) ?? {
+        buckets: new Array(bucketCount).fill(0),
+        count: 0,
+        sum: 0,
+        min: 100,
+        max: 0,
+      };
       const idx = Math.min(bucketCount - 1, Math.max(0, Math.floor(row.points / bucketSize)));
       hist.buckets[idx] += 1;
       hist.count += 1;
@@ -405,7 +446,13 @@ export class ScoringService {
       return true;
     });
 
-    return { generatedAt: new Date().toISOString(), minScores: MIN_SCORES, bucketSize, distributions, topPlayers };
+    return {
+      generatedAt: new Date().toISOString(),
+      minScores: MIN_SCORES,
+      bucketSize,
+      distributions,
+      topPlayers,
+    };
   }
 
   /** Scores d'une journée donnée dans une ligue. */

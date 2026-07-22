@@ -37,3 +37,13 @@ export const submitRosterInputSchema = z.object({
   playerIds: z.array(z.string().min(1)).min(1).max(10),
 });
 export type SubmitRosterInput = z.infer<typeof submitRosterInputSchema>;
+
+/**
+ * Échéance dure du gel d'une journée, en jours : passé ce délai le scoring fige
+ * la journée avec les données disponibles, complètes ou non.
+ *
+ * Partagée parce qu'elle borne aussi l'ingestion : chercher les stats d'un
+ * match au-delà est sans objet, la note ne peut plus changer. Les deux services
+ * doivent bouger ensemble, d'où la constante commune.
+ */
+export const FREEZE_DEADLINE_DAYS = 3;

@@ -1,6 +1,6 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
-import { GameId, QUEUES, StatsIngestedEvent } from '@esfl/contracts';
+import { GameId, QUEUES, StatsIngestedEvent, FREEZE_DEADLINE_DAYS } from '@esfl/contracts';
 import { Queue } from 'bullmq';
 import { Prisma } from '../../generated/client';
 import type { Match, Player, Team } from '../../generated/client';
@@ -37,7 +37,7 @@ const LINEUP_SIZE = 5;
  * la note est figée, une stat qui arriverait enfin ne changerait plus rien.
  * Les sources publient de toute façon dans l'heure qui suit une rencontre.
  */
-const FENETRE_PUBLICATION_MS = 3 * 24 * 3600 * 1000;
+const FENETRE_PUBLICATION_MS = FREEZE_DEADLINE_DAYS * 24 * 3600 * 1000;
 
 /**
  * Faut-il renoncer à relancer l'ingestion de ce match ?

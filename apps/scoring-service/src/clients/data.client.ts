@@ -61,6 +61,8 @@ export interface DayCompleteness {
   complete: boolean;
   /** Matchs finis avec stats : à re-noter une dernière fois avant le gel. */
   scoredMatchIds: string[];
+  /** Joueurs dont un match du jour n'a aucune stat : écartés de la moyenne. */
+  uncoveredPlayerIds: string[];
 }
 
 /** Client REST interne vers le data-service. */
