@@ -90,7 +90,7 @@ export function MatchesOverview() {
       <div className={styles.headerRow}>
         <h2 className={styles.title}>Les matchs</h2>
         <button className={styles.filterToggle} onClick={() => setFilterOpen((open) => !open)}>
-          Filtrer{excluded.size > 0 ? ` (${excluded.size} masquée(s))` : ''}
+          Filtrer
         </button>
       </div>
 
