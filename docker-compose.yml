@@ -16,6 +16,25 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # Sauvegarde : dump horaire des données irremplaçables (comptes, ligues,
+  # rosters) et dump complet quotidien. Voir scripts/backup.sh et la section
+  # « Sauvegarde et restauration » de DEPLOY.md.
+  backup:
+    image: postgres:17-alpine
+    environment:
+      PGHOST: postgres
+      PGPASSWORD: ${POSTGRES_PASSWORD:?}
+      POSTGRES_USER: esfl
+      POSTGRES_DB: esfl
+      BACKUP_DIR: /backups
+    volumes:
+      - ./scripts/backup.sh:/backup.sh:ro
+      - ./backups:/backups
+    command: ['sh', '/backup.sh']
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: unless-stopped
+
   redis:
     image: redis:7-alpine
     volumes:

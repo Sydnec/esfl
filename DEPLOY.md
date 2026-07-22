@@ -92,6 +92,54 @@ matchs finis. Détails et suivi dans [docs/premier-lancement.md](docs/premier-la
 git pull && docker compose up -d --build
 ```
 
+## 5. Sauvegarde et restauration
+
+Le service `backup` du compose tourne en continu et écrit dans `./backups` sur
+l'hôte. Deux niveaux, parce que les 97 Mo de la base ne se valent pas :
+
+| Niveau | Contenu | Rythme | Conservation | Taille |
+| --- | --- | --- | --- | --- |
+| `critique` | schémas `auth` et `fantasy` | horaire | 30 jours | ~4 Ko |
+| `complet` | toute la base | quotidien | 7 jours | ~18 Mo |
+
+`data` et `scoring` se reconstruisent intégralement depuis Pandascore et les
+sources de stats — quelques heures d'ingestion. **Les comptes, ligues, rosters
+et picks, eux, ne se reconstruisent pas**, et pèsent 400 Ko : d'où leur rythme
+horaire et leur conservation longue.
+
+Les durées se règlent par `BACKUP_KEEP_FULL_DAYS` et `BACKUP_KEEP_CRITICAL_DAYS`.
+
+### Restaurer
+
+Les dumps sont produits avec `--clean --if-exists` : ils se restaurent sur une
+base déjà peuplée, sans la recréer.
+
+```bash
+# Remettre uniquement les comptes et les ligues (cas le plus fréquent).
+gunzip -c backups/esfl-critique-AAAAMMJJ-HHMM.sql.gz   | docker compose exec -T postgres psql -U esfl -d esfl
+
+# Tout remettre, après une perte de volume.
+gunzip -c backups/esfl-complet-AAAAMMJJ-HHMM.sql.gz   | docker compose exec -T postgres psql -U esfl -d esfl
+```
+
+Après une restauration complète, redémarrer les services pour vider les caches
+mémoire et laisser BullMQ repartir : `docker compose restart`.
+
+### Vérifier
+
+Une sauvegarde jamais restaurée n'est pas une sauvegarde. Le test se fait sur
+une base jetable, sans toucher à la production :
+
+```bash
+docker compose exec postgres psql -U esfl -d postgres -c 'CREATE DATABASE esfl_test;'
+gunzip -c backups/esfl-critique-*.sql.gz | docker compose exec -T postgres psql -U esfl -d esfl_test
+docker compose exec postgres psql -U esfl -d esfl_test -c 'SELECT count(*) FROM auth.users;'
+docker compose exec postgres psql -U esfl -d postgres -c 'DROP DATABASE esfl_test;'
+```
+
+Un passage unique se déclenche à la main avec
+`docker compose run --rm backup sh /backup.sh --once`.
+
 ## État des sources de stats (2026-07-14)
 
 Providers implémentés dans `apps/data-service/src/stats/` (un provider par jeu derrière

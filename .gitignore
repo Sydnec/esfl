@@ -21,3 +21,6 @@ coverage/
 *.log
 generated/
 CLAUDE.md
+
+# Dumps produits par le service `backup` (cf. DEPLOY.md).
+backups/
