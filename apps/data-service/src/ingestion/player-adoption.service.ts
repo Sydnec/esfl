@@ -141,6 +141,9 @@ export class PlayerAdoptionService {
    */
   private static readonly LOT = 150;
 
+  /** Vrai tant qu'un passage est en cours (cf. `adoptOrphans`). */
+  private enCours = false;
+
   async adoptOrphans(): Promise<AdoptionReport> {
     const report: AdoptionReport = {
       orphelins: 0,
@@ -154,6 +157,22 @@ export class PlayerAdoptionService {
       this.logger.warn('Adoption ignorée : PANDASCORE_TOKEN absent');
       return report;
     }
+    // Deux passages concurrents (tir du scheduler + déclenchement manuel) se
+    // marchent dessus : le premier fusionne une fiche que le second tient
+    // encore en mémoire. Un seul à la fois, le suivant reprendra le reliquat.
+    if (this.enCours) {
+      this.logger.warn('Adoption déjà en cours : passage ignoré');
+      return report;
+    }
+    this.enCours = true;
+    try {
+      return await this.passe(report);
+    } finally {
+      this.enCours = false;
+    }
+  }
+
+  private async passe(report: AdoptionReport): Promise<AdoptionReport> {
 
     for (const gameId of GAME_IDS) {
       const orphans = await this.prisma.player.findMany({
@@ -303,7 +322,9 @@ export class PlayerAdoptionService {
         lastName: rest.length > 0 ? rest.join(' ') : null,
         nationality: orphan.nationality ?? identity.nationality,
       };
-      await this.prisma.player.update({ where: { id: orphan.id }, data });
+      // `updateMany` et non `update` : la fiche peut avoir disparu entre-temps,
+      // absorbée par une fusion. Un `update` lèverait et perdrait tout le lot.
+      await this.prisma.player.updateMany({ where: { id: orphan.id }, data });
       Object.assign(orphan, data);
     }
     this.logger.log(

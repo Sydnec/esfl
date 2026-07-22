@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { disambiguate, nameVariants, realNameKey } from './player-adoption.service';
+import {
+  disambiguate,
+  nameVariants,
+  PlayerAdoptionService,
+  realNameKey,
+} from './player-adoption.service';
 import type { PSPlayer } from '../pandascore/pandascore.types';
 
 /** Candidat Pandascore minimal pour les tests de départage. */
@@ -106,5 +111,53 @@ describe('disambiguate', () => {
   it('candidats tous sans patronyme ne sont jamais réunis à tort', () => {
     const cands = [candidate(1, null, null), candidate(2, null, null)];
     expect(disambiguate(noIdentity, cands)).toEqual([]);
+  });
+});
+
+describe('adoptOrphans, passages concurrents', () => {
+  /** Service câblé sur un Prisma qui ne rend aucun orphelin, sauf blocage. */
+  function service(findMany: () => Promise<unknown[]>) {
+    return new PlayerAdoptionService(
+      { player: { findMany } } as never,
+      { enabled: true } as never,
+      { gameId: 'cs2' } as never,
+      { gameId: 'valorant' } as never,
+      { gameId: 'lol' } as never,
+    );
+  }
+
+  it('refuse un second passage tant que le premier tourne', async () => {
+    let debloquer!: () => void;
+    const premierLot = new Promise<void>((resolve) => {
+      debloquer = resolve;
+    });
+    let appels = 0;
+    const sujet = service(async () => {
+      appels += 1;
+      await premierLot;
+      return [];
+    });
+
+    const premier = sujet.adoptOrphans();
+    await Promise.resolve();
+    const second = await sujet.adoptOrphans();
+
+    // Le second rend un rapport vide sans avoir touché la base.
+    expect(second).toEqual({
+      orphelins: 0,
+      adoptes: 0,
+      fusionnes: 0,
+      ambigus: 0,
+      introuvables: 0,
+      erreurs: 0,
+    });
+    expect(appels).toBe(1);
+
+    debloquer();
+    await premier;
+
+    // Le verrou est rendu : le passage suivant repart.
+    await sujet.adoptOrphans();
+    expect(appels).toBeGreaterThan(1);
   });
 });
