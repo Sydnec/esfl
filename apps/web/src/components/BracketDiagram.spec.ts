@@ -20,14 +20,19 @@ describe('roundOf', () => {
     expect(new Set(indexes).size).toBe(16);
   });
 
-  it('classe les tours de playoffs, finale au rang 0', () => {
+  it('classe les tours de playoffs, la grande finale après la finale (rang négatif)', () => {
     expect(roundOf('Quarterfinal 3: TBD vs TBD')).toEqual({ rank: 2, index: 3 });
     expect(roundOf('Semifinal 2: TBD vs TBD')).toEqual({ rank: 1, index: 2 });
-    expect(roundOf('Grand final: TBD vs TBD')).toEqual({ rank: 0, index: 1 });
+    // La finale upper est au rang 0, la grande finale la prolonge à droite (-1).
+    expect(roundOf('Upper bracket final: TBD vs TBD')).toEqual({ rank: 0, index: 1 });
+    expect(roundOf('Grand final: TBD vs TBD')).toEqual({ rank: -1, index: 1 });
+    expect(roundOf('Grand final: TBD vs TBD')!.rank).toBeLessThan(
+      roundOf('Upper bracket final: TBD vs TBD')!.rank,
+    );
   });
 
   it('ignore les chiffres des noms d’équipe, après le « : »', () => {
-    expect(roundOf('Grand final: 9z vs G2')).toEqual({ rank: 0, index: 1 });
+    expect(roundOf('Grand final: 9z vs G2')).toEqual({ rank: -1, index: 1 });
   });
 
   it('reconnaît les tours « round N » du lower bracket comme cartes, pas comme liste', () => {

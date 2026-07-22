@@ -12,7 +12,10 @@ const COL_W = 160;
 
 /** Tour d'un match : rank 0 = finale (droite), rank plus grand = tour plus tôt (gauche). */
 const ROUND_RANKS: Array<{ re: RegExp; rank: number; label: string }> = [
-  { re: /grand ?final|grande finale|(^|:)\s*final|\bfinale?\b/i, rank: 0, label: 'Finale' },
+  // Grande finale : colonne à DROITE de la finale upper (rang négatif), pas
+  // confondue avec elle. Doit précéder l'entrée « final » générique.
+  { re: /grand ?final|grande finale/i, rank: -1, label: 'Grande finale' },
+  { re: /(^|:)\s*final|\bfinale?\b/i, rank: 0, label: 'Finale' },
   { re: /semi.?final|demi.?finale/i, rank: 1, label: 'Demi-finales' },
   { re: /quarter.?final|quart/i, rank: 2, label: 'Quarts' },
   { re: /round of 16|huiti|1\/8/i, rank: 3, label: '8es' },
@@ -102,7 +105,10 @@ export function BracketDiagram({ matches }: { matches: MatchSummary[] }) {
   const rest: MatchSummary[] = [];
   for (const match of matches) {
     const lower_name = match.name.toLowerCase();
-    if (/\bupper\b/.test(lower_name)) upper.push(match);
+    // La grande finale prolonge l'arbre upper (à droite de la finale upper),
+    // même sans le mot « upper » dans son nom.
+    if (/grand ?final/.test(lower_name)) upper.push(match);
+    else if (/\bupper\b/.test(lower_name)) upper.push(match);
     else if (/\blower\b/.test(lower_name)) lower.push(match);
     else rest.push(match);
   }
@@ -112,7 +118,7 @@ export function BracketDiagram({ matches }: { matches: MatchSummary[] }) {
       <div className={styles.doubleElim}>
         {upper.length > 0 && <SubBracket matches={upper} label="Upper bracket" />}
         {lower.length > 0 && <SubBracket matches={lower} label="Lower bracket" />}
-        {rest.length > 0 && <SubBracket matches={rest} label="Grande finale" />}
+        {rest.length > 0 && <SubBracket matches={rest} />}
       </div>
     );
   }
