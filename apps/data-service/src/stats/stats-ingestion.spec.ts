@@ -136,12 +136,12 @@ describe('relanceInutile', () => {
   const maintenant = new Date('2026-07-22T18:00:00Z').getTime();
   const ilYA = (heures: number) => new Date(maintenant - heures * 3600 * 1000);
 
-  it('renonce quand la source ignore un match fini depuis plus de 48 h', () => {
-    expect(relanceInutile('no-coverage', ilYA(72), maintenant)).toBe(true);
+  it('renonce sur une absence passé le gel de la journée (J+3)', () => {
+    expect(relanceInutile('no-coverage', ilYA(24 * 4), maintenant)).toBe(true);
   });
 
-  it('persiste tant que la fenêtre de publication court', () => {
-    expect(relanceInutile('no-coverage', ilYA(6), maintenant)).toBe(false);
+  it('persiste tant que la note peut encore bouger', () => {
+    expect(relanceInutile('no-coverage', ilYA(48), maintenant)).toBe(false);
   });
 
   it('persiste sur un name-mismatch tant que la page admin l’expose', () => {

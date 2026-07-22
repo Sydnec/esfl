@@ -33,10 +33,11 @@ const LINEUP_SIZE = 5;
 
 /**
  * Delai au-delà duquel l'absence d'un match chez sa source est tenue pour
- * définitive. Les sources publient dans l'heure qui suit une rencontre ; 48 h
- * laissent une marge très large avant de renoncer.
+ * définitive. Calé sur le gel des journées du scoring (J+3) : passé ce point
+ * la note est figée, une stat qui arriverait enfin ne changerait plus rien.
+ * Les sources publient de toute façon dans l'heure qui suit une rencontre.
  */
-const FENETRE_PUBLICATION_MS = 48 * 3600 * 1000;
+const FENETRE_PUBLICATION_MS = 3 * 24 * 3600 * 1000;
 
 /**
  * Faut-il renoncer à relancer l'ingestion de ce match ?
