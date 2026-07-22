@@ -5,7 +5,7 @@ import type { Bo3StatsProvider } from './bo3.provider';
 import type { LeaguepediaStatsProvider } from './leaguepedia.provider';
 import type { VlrStatsProvider } from './vlr.provider';
 import type { MatchContext, ProviderResult } from './provider';
-import { StatsIngestionService } from './stats-ingestion';
+import { absenceDefinitive, StatsIngestionService } from './stats-ingestion';
 
 /**
  * Tests du cœur de l'ingestion (persistResult) avec un Prisma factice :
@@ -21,7 +21,10 @@ function fakePrisma() {
   const matchUpdates: Array<Record<string, unknown>> = [];
   const teamUpdates: Array<{ id: string; data: Record<string, unknown> }> = [];
   const playerUpdates: Array<{ id: string; data: Record<string, unknown> }> = [];
-  const playerUpdateManys: Array<{ where: Record<string, unknown>; data: Record<string, unknown> }> = [];
+  const playerUpdateManys: Array<{
+    where: Record<string, unknown>;
+    data: Record<string, unknown>;
+  }> = [];
   const statsDeletes: Array<Record<string, unknown>> = [];
   let nextId = 1;
   const prisma = {
@@ -129,6 +132,27 @@ function line(externalName: string, side: 'A' | 'B' | null): ProviderResult['lin
   return { externalName, side, raw: {}, normalized: { kills: 1 } };
 }
 
+describe('absenceDefinitive', () => {
+  const maintenant = new Date('2026-07-22T18:00:00Z').getTime();
+  const ilYA = (heures: number) => new Date(maintenant - heures * 3600 * 1000);
+
+  it('renonce quand la source ignore un match fini depuis plus de 48 h', () => {
+    expect(absenceDefinitive('no-coverage', ilYA(72), maintenant)).toBe(true);
+  });
+
+  it('persiste tant que la fenêtre de publication court', () => {
+    expect(absenceDefinitive('no-coverage', ilYA(6), maintenant)).toBe(false);
+  });
+
+  it('persiste sur un name-mismatch, réparable par un alias d’équipe', () => {
+    expect(absenceDefinitive('name-mismatch', ilYA(720), maintenant)).toBe(false);
+  });
+
+  it('persiste quand la date de fin est inconnue : rien pour juger', () => {
+    expect(absenceDefinitive('no-coverage', null, maintenant)).toBe(false);
+  });
+});
+
 describe('persistResult', () => {
   it('rattache par pseudo (exact, leet, inclusion) et upsert les stats', async () => {
     const { prisma, upserts, created } = fakePrisma();
@@ -142,10 +166,11 @@ describe('persistResult', () => {
     });
     expect(persisted).toBe(2);
     expect(created).toHaveLength(0);
-    expect(upserts.map((u) => (u.where as { matchId_playerId: { playerId: string } }).matchId_playerId.playerId)).toEqual([
-      'p1',
-      'p2',
-    ]);
+    expect(
+      upserts.map(
+        (u) => (u.where as { matchId_playerId: { playerId: string } }).matchId_playerId.playerId,
+      ),
+    ).toEqual(['p1', 'p2']);
   });
 
   it('crée la fiche d’un inconnu quand son côté est résolu, l’ignore sinon', async () => {
@@ -170,15 +195,18 @@ describe('persistResult', () => {
   it('mémorise la page source et fusionne les manches', async () => {
     const { prisma, matchUpdates } = fakePrisma();
     const ingestion = service(prisma);
-    await ingestion['persistResult'](match, context([{ id: 'p1', name: 'ZywOo', teamId: 'team-a' }]), 'grid', {
-      lines: [line('ZywOo', 'A')],
-      games: [{ position: 1, map: 'mirage', scoreA: 13, scoreB: 9 }],
-      pageUrl: '2955746',
-    });
+    await ingestion['persistResult'](
+      match,
+      context([{ id: 'p1', name: 'ZywOo', teamId: 'team-a' }]),
+      'grid',
+      {
+        lines: [line('ZywOo', 'A')],
+        games: [{ position: 1, map: 'mirage', scoreA: 13, scoreB: 9 }],
+        pageUrl: '2955746',
+      },
+    );
     const summary = matchUpdates.find((data) => 'gamesSummary' in data);
-    expect(summary?.gamesSummary).toEqual([
-      { position: 1, map: 'mirage', scoreA: 13, scoreB: 9 },
-    ]);
+    expect(summary?.gamesSummary).toEqual([{ position: 1, map: 'mirage', scoreA: 13, scoreB: 9 }]);
     expect(matchUpdates.find((data) => 'statsPageUrl' in data)?.statsPageUrl).toBe('2955746');
   });
 
@@ -334,8 +362,7 @@ describe('garde « les joueurs collent »', () => {
 describe('applyMatchRoster', () => {
   const playedAt = new Date('2026-07-10T18:00:00Z');
   const datedMatch = { ...match, beginAt: playedAt } as Match;
-  const lineup = (names: string[], side: 'A' | 'B') =>
-    names.map((name) => line(name, side));
+  const lineup = (names: string[], side: 'A' | 'B') => names.map((name) => line(name, side));
 
   it('le lineup du match devient le roster courant (teamId + active)', async () => {
     const { prisma, playerUpdateManys, teamUpdates } = fakePrisma();
@@ -357,8 +384,7 @@ describe('applyMatchRoster', () => {
     const deactivation = playerUpdateManys.find((u) => u.data.active === false);
     expect(deactivation?.where).toMatchObject({ teamId: 'team-a' });
     expect(
-      teamUpdates.find((u) => u.id === 'team-a' && 'rosterSyncedAt' in u.data)?.data
-        .rosterSyncedAt,
+      teamUpdates.find((u) => u.id === 'team-a' && 'rosterSyncedAt' in u.data)?.data.rosterSyncedAt,
     ).toEqual(playedAt);
   });
 
@@ -400,7 +426,11 @@ describe('applyMatchRoster', () => {
 describe('purgeStaleStats', () => {
   const lineup = (names: string[], side: 'A' | 'B') => names.map((name) => line(name, side));
   const roster = (prefix: string, teamId: string) =>
-    [1, 2, 3, 4, 5].map((index) => ({ id: `${prefix}${index}`, name: `${prefix}${index}`, teamId }));
+    [1, 2, 3, 4, 5].map((index) => ({
+      id: `${prefix}${index}`,
+      name: `${prefix}${index}`,
+      teamId,
+    }));
 
   it('supprime les lignes que le provider n’émet plus (fantôme déjà en base)', async () => {
     const { prisma, statsDeletes } = fakePrisma();
@@ -450,7 +480,11 @@ describe('resolveTeamProviderId', () => {
       { succes: vi.fn(), echec: vi.fn(async () => undefined) } as never,
       { gameId: 'cs2', source: 'bo3', ...overrides.bo3 } as Bo3StatsProvider,
       { gameId: 'valorant', source: 'vlr', ...overrides.vlr } as VlrStatsProvider,
-      { gameId: 'lol', source: 'leaguepedia', ...overrides.leaguepedia } as LeaguepediaStatsProvider,
+      {
+        gameId: 'lol',
+        source: 'leaguepedia',
+        ...overrides.leaguepedia,
+      } as LeaguepediaStatsProvider,
     );
   }
 
@@ -458,7 +492,10 @@ describe('resolveTeamProviderId', () => {
     const ingestion = withProviders({
       leaguepedia: {
         resolveTeamNames: vi.fn(async () => ['Berlin International Gaming', 'BIG']),
-        fetchTeamProfile: vi.fn(async () => ({ name: 'Berlin International Gaming', acronym: 'BIG' })),
+        fetchTeamProfile: vi.fn(async () => ({
+          name: 'Berlin International Gaming',
+          acronym: 'BIG',
+        })),
       },
     });
     const res = await ingestion.resolveTeamProviderId(
@@ -475,7 +512,10 @@ describe('resolveTeamProviderId', () => {
     const ingestion = withProviders({
       vlr: { fetchTeamProfile: vi.fn(async () => ({ name: 'Weibo Gaming' })) },
     });
-    const res = await ingestion.resolveTeamProviderId(valoTeam, 'https://www.vlr.gg/team/1184/weibo');
+    const res = await ingestion.resolveTeamProviderId(
+      valoTeam,
+      'https://www.vlr.gg/team/1184/weibo',
+    );
     expect(res.providerTeamId).toBe('1184');
   });
 

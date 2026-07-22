@@ -27,6 +27,30 @@ import { VlrStatsProvider } from './vlr.provider';
 /** Taille d'un alignement : CS2, Valorant et LoL sont tous en 5v5. */
 const LINEUP_SIZE = 5;
 
+/**
+ * Delai au-delà duquel l'absence d'un match chez sa source est tenue pour
+ * définitive. Les sources publient dans l'heure qui suit une rencontre ; 48 h
+ * laissent une marge très large avant de renoncer.
+ */
+const FENETRE_PUBLICATION_MS = 48 * 3600 * 1000;
+
+/**
+ * L'absence de stats est-elle définitive ?
+ *
+ * Oui seulement si la source ne référence pas du tout le match (`no-coverage`)
+ * ET que la fenêtre de publication est passée. Un `name-mismatch` reste
+ * relancé : il se répare par un alias d'équipe et peut aboutir. Une fin de
+ * match inconnue aussi, faute de pouvoir juger.
+ */
+export function absenceDefinitive(
+  diagnostic: string,
+  finDeMatch: Date | null,
+  maintenant: number = Date.now(),
+): boolean {
+  if (diagnostic !== 'no-coverage' || !finDeMatch) return false;
+  return maintenant - finDeMatch.getTime() > FENETRE_PUBLICATION_MS;
+}
+
 /** Slug d'un lien lol.fandom.com/wiki/... ; null si ce n'est pas un tel lien. */
 function leaguepediaSlug(input: string): string | null {
   const trimmed = input.trim();
@@ -162,10 +186,22 @@ export class StatsIngestionService {
     const context = await this.loadContext(match);
     const result = await provider.fetchStats(match, context);
     if (!result || result.lines.length === 0) {
-      await this.recordFailureDiagnosis(match, context, provider, force);
+      const diagnostic = await this.recordFailureDiagnosis(match, context, provider, force);
       // Un parser cassé ne lève rien : il rend zéro ligne. Seule la répétition
       // le distingue des matchs qu'une source ne référence pas.
       await this.alertes.echec(provider.source, `aucune stat pour ${match.name}`);
+      // Absence DÉFINITIVE : la source ne référence pas ce match et ne le
+      // publiera pas des semaines après sa fin. La chaîne de relances s'étale
+      // sur 63 h, calibrée pour une publication tardive (quelques heures), pas
+      // pour un match que la source n'a jamais eu : la poursuivre ne fait que
+      // consommer son quota. Un `name-mismatch` reste relancé, lui se répare
+      // par un alias d'équipe et peut aboutir.
+      if (absenceDefinitive(diagnostic, match.endAt ?? match.beginAt ?? match.scheduledAt)) {
+        this.logger.warn(
+          `${match.name} : absent de ${provider.source} ${FENETRE_PUBLICATION_MS / 3600000} h après la fin, relances abandonnées`,
+        );
+        return;
+      }
       throw new Error(
         `Stats indisponibles pour le match ${match.name} via ${provider.source}, nouvelle tentative planifiée`,
       );
@@ -198,9 +234,9 @@ export class StatsIngestionService {
     context: MatchContext,
     provider: GameStatsProvider,
     force = false,
-  ): Promise<void> {
+  ): Promise<string> {
     // Déjà diagnostiqué : on ne recalcule qu'à la relance manuelle (force).
-    if (match.statsFailureKind && !force) return;
+    if (match.statsFailureKind && !force) return match.statsFailureKind;
     let kind = 'no-coverage';
     let suggestion: Prisma.InputJsonValue | typeof Prisma.DbNull = Prisma.DbNull;
     if (provider.suggestTeamNames && context.teamA && context.teamB) {
@@ -214,6 +250,7 @@ export class StatsIngestionService {
       where: { id: match.id },
       data: { statsFailureKind: kind, statsSuggestion: suggestion },
     });
+    return kind;
   }
 
   /**
