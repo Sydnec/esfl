@@ -158,10 +158,11 @@ export class PlayerAdoptionService {
     for (const gameId of GAME_IDS) {
       const orphans = await this.prisma.player.findMany({
         where: { gameId, pandascoreId: null },
-        // Les plus récentes d'abord : un cuid croît avec le temps, et `Player`
-        // ne porte pas d'horodatage. Ce sont les fiches qu'un utilisateur a le
-        // plus de chances de croiser dans un board.
-        orderBy: { id: 'desc' },
+        // Les moins récemment tentées d'abord, jamais tentées en tête. Sans
+        // cela, les fiches que Pandascore ne connaît pas — 5 % d'un lot —
+        // reviendraient à chaque passage et finiraient par monopoliser le
+        // budget, laissant les nouvelles fiches indéfiniment de côté.
+        orderBy: [{ adoptionTriedAt: { sort: 'asc', nulls: 'first' } }, { id: 'desc' }],
         take: PlayerAdoptionService.LOT,
         select: {
           id: true,
@@ -217,6 +218,13 @@ export class PlayerAdoptionService {
         const exact = hits.filter((hit) => normalizeName(hit.name) === key);
         if (exact.length > 0) byKey.set(key, exact);
       }
+
+      // Tentative horodatée pour TOUS les orphelins du lot, quelle qu'en soit
+      // l'issue : c'est ce qui fait tourner la file au passage suivant.
+      await this.prisma.player.updateMany({
+        where: { id: { in: orphans.map((orphan) => orphan.id) } },
+        data: { adoptionTriedAt: new Date() },
+      });
 
       for (const orphan of orphans) {
         const candidates = byKey.get(normalizeName(orphan.name)) ?? [];

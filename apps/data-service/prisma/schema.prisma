@@ -123,6 +123,13 @@ model Player {
   pandascoreAliasIds Int[] @default([]) @map("pandascore_alias_ids")
   /** Champs possédés par un provider (cf. Team.fieldSources). */
   fieldSources Json?   @map("field_sources")
+  /**
+   * Dernière tentative d'adoption Pandascore. Le job traite les fiches les
+   * moins récemment tentées d'abord : une fiche introuvable n'est donc pas
+   * retentée à chaque passage au détriment de celles jamais essayées, tout en
+   * restant réexaminée un jour (Pandascore finit parfois par publier le joueur).
+   */
+  adoptionTriedAt DateTime? @map("adoption_tried_at")
   team         Team?   @relation(fields: [teamId], references: [id], onDelete: SetNull)
   stats        PlayerMatchStats[]
   adoptionCandidate PlayerAdoptionCandidate?
