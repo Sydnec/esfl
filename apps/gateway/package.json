@@ -6,7 +6,8 @@
     "dev": "nest start --watch",
     "build": "nest build",
     "start:prod": "node dist/main.js",
-    "test": "vitest run"
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@esfl/contracts": "workspace:*",

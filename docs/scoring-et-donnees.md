@@ -21,12 +21,12 @@ note      = clamp(ratingCal × 50, 0, 100)
 
 Repères, identiques dans les trois jeux :
 
-| Écart à la médiane | Note |
-| --- | --- |
-| médiane | **50** |
-| +1σ | 60 |
-| +3σ | 80 |
-| +5σ | **100** (exceptionnel) |
+| Écart à la médiane | Note                   |
+| ------------------ | ---------------------- |
+| médiane            | **50**                 |
+| +1σ                | 60                     |
+| +3σ                | 80                     |
+| +5σ                | **100** (exceptionnel) |
 
 Les points fantasy sont **arrondis à l'entier**. Le score journalier d'un roster
 est la **moyenne** des notes de ses picks (un pick qui n'a pas joué compte 0),
@@ -74,11 +74,11 @@ plaçait 82 supports dans le top 100.
 
 Appliqués après conversion, sur la note.
 
-| Jeu | Bonus |
-| --- | --- |
+| Jeu      | Bonus                                                                               |
+| -------- | ----------------------------------------------------------------------------------- |
 | Valorant | +3 au meilleur First Kill du match, −3 au pire First Death, +2 au-delà de 2 clutchs |
-| LoL | +8 Support (disparaîtra avec la standardisation par rôle) |
-| CS2 | aucun |
+| LoL      | +8 Support (disparaîtra avec la standardisation par rôle)                           |
+| CS2      | aucun                                                                               |
 
 ## Recalibrer
 
@@ -137,21 +137,21 @@ Attendu : une vingtaine de joueurs par rôle.
 
 Schéma normalisé par jeu : `packages/contracts/src/stats.ts`.
 
-| | CS2 (bo3.gg) | Valorant (VLR.gg) | LoL (Leaguepedia) |
-| --- | --- | --- | --- |
-| K/D/A | oui | oui | oui |
-| ADR | oui | oui | sans objet |
-| KAST | oui | oui | **non** |
-| Rating de la source | oui (échelle maison) | oui (VLR 2.0) | non |
-| First kills / deaths | oui | oui | non |
-| Clutchs, multikills | oui | oui | non |
-| Headshots | oui (nombre) | oui (%) | non |
-| Détail par manche | oui | oui | oui (par game) |
-| Parts d'équipe | sans objet | sans objet | dégâts, or, vision |
-| Objectifs neutres | non (ni plants ni defuses) | plants / defuses | barons, dragons, hérauts, grubs |
-| Nom civil, pays | oui | oui | partiel |
-| Données à 15 min | sans objet | sans objet | **non** |
-| Wards | sans objet | sans objet | **non** |
+|                      | CS2 (bo3.gg)               | Valorant (VLR.gg) | LoL (Leaguepedia)               |
+| -------------------- | -------------------------- | ----------------- | ------------------------------- |
+| K/D/A                | oui                        | oui               | oui                             |
+| ADR                  | oui                        | oui               | sans objet                      |
+| KAST                 | oui                        | oui               | **non**                         |
+| Rating de la source  | oui (échelle maison)       | oui (VLR 2.0)     | non                             |
+| First kills / deaths | oui                        | oui               | non                             |
+| Clutchs, multikills  | oui                        | oui               | non                             |
+| Headshots            | oui (nombre)               | oui (%)           | non                             |
+| Détail par manche    | oui                        | oui               | oui (par game)                  |
+| Parts d'équipe       | sans objet                 | sans objet        | dégâts, or, vision              |
+| Objectifs neutres    | non (ni plants ni defuses) | plants / defuses  | barons, dragons, hérauts, grubs |
+| Nom civil, pays      | oui                        | oui               | partiel                         |
+| Données à 15 min     | sans objet                 | sans objet        | **non**                         |
+| Wards                | sans objet                 | sans objet        | **non**                         |
 
 ### CS2 — bo3.gg
 

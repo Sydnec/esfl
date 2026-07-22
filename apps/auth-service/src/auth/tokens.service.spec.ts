@@ -29,9 +29,18 @@ function setup(stocke: Stocke | null) {
   const prisma = {
     refreshToken: { create, update, updateMany, findUnique },
   } as unknown as PrismaService;
-  const config = { get: vi.fn(() => undefined), getOrThrow: vi.fn(() => 'secret') } as unknown as ConfigService;
+  const config = {
+    get: vi.fn(() => undefined),
+    getOrThrow: vi.fn(() => 'secret'),
+  } as unknown as ConfigService;
   const jwt = { signAsync: vi.fn(async () => 'jwt') } as unknown as JwtService;
-  return { service: new TokensService(jwt, config, prisma), create, update, findUnique, updateMany };
+  return {
+    service: new TokensService(jwt, config, prisma),
+    create,
+    update,
+    findUnique,
+    updateMany,
+  };
 }
 
 const utilisateur = { id: 'u1', email: 'a@b.c', username: 'sydnec', isAdmin: false };
@@ -97,7 +106,9 @@ describe('rotateRefreshToken — rotation paresseuse', () => {
   it('sous 24h, rend le même token sans rien révoquer', async () => {
     // Deux refresh concurrents (double-mount React, retries 401 parallèles)
     // doivent recevoir la même réponse valide, pas s'entre-détruire.
-    const { service, update, create } = setup(jeton({ createdAt: new Date(Date.now() - JOUR / 2) }));
+    const { service, update, create } = setup(
+      jeton({ createdAt: new Date(Date.now() - JOUR / 2) }),
+    );
     const resultat = await service.rotateRefreshToken('brut');
     expect(resultat?.refresh.token).toBe('brut');
     expect(update).not.toHaveBeenCalled();
@@ -105,7 +116,9 @@ describe('rotateRefreshToken — rotation paresseuse', () => {
   });
 
   it('au-delà de 24h, révoque l’ancien ET en émet un nouveau', async () => {
-    const { service, update, create } = setup(jeton({ createdAt: new Date(Date.now() - 2 * JOUR) }));
+    const { service, update, create } = setup(
+      jeton({ createdAt: new Date(Date.now() - 2 * JOUR) }),
+    );
     const resultat = await service.rotateRefreshToken('brut');
     expect(update).toHaveBeenCalledOnce();
     expect(update.mock.calls[0][0]).toMatchObject({ where: { id: 'rt1' } });

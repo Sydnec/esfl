@@ -61,14 +61,14 @@ Les migrations Prisma s'appliquent automatiquement au démarrage de chaque
 service (`prisma migrate deploy`). L'ingestion Pandascore démarre seule si
 `PANDASCORE_TOKEN` est présent. Jobs planifiés (BullMQ) :
 
-| Job | Fréquence | Rôle |
-|---|---|---|
-| `sync-series` | 12 h | Compétitions actives (toutes, pour le planning) |
-| `sync-matches` | 15 min | Planning et résultats des matchs |
-| `sync-rosters` | 24 h | Rosters des compétitions suivies |
-| `sync-live` | 3 min | Fenêtre serrée sur les matchs imminents/en cours |
-| `sync-live-stats` | 3 min | Stats live pendant les séries (Valorant, CS2) |
-| `retry-stats-backfill` | 60 min | Rejoue l'ingestion des matchs finis restés sans stats |
+| Job                    | Fréquence | Rôle                                                  |
+| ---------------------- | --------- | ----------------------------------------------------- |
+| `sync-series`          | 12 h      | Compétitions actives (toutes, pour le planning)       |
+| `sync-matches`         | 15 min    | Planning et résultats des matchs                      |
+| `sync-rosters`         | 24 h      | Rosters des compétitions suivies                      |
+| `sync-live`            | 3 min     | Fenêtre serrée sur les matchs imminents/en cours      |
+| `sync-live-stats`      | 3 min     | Stats live pendant les séries (Valorant, CS2)         |
+| `retry-stats-backfill` | 60 min    | Rejoue l'ingestion des matchs finis restés sans stats |
 
 Les stats détaillées sont ingérées à la fin de chaque match (fenêtre 48 h) avec retries en
 backoff exponentiel (départ 15 min, 8 tentatives) et throttle par hôte.
@@ -130,10 +130,10 @@ configuration ne doit jamais faire échouer une ingestion.
 Le service `backup` du compose tourne en continu et écrit dans `./backups` sur
 l'hôte. Deux niveaux, parce que les 97 Mo de la base ne se valent pas :
 
-| Niveau | Contenu | Rythme | Conservation | Taille |
-| --- | --- | --- | --- | --- |
-| `critique` | schémas `auth` et `fantasy` | horaire | 30 jours | ~4 Ko |
-| `complet` | toute la base | quotidien | 7 jours | ~18 Mo |
+| Niveau     | Contenu                     | Rythme    | Conservation | Taille |
+| ---------- | --------------------------- | --------- | ------------ | ------ |
+| `critique` | schémas `auth` et `fantasy` | horaire   | 30 jours     | ~4 Ko  |
+| `complet`  | toute la base               | quotidien | 7 jours      | ~18 Mo |
 
 `data` et `scoring` se reconstruisent intégralement depuis Pandascore et les
 sources de stats — quelques heures d'ingestion. **Les comptes, ligues, rosters
@@ -178,11 +178,11 @@ Un passage unique se déclenche à la main avec
 Providers implémentés dans `apps/data-service/src/stats/` (un provider par jeu derrière
 `provider.ts`) :
 
-| Jeu | Source | État |
-|---|---|---|
-| Valorant | Scraper VLR.gg (cheerio) | ✅ validé en réel, stats live |
-| CS2 | bo3.gg (API JSON publique, sans clé) | ✅ validé en réel, stats **par map** et live (K/A/D, ADR, KAST, clutchs, FK/FD, headshots) |
-| LoL | Leaguepedia Cargo | ✅ implémenté (rate limit Fandom agressif, mutualisé par cache de fenêtre) |
+| Jeu      | Source                               | État                                                                                       |
+| -------- | ------------------------------------ | ------------------------------------------------------------------------------------------ |
+| Valorant | Scraper VLR.gg (cheerio)             | ✅ validé en réel, stats live                                                              |
+| CS2      | bo3.gg (API JSON publique, sans clé) | ✅ validé en réel, stats **par map** et live (K/A/D, ADR, KAST, clutchs, FK/FD, headshots) |
+| LoL      | Leaguepedia Cargo                    | ✅ implémenté (rate limit Fandom agressif, mutualisé par cache de fenêtre)                 |
 
 Le rapprochement provider ↔ Pandascore (`stats/matching.ts`) s'appuie sur des alias appris
 automatiquement par corrélation adverse et ajoutables à la main via la page admin. Voir

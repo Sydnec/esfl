@@ -35,7 +35,11 @@ describe('contexteUtilisateur — usurpation', () => {
 
   it('supprime les x-user-* entrants quand le token est invalide', () => {
     const req = passe(
-      requete({ 'x-user-id': 'usurpe', 'x-user-admin': '1', authorization: 'Bearer nimporte-quoi' }),
+      requete({
+        'x-user-id': 'usurpe',
+        'x-user-admin': '1',
+        authorization: 'Bearer nimporte-quoi',
+      }),
     );
     expect(req.headers['x-user-id']).toBeUndefined();
     expect(req.headers['x-user-admin']).toBeUndefined();
@@ -74,7 +78,9 @@ describe('contexteUtilisateur — validité du token', () => {
 
 describe('contexteUtilisateur — élévation admin', () => {
   it('pose x-user-admin quand isAdmin vaut exactement true', () => {
-    const req = passe(requete({ authorization: `Bearer ${sign({ sub: 'a', isAdmin: true }, SECRET)}` }));
+    const req = passe(
+      requete({ authorization: `Bearer ${sign({ sub: 'a', isAdmin: true }, SECRET)}` }),
+    );
     expect(req.headers['x-user-admin']).toBe('1');
   });
 
@@ -104,7 +110,11 @@ describe('bloquerRoutesInternes', () => {
   it('renvoie 404 sur une route interne, sans la proxyfier', () => {
     const res = reponse();
     const next = vi.fn();
-    bloquerRoutesInternes(requete({}, '/fantasy/internal/rosters'), res, next as unknown as NextFunction);
+    bloquerRoutesInternes(
+      requete({}, '/fantasy/internal/rosters'),
+      res,
+      next as unknown as NextFunction,
+    );
     expect(res.status).toHaveBeenCalledWith(404);
     expect(next).not.toHaveBeenCalled();
   });

@@ -75,7 +75,7 @@ describe('isLockedForDay', () => {
     ).toBe(false);
   });
 
-  it("compte uniquement les journées existantes de la ligue (pas les jours calendaires)", () => {
+  it('compte uniquement les journées existantes de la ligue (pas les jours calendaires)', () => {
     // Entre le 01 et le 08 il y a deux journées (03 et 05) : N=2 → libéré le 08.
     expect(
       isLockedForDay({

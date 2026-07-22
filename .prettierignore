@@ -1,0 +1,7 @@
+# Fichiers dont la mise en forme n'appartient pas à Prettier : ils sont
+# générés ou écrits par un outil qui a sa propre convention.
+pnpm-lock.yaml
+**/generated/
+**/dist/
+**/.next/
+**/prisma/migrations/

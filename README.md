@@ -10,16 +10,16 @@ Ligues privées entre amis, chaque ligue choisit les compétitions qu'elle suit.
 
 Monorepo pnpm — micro-services NestJS (VPS, Docker) + frontend Next.js (Vercel).
 
-| Workspace              | Rôle                                                        | Port |
-| ---------------------- | ---------------------------------------------------------- | ---- |
+| Workspace              | Rôle                                                           | Port |
+| ---------------------- | -------------------------------------------------------------- | ---- |
 | `apps/web`             | Frontend Next.js (App Router, CSS Modules, design minimaliste) | 3000 |
-| `apps/gateway`         | API publique, validation JWT, routage vers les services    | 4000 |
-| `apps/auth-service`    | Utilisateurs, OAuth Discord/Google, email+password, JWT    | 4001 |
-| `apps/data-service`    | Ingestion Pandascore + stats par jeu, données de référence | 4002 |
-| `apps/fantasy-service` | Ligues, compétitions suivies, rosters, locks               | 4003 |
-| `apps/scoring-service` | Calcul des points fantasy, leaderboards                    | 4004 |
-| `packages/contracts`   | Types, DTOs et événements partagés (zod)                   | —    |
-| `packages/config`      | tsconfig partagés                                          | —    |
+| `apps/gateway`         | API publique, validation JWT, routage vers les services        | 4000 |
+| `apps/auth-service`    | Utilisateurs, OAuth Discord/Google, email+password, JWT        | 4001 |
+| `apps/data-service`    | Ingestion Pandascore + stats par jeu, données de référence     | 4002 |
+| `apps/fantasy-service` | Ligues, compétitions suivies, rosters, locks                   | 4003 |
+| `apps/scoring-service` | Calcul des points fantasy, leaderboards                        | 4004 |
+| `packages/contracts`   | Types, DTOs et événements partagés (zod)                       | —    |
+| `packages/config`      | tsconfig partagés                                              | —    |
 
 Infra : PostgreSQL (un schéma par service) + Redis (cache + BullMQ). Le gateway est un proxy
 pur : il vérifie le JWT Bearer et le traduit en en-têtes `x-user-*` pour les services internes,

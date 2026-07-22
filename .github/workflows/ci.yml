@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
 
+# Une seule exécution par branche : un push qui en suit un autre annule le
+# précédent plutôt que de faire la queue.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   ci:
     runs-on: ubuntu-latest
@@ -21,12 +27,35 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # Les services importent generated/client (gitignoré) : generate obligatoire
-      # avant le build. Aucune connexion à la base n'est nécessaire.
-      - run: pnpm -r --if-present prisma:generate
+      # Les services importent generated/client (gitignoré) : generate est un
+      # prérequis de tout le reste, typecheck compris. Aucune connexion à la
+      # base n'est nécessaire.
+      - name: Client Prisma
+        run: pnpm -r --if-present prisma:generate
 
-      - run: pnpm build
+      # @esfl/contracts est consommé via son dist/ : sans ce build, les autres
+      # workspaces ne résolvent ni ses types ni ses constantes.
+      - name: Contracts
+        run: pnpm --filter @esfl/contracts build
 
-      - run: pnpm lint
+      # Étapes rapides d'abord : elles cadrent la majorité des erreurs et
+      # rendent la main en quelques secondes, là où le build prend des minutes.
+      - name: Format
+        run: pnpm exec prettier --check .
 
-      - run: pnpm -r --if-present test
+      - name: Lint
+        run: pnpm lint
+
+      # Distinct du build : `next build` ne typecheck pas les fichiers de test,
+      # exclus de son tsconfig parce qu'ils importent vitest. C'est
+      # `tsconfig.test.json` qui les couvre, via le script du workspace web.
+      - name: Typecheck
+        run: pnpm -r --if-present typecheck
+
+      - name: Tests
+        run: pnpm -r --if-present test
+
+      # En dernier : le plus lent, et tout ce qui précède l'a déjà largement
+      # dégrossi.
+      - name: Build
+        run: pnpm build
