@@ -1,6 +1,7 @@
 import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
 import { QUEUES } from '@esfl/contracts';
+import { AlerteService } from '../common/alerte.service';
 import { FantasyClient } from '../fantasy-client/fantasy.client';
 import { LiveModule } from '../live/live.module';
 import { PandascoreClient } from '../pandascore/pandascore.client';
@@ -24,6 +25,7 @@ import { TeamEnrichmentService } from './team-enrichment.service';
   ],
   providers: [
     PrismaService,
+    AlerteService,
     PandascoreClient,
     FantasyClient,
     IngestionService,

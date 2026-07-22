@@ -110,6 +110,7 @@ services:
       DATA_DATABASE_URL: postgresql://esfl:${POSTGRES_PASSWORD:?}@postgres:5432/esfl?schema=data
       REDIS_URL: redis://redis:6379
       PANDASCORE_TOKEN: ${PANDASCORE_TOKEN:-}
+      DISCORD_ALERT_WEBHOOK_URL: ${DISCORD_ALERT_WEBHOOK_URL:-}
       GRID_API_KEY: ${GRID_API_KEY:-}
       BALLCHASING_API_KEY: ${BALLCHASING_API_KEY:-}
       ADMIN_TOKEN: ${ADMIN_TOKEN:?}

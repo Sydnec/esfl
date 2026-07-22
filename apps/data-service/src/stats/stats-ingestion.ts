@@ -4,6 +4,7 @@ import { GameId, QUEUES, StatsIngestedEvent } from '@esfl/contracts';
 import { Queue } from 'bullmq';
 import { Prisma } from '../../generated/client';
 import type { Match, Player, Team } from '../../generated/client';
+import { AlerteService } from '../common/alerte.service';
 import { providerUpdate } from '../common/field-precedence';
 import { createPlayerSafely } from '../common/player-create';
 import { mergeGamesSummary } from '../common/games-summary';
@@ -48,6 +49,7 @@ export class StatsIngestionService {
     @InjectQueue(QUEUES.STATS_INGESTED) private readonly statsIngestedQueue: Queue,
     @InjectQueue(INGESTION_QUEUE) private readonly ingestionQueue: Queue,
     private readonly liveEvents: LiveEventsService,
+    private readonly alertes: AlerteService,
     private readonly bo3: Bo3StatsProvider,
     vlr: VlrStatsProvider,
     private readonly leaguepedia: LeaguepediaStatsProvider,
@@ -161,10 +163,14 @@ export class StatsIngestionService {
     const result = await provider.fetchStats(match, context);
     if (!result || result.lines.length === 0) {
       await this.recordFailureDiagnosis(match, context, provider, force);
+      // Un parser cassé ne lève rien : il rend zéro ligne. Seule la répétition
+      // le distingue des matchs qu'une source ne référence pas.
+      await this.alertes.echec(provider.source, `aucune stat pour ${match.name}`);
       throw new Error(
         `Stats indisponibles pour le match ${match.name} via ${provider.source}, nouvelle tentative planifiée`,
       );
     }
+    this.alertes.succes(provider.source);
 
     const persisted = await this.persistResult(match, context, provider.source, result);
     // Succès : on efface un éventuel diagnostic d'échec précédent.

@@ -110,6 +110,21 @@ docker compose ps                     # colonne STATUS : healthy / unhealthy
 docker inspect --format '{{json .State.Health}}' esfl-data-service-1
 ```
 
+### Alerte sur panne de source
+
+Un parser qui casse ne lève pas d'exception : il rend zéro ligne, le job part en
+retry et la couverture s'effrite en silence. Renseigner
+`DISCORD_ALERT_WEBHOOK_URL` (Paramètres du salon → Intégrations → Webhooks)
+déclenche un message après **10 échecs consécutifs sur une même source**.
+
+Le seuil, et non un échec isolé, est ce qui distingue une panne du bruit normal :
+quelques matchs ne sont jamais référencés par les sources, mais ils s'intercalent
+entre des succès. Le moindre succès remet le compteur à zéro. Une panne qui dure
+ne réalerte qu'au bout de six heures.
+
+Sans webhook configuré, l'alerte est seulement journalisée — l'absence de
+configuration ne doit jamais faire échouer une ingestion.
+
 ## 6. Sauvegarde et restauration
 
 Le service `backup` du compose tourne en continu et écrit dans `./backups` sur
