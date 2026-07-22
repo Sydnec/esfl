@@ -105,7 +105,9 @@ export default function AdminStatsPage() {
     return {
       gameId: 'all' as GameId,
       count,
-      mean: count ? Math.round((dists.reduce((s, d) => s + d.mean * d.count, 0) / count) * 10) / 10 : 0,
+      mean: count
+        ? Math.round((dists.reduce((s, d) => s + d.mean * d.count, 0) / count) * 10) / 10
+        : 0,
       min: Math.min(...dists.map((dist) => dist.min)),
       max: Math.max(...dists.map((dist) => dist.max)),
       buckets,
@@ -138,13 +140,15 @@ export default function AdminStatsPage() {
       <div className={styles.headerRow}>
         <h1 className={styles.title}>Santé des points fantasy</h1>
         {stats && (
-          <span className={styles.generatedAt}>Actualisé à {formatDateTime(stats.generatedAt)}</span>
+          <span className={styles.generatedAt}>
+            Actualisé à {formatDateTime(stats.generatedAt)}
+          </span>
         )}
       </div>
       <p className={styles.intro}>
         Système Z-score v1 : les notes sont standardisées par jeu (et par rôle en LoL). La
-        distribution doit s’étaler autour de 50, avec de vrais extrêmes (des notes proches de 0 et de
-        100). Un histogramme trop tassé signale un manque de contraste (échelle à revoir).
+        distribution doit s’étaler autour de 50, avec de vrais extrêmes (des notes proches de 0 et
+        de 100). Un histogramme trop tassé signale un manque de contraste (échelle à revoir).
       </p>
       {error && <p className={styles.error}>{error}</p>}
       {!stats && !error && <p>Chargement…</p>}

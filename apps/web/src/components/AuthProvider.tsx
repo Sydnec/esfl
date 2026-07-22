@@ -1,6 +1,14 @@
 'use client';
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import type { LoginInput, PublicUser, RegisterInput } from '@esfl/contracts';
 import { ApiError, authApi, request } from '@/lib/api';
 

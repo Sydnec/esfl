@@ -19,12 +19,17 @@ const ROUND_RANKS: Array<{ re: RegExp; rank: number; label: string }> = [
   { re: /round of 32|1\/16/i, rank: 4, label: '16es' },
 ];
 
-function roundOf(name: string): { rank: number; index: number } | null {
+export function roundOf(name: string): { rank: number; index: number } | null {
   const found = ROUND_RANKS.find((r) => r.re.test(name));
   if (!found) return null;
-  // Numéro du match dans le tour : celui avant le « : » (évite les chiffres
-  // des noms d'équipe, ex. « Grand final: 9z vs G2 »).
-  const num = name.split(':')[0].match(/(\d+)/);
+  // Numéro du match DANS le tour. On retire d'abord le libellé du tour : sinon
+  // « Round of 32 match 10 » rendait 32, le premier nombre rencontré, si bien
+  // que les seize matchs du tour partageaient le même index. Ils se
+  // superposaient alors sur une seule ligne, laissant l'arbre presque vide.
+  // Le « : » borne la recherche pour ignorer les chiffres des noms d'équipe
+  // (« Grand final: 9z vs G2 »).
+  const segment = name.split(':')[0].replace(found.re, ' ');
+  const num = segment.match(/(\d+)/);
   return { rank: found.rank, index: num ? parseInt(num[1], 10) : 1 };
 }
 
@@ -144,13 +149,21 @@ function SubBracket({ matches, label }: { matches: MatchSummary[]; label?: strin
                 const x2 = (col + 1) * COL_W;
                 const xm = (x1 + x2) / 2;
                 return (
-                  <path key={m.id} d={`M ${x1} ${from} H ${xm} V ${to} H ${x2}`} className={styles.line} />
+                  <path
+                    key={m.id}
+                    d={`M ${x1} ${from} H ${xm} V ${to} H ${x2}`}
+                    className={styles.line}
+                  />
                 );
               }),
             )}
           </svg>
           {ranks.map((rank, col) => (
-            <span key={`h-${rank}`} className={styles.roundLabel} style={{ left: col * COL_W, width: cardW }}>
+            <span
+              key={`h-${rank}`}
+              className={styles.roundLabel}
+              style={{ left: col * COL_W, width: cardW }}
+            >
               {labelForRank(rank)}
             </span>
           ))}
@@ -201,8 +214,18 @@ function SubBracket({ matches, label }: { matches: MatchSummary[]; label?: strin
                       ))}
                   </span>
                 )}
-                <BracketRow team={m.teamA} score={m.scoreA} won={winnerSide === 'A'} started={started} />
-                <BracketRow team={m.teamB} score={m.scoreB} won={winnerSide === 'B'} started={started} />
+                <BracketRow
+                  team={m.teamA}
+                  score={m.scoreA}
+                  won={winnerSide === 'A'}
+                  started={started}
+                />
+                <BracketRow
+                  team={m.teamB}
+                  score={m.scoreB}
+                  won={winnerSide === 'B'}
+                  started={started}
+                />
               </Link>
             );
           })}

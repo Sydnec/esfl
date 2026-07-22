@@ -74,10 +74,7 @@ interface QueueSnapshot {
 
 interface IngestionHealth {
   generatedAt: string;
-  parJeu: Record<
-    string,
-    { enCours: number; aVenir24h: number; finis: number; avecStats: number }
-  >;
+  parJeu: Record<string, { enCours: number; aVenir24h: number; finis: number; avecStats: number }>;
   couverture7j: Record<string, { finis: number; avecStats: number }>;
   enCours: RunningMatch[];
   catalogue: Record<
@@ -173,9 +170,12 @@ export default function AdminPage() {
     setPending(matchId);
     setError(null);
     try {
-      await authedFetch(`/data/admin/matches/${matchId}/stats-page?url=${encodeURIComponent(url)}`, {
-        method: 'POST',
-      });
+      await authedFetch(
+        `/data/admin/matches/${matchId}/stats-page?url=${encodeURIComponent(url)}`,
+        {
+          method: 'POST',
+        },
+      );
       setVlrUrl((current) => ({ ...current, [matchId]: '' }));
       await load();
     } catch {
@@ -256,9 +256,7 @@ export default function AdminPage() {
         `/data/admin/queue/clean?state=${state}`,
         { method: 'POST' },
       );
-      setNotice(
-        removed === 0 ? 'Aucun job à retirer.' : `${removed} job(s) retiré(s) de la file.`,
-      );
+      setNotice(removed === 0 ? 'Aucun job à retirer.' : `${removed} job(s) retiré(s) de la file.`);
       await loadQueue();
       await load();
     } catch {
@@ -427,8 +425,8 @@ export default function AdminPage() {
           <section className={styles.section}>
             <h2 className={styles.sectionTitle}>Catalogue</h2>
             <p className={styles.hint}>
-              « x/y » = fiches rapprochées / total : id provider appris (équipes, joueurs) et
-              id Pandascore posé par adoption (joueurs, nés côté provider).
+              « x/y » = fiches rapprochées / total : id provider appris (équipes, joueurs) et id
+              Pandascore posé par adoption (joueurs, nés côté provider).
             </p>
             <div className={styles.tableWrap}>
               <table className={styles.table}>
@@ -437,13 +435,9 @@ export default function AdminPage() {
                     <th>Jeu</th>
                     <th>Compétitions</th>
                     <th>Équipes</th>
-                    <th title="Équipes dont l'identifiant provider est connu">
-                      dont id provider
-                    </th>
+                    <th title="Équipes dont l'identifiant provider est connu">dont id provider</th>
                     <th>Joueurs</th>
-                    <th title="Joueurs dont l'identifiant provider est connu">
-                      dont id provider
-                    </th>
+                    <th title="Joueurs dont l'identifiant provider est connu">dont id provider</th>
                     <th title="Joueurs adoptés par Pandascore (photo, nationalité...)">
                       dont id Pandascore
                     </th>
@@ -493,8 +487,8 @@ export default function AdminPage() {
               </button>
             </div>
             <p className={styles.hint}>
-              Matchs suivis, finis dans les 48 h, sans stats. « Relancer » réenfile l’ingestion ;
-              le bouton en masse les relance tous d’un coup.
+              Matchs suivis, finis dans les 48 h, sans stats. « Relancer » réenfile l’ingestion ; le
+              bouton en masse les relance tous d’un coup.
             </p>
             {health.sansStats.length === 0 ? (
               <p className={styles.empty}>Tous les matchs récents ont leurs stats.</p>
@@ -569,9 +563,7 @@ export default function AdminPage() {
 
           <section className={styles.section}>
             <div className={styles.headerRow}>
-              <h2 className={styles.sectionTitle}>
-                Échecs de jobs ({health.queue.echecs.length})
-              </h2>
+              <h2 className={styles.sectionTitle}>Échecs de jobs ({health.queue.echecs.length})</h2>
               {health.queue.echecs.some((echec) => echec.introuvable) && (
                 <button
                   className={styles.action}
@@ -716,9 +708,7 @@ export default function AdminPage() {
                 <div className={styles.tile}>
                   <span className={styles.tileLabel}>En échec</span>
                   <span
-                    className={
-                      (queue.counts.failed ?? 0) > 0 ? styles.tileAlert : styles.tileValue
-                    }
+                    className={(queue.counts.failed ?? 0) > 0 ? styles.tileAlert : styles.tileValue}
                   >
                     {queue.counts.failed ?? 0}
                   </span>

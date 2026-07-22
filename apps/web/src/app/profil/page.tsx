@@ -188,8 +188,8 @@ export default function ProfilePage() {
         <h2 className={styles.sectionTitle}>Supprimer mon compte</h2>
         <p className={styles.hint}>
           Tes rosters et participations seront supprimés. Les ligues que tu as créées seront
-          transférées à leur plus ancien membre (ou supprimées si tu y étais seul). Cette action
-          est définitive.
+          transférées à leur plus ancien membre (ou supprimées si tu y étais seul). Cette action est
+          définitive.
         </p>
         {confirmDelete ? (
           <div className={styles.confirmRow}>

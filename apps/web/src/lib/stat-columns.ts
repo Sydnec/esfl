@@ -67,8 +67,18 @@ export const STAT_COLUMNS: Record<GameId, StatColumnGroup> = {
       { key: 'csPerMin', label: 'CS/min', title: 'Creeps tués par minute' },
     ],
     advanced: [
-      { key: 'killParticipation', label: 'KP', title: 'Participation aux kills de l’équipe', pct: true },
-      { key: 'damageShare', label: 'DMG', title: 'Part des dégâts aux champions de l’équipe', pct: true },
+      {
+        key: 'killParticipation',
+        label: 'KP',
+        title: 'Participation aux kills de l’équipe',
+        pct: true,
+      },
+      {
+        key: 'damageShare',
+        label: 'DMG',
+        title: 'Part des dégâts aux champions de l’équipe',
+        pct: true,
+      },
       { key: 'goldShare', label: 'Or', title: 'Part de l’or de l’équipe', pct: true },
       { key: 'visionScore', label: 'Vision', title: 'Score de vision' },
     ],
@@ -103,10 +113,7 @@ export const PER_MAP_KEYS = new Set([
   'visionScore',
 ]);
 
-export function formatStat(
-  value: number | boolean | null | undefined,
-  pct = false,
-): string {
+export function formatStat(value: number | boolean | null | undefined, pct = false): string {
   if (value === null || value === undefined) return '·';
   if (typeof value === 'boolean') return value ? 'V' : 'D';
   if (pct) return `${Math.round(value * 100)} %`;

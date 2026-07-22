@@ -167,9 +167,7 @@ export default function PickPage() {
           <details key={team?.id ?? `sans-${gameId}`} className={styles.teamGroup} open>
             <summary className={styles.teamTitle}>
               <span className={styles.teamName}>
-                {team
-                  ? `${team.acronym ? `${team.acronym} · ` : ''}${team.name}`
-                  : 'Sans équipe'}
+                {team ? `${team.acronym ? `${team.acronym} · ` : ''}${team.name}` : 'Sans équipe'}
                 {selectedInTeam > 0 && (
                   <span className={styles.teamCount}> · {selectedInTeam} sélectionné(s)</span>
                 )}

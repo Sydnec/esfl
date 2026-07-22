@@ -15,31 +15,29 @@ export default function AboutPage() {
       <section className={styles.section}>
         <h2 className={styles.sectionTitle}>Le principe</h2>
         <p className={styles.text}>
-          ESFL est une fantasy league esport <strong>multigaming</strong> qui se joue entre amis,
-          en ligues privées. Chaque journée de match, tu composes un roster de joueurs
-          professionnels issus des compétitions que ta ligue suit, tous jeux confondus, sans
-          budget ni quota par jeu : trois joueurs de LoL et deux de CS2 dans le même roster,
-          c&apos;est permis.
+          ESFL est une fantasy league esport <strong>multigaming</strong> qui se joue entre amis, en
+          ligues privées. Chaque journée de match, tu composes un roster de joueurs professionnels
+          issus des compétitions que ta ligue suit, tous jeux confondus, sans budget ni quota par
+          jeu : trois joueurs de LoL et deux de CS2 dans le même roster, c&apos;est permis.
         </p>
       </section>
 
       <section className={styles.section}>
         <h2 className={styles.sectionTitle}>Le verrouillage</h2>
         <p className={styles.text}>
-          La subtilité : une fois aligné, un joueur pro est <strong>verrouillé</strong> pendant
-          les journées suivantes (configurable par ligue). Impossible de spammer la superstar
-          tous les jours, il faut doser, anticiper le calendrier et connaître la profondeur des
-          effectifs.
+          La subtilité : une fois aligné, un joueur pro est <strong>verrouillé</strong> pendant les
+          journées suivantes (configurable par ligue). Impossible de spammer la superstar tous les
+          jours, il faut doser, anticiper le calendrier et connaître la profondeur des effectifs.
         </p>
       </section>
 
       <section className={styles.section}>
         <h2 className={styles.sectionTitle}>Les points</h2>
         <p className={styles.text}>
-          Tes joueurs marquent des points selon leurs <strong>performances réelles</strong> :
-          kills, assists, ACS, buts, saves… chaque jeu a son barème, calibré pour que les scores
-          soient comparables entre jeux. Le classement se joue à l&apos;intérieur de ta ligue,
-          journée après journée.
+          Tes joueurs marquent des points selon leurs <strong>performances réelles</strong> : kills,
+          assists, ACS, buts, saves… chaque jeu a son barème, calibré pour que les scores soient
+          comparables entre jeux. Le classement se joue à l&apos;intérieur de ta ligue, journée
+          après journée.
         </p>
       </section>
 

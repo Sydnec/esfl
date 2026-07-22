@@ -320,6 +320,9 @@ importers:
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.7(@types/node@24.13.2)(jiti@2.7.0)(terser@5.48.0)
 
   packages/config: {}
 

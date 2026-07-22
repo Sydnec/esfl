@@ -111,10 +111,10 @@ export function TeamMatcher() {
       <h2 className={styles.sectionTitle}>Matching manuel des équipes</h2>
       <p className={styles.hint}>
         Seuls les vrais problèmes de nom sont listés (les trous de couverture sont écartés). Pour
-        CS2, ajoute le nom qu’un provider donne à une équipe (ex. « BB Team » pour
-        BetBoom Team) : l’alias relance l’ingestion des matchs récents. Pour LoL, tu peux coller
-        le lien de l’équipe sur lol.fandom.com (le nom est extrait automatiquement). Pour Valorant,
-        colle directement le lien du match sur VLR.gg.
+        CS2, ajoute le nom qu’un provider donne à une équipe (ex. « BB Team » pour BetBoom Team) :
+        l’alias relance l’ingestion des matchs récents. Pour LoL, tu peux coller le lien de l’équipe
+        sur lol.fandom.com (le nom est extrait automatiquement). Pour Valorant, colle directement le
+        lien du match sur VLR.gg.
       </p>
       {note && <p className={styles.note}>{note}</p>}
       <div className={styles.matcherGrid}>
@@ -478,9 +478,7 @@ function UnmatchedPanel({
   async function suggest(team: UnmatchedTeam) {
     setLoadingSug(team.id);
     try {
-      const res = await authedFetch<Suggestions>(
-        `/data/admin/matches/${team.matchId}/suggestions`,
-      );
+      const res = await authedFetch<Suggestions>(`/data/admin/matches/${team.matchId}/suggestions`);
       const side = res.teamA?.id === team.id ? 'A' : res.teamB?.id === team.id ? 'B' : null;
       const names = res.candidates.filter((c) => c.side === side).map((c) => c.name);
       setSuggestions((current) => ({ ...current, [team.id]: names }));
@@ -621,7 +619,9 @@ function UnmatchedPanel({
                 })()}
                 <span className={styles.aliasList}>
                   <input
-                    className={gameProfile(item.gameId).champLarge ? styles.searchInput : styles.aliasInput}
+                    className={
+                      gameProfile(item.gameId).champLarge ? styles.searchInput : styles.aliasInput
+                    }
                     placeholder={gameProfile(item.gameId).placeholderAlias}
                     value={draft[item.team.id] ?? ''}
                     onChange={(event) =>
@@ -748,7 +748,9 @@ function SearchPanel({
               </button>
             ))}
             <input
-              className={gameProfile(team.gameId).champLarge ? styles.searchInput : styles.aliasInput}
+              className={
+                gameProfile(team.gameId).champLarge ? styles.searchInput : styles.aliasInput
+              }
               placeholder={gameProfile(team.gameId).placeholderAlias}
               value={draft[team.id] ?? ''}
               onChange={(event) =>

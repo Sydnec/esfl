@@ -41,7 +41,10 @@ export function MatchCard({ match }: { match: MatchSummary }) {
       <Link href={`/matches/${match.id}`} className={styles.card}>
         <span className={styles.meta}>
           {running ? (
-            <span><span className={styles.live}>●</span> {formatKickoff(match.scheduledAt)}<span style={{ opacity: 0 }}>●</span></span>
+            <span>
+              <span className={styles.live}>●</span> {formatKickoff(match.scheduledAt)}
+              <span style={{ opacity: 0 }}>●</span>
+            </span>
           ) : match.status === 'finished' ? (
             'Terminé'
           ) : forfeit ? (

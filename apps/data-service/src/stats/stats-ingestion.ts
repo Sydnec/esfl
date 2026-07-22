@@ -1,6 +1,13 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
-import { GameId, QUEUES, StatsIngestedEvent, FREEZE_DEADLINE_DAYS } from '@esfl/contracts';
+import {
+  FREEZE_DEADLINE_DAYS,
+  GameId,
+  QUEUES,
+  statsSchemasByGame,
+  StatsIngestedEvent,
+} from '@esfl/contracts';
+import { z } from 'zod';
 import { Queue } from 'bullmq';
 import { Prisma } from '../../generated/client';
 import type { Match, Player, Team } from '../../generated/client';
@@ -328,12 +335,43 @@ export class StatsIngestionService {
    * sync des rosters adoptera la fiche s'il rattrape), upsert des stats,
    * fusion des manches et mémorisation de la page source.
    */
+  /**
+   * Contrôle la FORME des stats normalisées contre le schéma du jeu.
+   *
+   * Un provider qui change discrètement de format ne lève rien : il rend des
+   * lignes, simplement amputées d'un champ dont dépend le scoring. Le symptôme
+   * n'apparaît alors que des jours plus tard, en notes aberrantes. Le contrôle
+   * est volontairement NON BLOQUANT : on ne perd jamais des stats à cause d'une
+   * dérive de schéma, on la signale. Un seul avertissement par match, sinon un
+   * changement de format en produirait un par joueur.
+   */
+  private verifierForme(match: Match, source: string, result: ProviderResult): void {
+    const schema = statsSchemasByGame[match.gameId as GameId];
+    if (!schema) return;
+    let ecart: z.ZodError | null = null;
+    for (const line of result.lines) {
+      const parse = schema.safeParse(line.normalized);
+      if (!parse.success) {
+        ecart = parse.error;
+        break;
+      }
+    }
+    if (!ecart) return;
+    const details = ecart.issues
+      .slice(0, 3)
+      .map((issue) => `${issue.path.join('.') || '(racine)'} : ${issue.message}`)
+      .join(', ');
+    this.logger.warn(`Forme inattendue des stats ${source} sur ${match.name} — ${details}`);
+    void this.alertes.echec(source, `forme des stats inattendue sur ${match.name}`);
+  }
+
   private async persistResult(
     match: Match,
     context: MatchContext,
     source: string,
     result: ProviderResult,
   ): Promise<number> {
+    this.verifierForme(match, source, result);
     const index = buildPlayerIndex(context.players);
     // Index par id provider (VLR) : rapprochement fiable au-delà du pseudo.
     const byProviderId = new Map<string, NamedPlayer>();
