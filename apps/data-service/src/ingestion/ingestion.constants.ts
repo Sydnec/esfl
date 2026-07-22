@@ -13,6 +13,14 @@ export const INGESTION_QUEUE = 'data-ingestion';
  * `STATS_BACKFILL_DAYS`. */
 export const STATS_BACKFILL_DAYS = 14;
 
+/**
+ * Fenêtre pendant laquelle un échec d'ingestion reste ARBITRABLE : c'est celle
+ * que la page admin expose (`unmatchedTeams`). Au-delà, plus personne ne voit
+ * le problème, donc plus personne n'ajoutera l'alias qui le débloquerait :
+ * continuer à relancer ne ferait que consommer le quota de la source.
+ */
+export const FENETRE_ARBITRAGE_MS = 7 * 24 * 3600 * 1000;
+
 /** Un seul jobId par match, partagé par tous les producteurs (sync auto +
  * endpoint admin) pour que BullMQ déduplique les chaînes de retries.
  * BullMQ ≥ 5.58.7 interdit `:` dans les jobId personnalisés. */

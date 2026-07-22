@@ -5,7 +5,7 @@ import type { Bo3StatsProvider } from './bo3.provider';
 import type { LeaguepediaStatsProvider } from './leaguepedia.provider';
 import type { VlrStatsProvider } from './vlr.provider';
 import type { MatchContext, ProviderResult } from './provider';
-import { absenceDefinitive, StatsIngestionService } from './stats-ingestion';
+import { relanceInutile, StatsIngestionService } from './stats-ingestion';
 
 /**
  * Tests du cœur de l'ingestion (persistResult) avec un Prisma factice :
@@ -132,24 +132,28 @@ function line(externalName: string, side: 'A' | 'B' | null): ProviderResult['lin
   return { externalName, side, raw: {}, normalized: { kills: 1 } };
 }
 
-describe('absenceDefinitive', () => {
+describe('relanceInutile', () => {
   const maintenant = new Date('2026-07-22T18:00:00Z').getTime();
   const ilYA = (heures: number) => new Date(maintenant - heures * 3600 * 1000);
 
   it('renonce quand la source ignore un match fini depuis plus de 48 h', () => {
-    expect(absenceDefinitive('no-coverage', ilYA(72), maintenant)).toBe(true);
+    expect(relanceInutile('no-coverage', ilYA(72), maintenant)).toBe(true);
   });
 
   it('persiste tant que la fenêtre de publication court', () => {
-    expect(absenceDefinitive('no-coverage', ilYA(6), maintenant)).toBe(false);
+    expect(relanceInutile('no-coverage', ilYA(6), maintenant)).toBe(false);
   });
 
-  it('persiste sur un name-mismatch, réparable par un alias d’équipe', () => {
-    expect(absenceDefinitive('name-mismatch', ilYA(720), maintenant)).toBe(false);
+  it('persiste sur un name-mismatch tant que la page admin l’expose', () => {
+    expect(relanceInutile('name-mismatch', ilYA(72), maintenant)).toBe(false);
+  });
+
+  it('renonce sur un name-mismatch sorti de la fenêtre d’arbitrage', () => {
+    expect(relanceInutile('name-mismatch', ilYA(24 * 8), maintenant)).toBe(true);
   });
 
   it('persiste quand la date de fin est inconnue : rien pour juger', () => {
-    expect(absenceDefinitive('no-coverage', null, maintenant)).toBe(false);
+    expect(relanceInutile('no-coverage', null, maintenant)).toBe(false);
   });
 });
 

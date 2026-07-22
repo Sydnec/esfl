@@ -8,7 +8,11 @@ import { AlerteService } from '../common/alerte.service';
 import { providerUpdate } from '../common/field-precedence';
 import { createPlayerSafely } from '../common/player-create';
 import { mergeGamesSummary } from '../common/games-summary';
-import { enqueueEnrichTeam, INGESTION_QUEUE } from '../ingestion/ingestion.constants';
+import {
+  enqueueEnrichTeam,
+  FENETRE_ARBITRAGE_MS,
+  INGESTION_QUEUE,
+} from '../ingestion/ingestion.constants';
 import { LiveEventsService } from '../live/live-events.service';
 import { PrismaService } from '../prisma.service';
 import { buildPlayerIndex, matchPlayer, normalizeName, teamMatches } from './matching';
@@ -35,20 +39,30 @@ const LINEUP_SIZE = 5;
 const FENETRE_PUBLICATION_MS = 48 * 3600 * 1000;
 
 /**
- * L'absence de stats est-elle définitive ?
+ * Faut-il renoncer à relancer l'ingestion de ce match ?
  *
- * Oui seulement si la source ne référence pas du tout le match (`no-coverage`)
- * ET que la fenêtre de publication est passée. Un `name-mismatch` reste
- * relancé : il se répare par un alias d'équipe et peut aboutir. Une fin de
- * match inconnue aussi, faute de pouvoir juger.
+ * Deux horizons, selon ce qu'on peut encore espérer :
+ *
+ * - `no-coverage` : la source ne référence pas le match. Passé le délai de
+ *   publication, l'absence est définitive.
+ * - tout diagnostic, dont `name-mismatch` : réparable par un alias d'équipe,
+ *   mais seulement tant que la page admin l'expose. Au-delà de la fenêtre
+ *   d'arbitrage, personne ne le voit donc personne ne le corrigera. À noter
+ *   que `name-mismatch` est lui-même optimiste : il est posé dès que la source
+ *   propose des noms d'équipes sur la période, même quand aucun ne ressemble
+ *   aux deux équipes du match, qui n'y est alors simplement pas.
+ *
+ * Une fin de match inconnue ne permet de juger ni l'un ni l'autre.
  */
-export function absenceDefinitive(
+export function relanceInutile(
   diagnostic: string,
   finDeMatch: Date | null,
   maintenant: number = Date.now(),
 ): boolean {
-  if (diagnostic !== 'no-coverage' || !finDeMatch) return false;
-  return maintenant - finDeMatch.getTime() > FENETRE_PUBLICATION_MS;
+  if (!finDeMatch) return false;
+  const age = maintenant - finDeMatch.getTime();
+  if (age > FENETRE_ARBITRAGE_MS) return true;
+  return diagnostic === 'no-coverage' && age > FENETRE_PUBLICATION_MS;
 }
 
 /** Slug d'un lien lol.fandom.com/wiki/... ; null si ce n'est pas un tel lien. */
@@ -196,9 +210,9 @@ export class StatsIngestionService {
       // pour un match que la source n'a jamais eu : la poursuivre ne fait que
       // consommer son quota. Un `name-mismatch` reste relancé, lui se répare
       // par un alias d'équipe et peut aboutir.
-      if (absenceDefinitive(diagnostic, match.endAt ?? match.beginAt ?? match.scheduledAt)) {
+      if (relanceInutile(diagnostic, match.endAt ?? match.beginAt ?? match.scheduledAt)) {
         this.logger.warn(
-          `${match.name} : absent de ${provider.source} ${FENETRE_PUBLICATION_MS / 3600000} h après la fin, relances abandonnées`,
+          `${match.name} : ${diagnostic} chez ${provider.source} et hors fenêtre, relances abandonnées`,
         );
         return;
       }

@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { parisDate } from '@esfl/contracts';
 import type { Job, Queue } from 'bullmq';
 import { Prisma } from '../../generated/client';
+import { FENETRE_ARBITRAGE_MS } from '../ingestion/ingestion.constants';
 import { reassignPlayerStats } from '../common/player-merge';
 import { normalizeName, pseudosProches, teamNamesMatch } from '../stats/matching';
 import { PrismaService } from '../prisma.service';
@@ -510,7 +511,7 @@ export class CatalogService {
     const matches = await this.prisma.match.findMany({
       where: {
         status: 'finished',
-        endAt: { gte: new Date(Date.now() - 7 * 24 * 3600 * 1000) },
+        endAt: { gte: new Date(Date.now() - FENETRE_ARBITRAGE_MS) },
         teamAId: { not: null },
         teamBId: { not: null },
         stats: { none: {} },
@@ -1011,7 +1012,7 @@ export class CatalogService {
     const matches = await this.prisma.match.findMany({
       where: {
         status: 'finished',
-        endAt: { gte: new Date(Date.now() - 7 * 24 * 3600 * 1000) },
+        endAt: { gte: new Date(Date.now() - FENETRE_ARBITRAGE_MS) },
         OR: [{ teamAId: teamId }, { teamBId: teamId }],
       },
       select: { id: true },
