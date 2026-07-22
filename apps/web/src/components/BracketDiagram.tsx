@@ -8,7 +8,7 @@ import styles from './BracketDiagram.module.css';
 
 const CARD_H = 72; // carte : entête heure + 2 lignes d'équipe (≈ hauteur réelle)
 const SLOT_H = 92; // hauteur réservée par match du 1er tour (carte + espace)
-const COL_W = 200;
+const COL_W = 160;
 
 /** Tour d'un match : rank 0 = finale (droite), rank plus grand = tour plus tôt (gauche). */
 const ROUND_RANKS: Array<{ re: RegExp; rank: number; label: string }> = [
@@ -47,7 +47,7 @@ function tag(team: TeamRef | null): string {
  * « TBD » n'apprend rien alors que l'arbre sait déjà d'où viendra l'équipe : le
  * connecteur est tracé depuis ce match précis. On verbalise donc une relation
  * DÉJÀ affichée, sans rien affirmer de neuf. Le détail part en `title`, faute
- * de place dans une carte de 170 px.
+ * de place dans une carte de 130 px.
  */
 export function creneauAPourvoir(alimentateur: MatchSummary | null): {
   texte: string;
