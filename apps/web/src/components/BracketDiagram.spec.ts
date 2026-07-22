@@ -30,6 +30,25 @@ describe('roundOf', () => {
     expect(roundOf('Grand final: 9z vs G2')).toEqual({ rank: 0, index: 1 });
   });
 
+  it('reconnaît les tours « round N » du lower bracket comme cartes, pas comme liste', () => {
+    // « round 1 » n'est pas « round of 16 » : sans traitement dédié, ces matchs
+    // tombaient en liste. Ils doivent numéroter leurs matchs et se placer À
+    // GAUCHE des quarts (rang plus élevé).
+    const m1 = roundOf('Lower bracket round 1 match 1: TT vs LGD')!;
+    const m2 = roundOf('Lower bracket round 1 match 2: EDG vs BLG')!;
+    expect(m1.index).toBe(1);
+    expect(m2.index).toBe(2);
+    expect(m1.rank).toBe(m2.rank);
+    const quart = roundOf('Lower bracket quarterfinal 1: AL vs LGD')!;
+    expect(m1.rank).toBeGreaterThan(quart.rank); // round 1 avant (à gauche des) quarts
+  });
+
+  it('classe les tours nommés du lower bracket sur l’échelle commune', () => {
+    expect(roundOf('Lower bracket quarterfinal 2: JDG vs BLG')).toEqual({ rank: 2, index: 2 });
+    expect(roundOf('Lower bracket semifinal: AL vs BLG')).toEqual({ rank: 1, index: 1 });
+    expect(roundOf('Lower bracket final: WE vs BLG')).toEqual({ rank: 0, index: 1 });
+  });
+
   it('rend null hors d’un tour à élimination', () => {
     expect(roundOf('Group A: TL vs VIT')).toBeNull();
   });

@@ -19,22 +19,38 @@ const ROUND_RANKS: Array<{ re: RegExp; rank: number; label: string }> = [
   { re: /round of 32|1\/16/i, rank: 4, label: '16es' },
 ];
 
+/** Rang de base des tours « round N » du lower bracket, au-dessus des tours
+ *  nommés (quarts = 2) : round 1 le plus à gauche, rang décroissant avec N. */
+const LOWER_ROUND_BASE = 20;
+
 export function roundOf(name: string): { rank: number; index: number } | null {
+  // Le « : » borne la recherche pour ignorer les chiffres des noms d'équipe
+  // (« Grand final: 9z vs G2 »).
+  const label = name.split(':')[0];
+  // Lower bracket « round N » : tours mineurs sans nom, joués avant les quarts.
+  // « round 1 » n'est pas « round of 16 » et échappait à ROUND_RANKS ; ces
+  // matchs finissaient alors en liste au lieu de cartes dans l'arbre.
+  const lower = label.match(/round\s+(\d+)/i);
+  if (lower && !/round\s+of/i.test(label)) {
+    const n = parseInt(lower[1], 10);
+    const num = label.replace(/round\s+\d+/i, ' ').match(/(\d+)/);
+    return { rank: LOWER_ROUND_BASE - n, index: num ? parseInt(num[1], 10) : 1 };
+  }
   const found = ROUND_RANKS.find((r) => r.re.test(name));
   if (!found) return null;
   // Numéro du match DANS le tour. On retire d'abord le libellé du tour : sinon
   // « Round of 32 match 10 » rendait 32, le premier nombre rencontré, si bien
-  // que les seize matchs du tour partageaient le même index. Ils se
-  // superposaient alors sur une seule ligne, laissant l'arbre presque vide.
-  // Le « : » borne la recherche pour ignorer les chiffres des noms d'équipe
-  // (« Grand final: 9z vs G2 »).
-  const segment = name.split(':')[0].replace(found.re, ' ');
-  const num = segment.match(/(\d+)/);
+  // que les seize matchs du tour partageaient le même index et se superposaient.
+  const num = label.replace(found.re, ' ').match(/(\d+)/);
   return { rank: found.rank, index: num ? parseInt(num[1], 10) : 1 };
 }
 
 function labelForRank(rank: number): string {
-  return ROUND_RANKS.find((r) => r.rank === rank)?.label ?? '';
+  const named = ROUND_RANKS.find((r) => r.rank === rank);
+  if (named) return named.label;
+  // Tours « round N » du lower bracket (rangs LOWER_ROUND_BASE - N).
+  if (rank >= ROUND_RANKS.length) return `Tour ${LOWER_ROUND_BASE - rank}`;
+  return '';
 }
 
 function tag(team: TeamRef | null): string {
@@ -96,7 +112,7 @@ export function BracketDiagram({ matches }: { matches: MatchSummary[] }) {
       <div className={styles.doubleElim}>
         {upper.length > 0 && <SubBracket matches={upper} label="Upper bracket" />}
         {lower.length > 0 && <SubBracket matches={lower} label="Lower bracket" />}
-        {rest.length > 0 && <SubBracket matches={rest} />}
+        {rest.length > 0 && <SubBracket matches={rest} label="Grande finale" />}
       </div>
     );
   }
@@ -142,17 +158,27 @@ function SubBracket({ matches, label }: { matches: MatchSummary[]; label?: strin
   const firstColumn = byRank.get(maxRank)!;
   const height = Math.max(1, firstColumn.length) * SLOT_H;
 
-  // Centres verticaux : 1er tour réparti, puis chaque match centré sur ses 2 enfants.
+  // Alimentation d'un tour par le précédent : ratio 2 en simple élimination
+  // (deux matchs → un), 1 sur un tour mineur du lower bracket qui garde le même
+  // nombre de matchs (round N → quarts). Déduit du rapport des effectifs.
+  const count = (rank: number) => byRank.get(rank)?.length ?? 0;
+  const ratio = (childRank: number, parentRank: number) =>
+    Math.max(1, Math.round(count(childRank) / Math.max(1, count(parentRank))));
+  const feederIndexes = (index: number, r: number) =>
+    Array.from({ length: r }, (_, k) => (index - 1) * r + 1 + k);
+
+  // Centres verticaux : 1er tour réparti, puis chaque match centré sur ses enfants.
   const cy = new Map<string, number>();
   const key = (rank: number, index: number) => `${rank}-${index}`;
   firstColumn.forEach((m, j) => cy.set(key(maxRank, m.index), (j + 0.5) * SLOT_H));
   for (let c = 1; c < ranks.length; c += 1) {
     const rank = ranks[c];
     const childRank = ranks[c - 1];
+    const r = ratio(childRank, rank);
     byRank.get(rank)!.forEach((m, j) => {
-      const c1 = cy.get(key(childRank, m.index * 2 - 1));
-      const c2 = cy.get(key(childRank, m.index * 2));
-      const centers = [c1, c2].filter((v): v is number => v != null);
+      const centers = feederIndexes(m.index, r)
+        .map((k) => cy.get(key(childRank, k)))
+        .filter((v): v is number => v != null);
       cy.set(
         key(rank, m.index),
         centers.length ? centers.reduce((a, b) => a + b, 0) / centers.length : (j + 0.5) * SLOT_H,
@@ -170,9 +196,10 @@ function SubBracket({ matches, label }: { matches: MatchSummary[]; label?: strin
   const alimentateurs = (rank: number, index: number, col: number) => {
     const childRank = ranks[col - 1];
     if (childRank === undefined) return { a: null, b: null };
+    const [i1, i2] = feederIndexes(index, ratio(childRank, rank));
     return {
-      a: parIndex.get(`${childRank}-${index * 2 - 1}`) ?? null,
-      b: parIndex.get(`${childRank}-${index * 2}`) ?? null,
+      a: parIndex.get(`${childRank}-${i1}`) ?? null,
+      b: i2 != null ? (parIndex.get(`${childRank}-${i2}`) ?? null) : null,
     };
   };
 
@@ -199,9 +226,10 @@ function SubBracket({ matches, label }: { matches: MatchSummary[]; label?: strin
           <svg className={styles.lines} width={width} height={height} aria-hidden>
             {ranks.slice(0, -1).map((rank, col) =>
               byRank.get(rank)!.map((m) => {
-                const parentIndex = Math.ceil(m.index / 2);
+                const parentRank = ranks[col + 1];
+                const parentIndex = Math.ceil(m.index / ratio(rank, parentRank));
                 const from = cy.get(key(rank, m.index));
-                const to = cy.get(key(ranks[col + 1], parentIndex));
+                const to = cy.get(key(parentRank, parentIndex));
                 if (from == null || to == null) return null;
                 const x1 = col * COL_W + cardW;
                 const x2 = (col + 1) * COL_W;
