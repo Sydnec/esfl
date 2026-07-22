@@ -212,7 +212,13 @@ export default function MatchPage() {
           </span>
           <span className={styles.slotName}>
             <span className={styles.teamName}>
-              {match.teamA?.name ?? 'TBD'}{' '}
+              {match.teamA ? (
+                <Link className={styles.teamLink} href={`/teams/${match.teamA.id}`}>
+                  {match.teamA.name}
+                </Link>
+              ) : (
+                'TBD'
+              )}{' '}
               <span className={styles.slotFlag}>{flagEmoji(match.teamA?.location)}</span>
             </span>
             {match.teamA?.acronym && <span className={styles.teamTag}>{match.teamA.acronym}</span>}
@@ -241,7 +247,13 @@ export default function MatchPage() {
           <span className={`${styles.slotName} ${styles.slotNameRight}`}>
             <span className={styles.teamName}>
               <span className={styles.slotFlag}>{flagEmoji(match.teamB?.location)}</span>{' '}
-              {match.teamB?.name ?? 'TBD'}
+              {match.teamB ? (
+                <Link className={styles.teamLink} href={`/teams/${match.teamB.id}`}>
+                  {match.teamB.name}
+                </Link>
+              ) : (
+                'TBD'
+              )}
             </span>
             {match.teamB?.acronym && <span className={styles.teamTag}>{match.teamB.acronym}</span>}
           </span>

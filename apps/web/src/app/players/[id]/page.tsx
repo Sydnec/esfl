@@ -99,10 +99,10 @@ export default function PlayerPage() {
             {player.role ? ` · ${player.role}` : ''}
           </p>
           {player.team && (
-            <p className={styles.team}>
+            <Link className={styles.team} href={`/teams/${player.team.id}`}>
               <Avatar src={player.team.imageUrl} label={player.team.name} size={20} />
               {player.team.name} {flagEmoji(player.team.location)}
-            </p>
+            </Link>
           )}
         </div>
       </header>

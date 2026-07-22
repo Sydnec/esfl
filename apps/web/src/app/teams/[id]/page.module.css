@@ -1,0 +1,139 @@
+.main {
+  max-width: 840px;
+  margin: 0 auto;
+  padding: var(--space-4) var(--space-3) var(--space-6);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  padding: var(--space-4);
+}
+
+.identity {
+  min-width: 0;
+}
+
+.name {
+  font-size: 1.375rem;
+  margin: 0;
+}
+
+.meta {
+  color: var(--color-muted);
+  font-size: 0.9375rem;
+  margin: 2px 0 0;
+}
+
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 0;
+}
+
+.summaryItem {
+  flex: 1 1 140px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  padding: var(--space-2) var(--space-3);
+}
+
+.summaryItem dt {
+  color: var(--color-muted);
+  font-size: 0.8125rem;
+}
+
+.summaryItem dd {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin: 2px 0 0;
+}
+
+.section {
+  margin-top: var(--space-5);
+}
+
+.sectionTitle {
+  font-size: 1.125rem;
+  margin-bottom: var(--space-3);
+}
+
+.empty {
+  margin-top: var(--space-4);
+  color: var(--color-muted);
+}
+
+.roster {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--space-2);
+}
+
+.playerCard {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  padding: var(--space-2) var(--space-3);
+  color: inherit;
+}
+
+.playerCard:hover {
+  border-color: var(--color-accent);
+}
+
+.playerIdentity {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.playerName {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.playerRole {
+  color: var(--color-muted);
+  font-size: 0.8125rem;
+}
+
+.competitions {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.competitionCard {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  padding: var(--space-1) var(--space-3);
+  color: inherit;
+  font-size: 0.9375rem;
+}
+
+.competitionCard:hover {
+  border-color: var(--color-accent);
+}
+
+.competitionName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

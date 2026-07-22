@@ -183,10 +183,72 @@ export class CatalogService {
     return competition;
   }
 
-  async listMatches(competitionIds: string[], from?: Date, to?: Date) {
+  /**
+   * Fiche d'une équipe : identité, effectif actuel et compétitions engagées.
+   *
+   * L'effectif ne retient que les titulaires (`active`), comme `listPlayers` :
+   * les joueurs partis restent atteignables par leur fiche, mais ne figurent
+   * plus au roster affiché. Les compétitions masquées ou de tier c/d sont
+   * exclues, cohérent avec le reste du catalogue public.
+   */
+  async getTeamDetail(id: string) {
+    const team = await this.prisma.team.findUnique({
+      where: { id },
+      // Sélection explicite : aliases, providerIds et fieldSources sont de la
+      // plomberie d'ingestion, elle n'a rien à faire dans une fiche publique.
+      select: {
+        id: true,
+        gameId: true,
+        name: true,
+        acronym: true,
+        imageUrl: true,
+        location: true,
+        players: {
+          where: { active: true },
+          orderBy: [{ name: 'asc' }],
+        },
+        competitions: {
+          where: {
+            competition: {
+              hidden: false,
+              OR: [{ tier: null }, { tier: { notIn: ['c', 'd'] } }],
+            },
+          },
+          select: {
+            competition: {
+              select: {
+                id: true,
+                name: true,
+                gameId: true,
+                tier: true,
+                beginAt: true,
+                endAt: true,
+                imageUrl: true,
+              },
+            },
+          },
+        },
+      },
+    });
+    if (!team) {
+      throw new NotFoundException('Équipe introuvable');
+    }
+    const { competitions, ...reste } = team;
+    return {
+      ...reste,
+      competitions: competitions
+        .map((entry) => entry.competition)
+        .sort((a, b) => (b.beginAt?.getTime() ?? 0) - (a.beginAt?.getTime() ?? 0)),
+    };
+  }
+
+  async listMatches(competitionIds: string[], from?: Date, to?: Date, teamId?: string) {
     const matches = await this.prisma.match.findMany({
       where: {
         ...(competitionIds.length ? { competitionId: { in: competitionIds } } : {}),
+        // teamA/teamB sont deux colonnes sans relation : l'équipe peut être
+        // d'un côté comme de l'autre.
+        ...(teamId ? { OR: [{ teamAId: teamId }, { teamBId: teamId }] } : {}),
         ...(from || to
           ? { scheduledAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } }
           : {}),

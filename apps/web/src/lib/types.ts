@@ -10,6 +10,14 @@ export interface Competition {
   imageUrl: string | null;
 }
 
+/** Équipe avec son effectif et ses compétitions engagées (page détail équipe). */
+export interface TeamDetail extends TeamRef {
+  gameId: GameId;
+  /** Effectif titulaire : les fiches portent déjà l'équipe, inutile de l'imbriquer. */
+  players: Array<Omit<PlayerRef, 'team'>>;
+  competitions: Competition[];
+}
+
 /** Compétition avec ses équipes engagées (page détail compétition). */
 export interface CompetitionDetail extends Competition {
   slug: string | null;

@@ -35,6 +35,12 @@
   gap: var(--space-1);
   font-size: 0.9375rem;
   margin: var(--space-1) 0 0;
+  color: inherit;
+  width: fit-content;
+}
+
+.team:hover {
+  color: var(--color-accent);
 }
 
 .summary {

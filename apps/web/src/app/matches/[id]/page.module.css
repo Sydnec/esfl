@@ -79,6 +79,14 @@
   white-space: nowrap;
 }
 
+.teamLink {
+  color: inherit;
+}
+
+.teamLink:hover {
+  color: var(--color-accent);
+}
+
 .teamTag {
   color: var(--color-muted);
   font-size: 0.8125rem;

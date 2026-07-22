@@ -18,7 +18,8 @@ import styles from './page.module.css';
 const POLL_INTERVAL_MS = 60_000;
 
 /** Une phase est un arbre si ses matchs portent des noms de tour (finale, demi…). */
-const BRACKET_RE = /grand ?final|\bfinale?\b|semi.?final|demi.?finale|quarter.?final|\bquart|round of \d|1\/\d/i;
+const BRACKET_RE =
+  /grand ?final|\bfinale?\b|semi.?final|demi.?finale|quarter.?final|\bquart|round of \d|1\/\d/i;
 
 /** Période lisible : « 15 juin – 20 juil. 2026 ». */
 function formatPeriod(beginAt: string | null, endAt: string | null): string {
@@ -88,7 +89,10 @@ export default function CompetitionPage() {
         firstAt: Infinity,
       };
       group.matches.push(match);
-      group.firstAt = Math.min(group.firstAt, match.scheduledAt ? Date.parse(match.scheduledAt) : Infinity);
+      group.firstAt = Math.min(
+        group.firstAt,
+        match.scheduledAt ? Date.parse(match.scheduledAt) : Infinity,
+      );
       groups.set(match.tournamentId, group);
     }
     const DAY_MS = 24 * 3600 * 1000;
@@ -197,12 +201,12 @@ export default function CompetitionPage() {
           <ul className={styles.teams}>
             {competition.teams.map(({ team }) => (
               <li key={team.id} className={styles.teamCard}>
-                <span className={styles.teamHeader}>
+                <Link className={styles.teamHeader} href={`/teams/${team.id}`}>
                   <Avatar src={team.imageUrl} label={team.name} size={28} />
                   <span className={styles.teamName}>
                     {team.name} {flagEmoji(team.location)}
                   </span>
-                </span>
+                </Link>
                 <ul className={styles.teamPlayers}>
                   {(playersByTeam.get(team.id) ?? []).map((player) => (
                     <li key={player.id}>
