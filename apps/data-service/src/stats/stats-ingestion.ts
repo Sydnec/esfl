@@ -272,7 +272,16 @@ export class StatsIngestionService {
     if (match.statsFailureKind && !force) return match.statsFailureKind;
     let kind = 'no-coverage';
     let suggestion: Prisma.InputJsonValue | typeof Prisma.DbNull = Prisma.DbNull;
-    if (provider.suggestTeamNames && context.teamA && context.teamB) {
+    // Un défaut de NOM suppose qu'une équipe reste à rapprocher. Si les deux
+    // portent déjà leur identifiant chez cette source, la résolution se fait
+    // par id : l'échec ne peut plus venir des noms, le match n'y est pas.
+    // Sans ce garde, `suggestTeamNames` étiquetait `name-mismatch` dès qu'un
+    // adversaire inconnu traînait dans la fenêtre, et la page admin proposait
+    // un arbitrage qui n'aurait rien débloqué.
+    const identifiees = [context.teamA, context.teamB].every((team) =>
+      Boolean((team?.providerIds as Record<string, string> | null)?.[provider.source]),
+    );
+    if (!identifiees && provider.suggestTeamNames && context.teamA && context.teamB) {
       const candidates = await provider.suggestTeamNames(match, context).catch(() => []);
       if (candidates.length > 0) {
         kind = 'name-mismatch';

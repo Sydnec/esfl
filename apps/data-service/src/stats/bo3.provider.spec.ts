@@ -250,3 +250,24 @@ describe('mapBo3GameStats — instantané partiel d’une map', () => {
     expect((lines[0].normalized as Record<string, number>).adr).toBeCloseTo(85, 1);
   });
 });
+
+describe('mapBo3Games — manche en cours', () => {
+  it('remonte la map en train de se jouer, avant tout round compté', () => {
+    const enCours = game(2, 2, null, {
+      map_name: 'de_dust2',
+      status: 'current',
+      winner_clan_name: null,
+      winner_clan_score: null,
+      loser_clan_name: null,
+      loser_clan_score: null,
+    });
+    const manches = mapBo3Games([enCours], new Map());
+    expect(manches).toHaveLength(1);
+    expect(manches[0]).toMatchObject({ position: 2, map: 'de_dust2' });
+  });
+
+  it('écarte une manche programmée, même si sa map est déjà annoncée', () => {
+    const aVenir = game(3, 3, null, { map_name: 'de_ancient', status: 'upcoming' });
+    expect(mapBo3Games([aVenir], new Map())).toHaveLength(0);
+  });
+});

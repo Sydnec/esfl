@@ -333,22 +333,28 @@ export function mapBo3Games(
 ): ProviderGameInfo[] {
   const cote = (clan: string | null | undefined) =>
     clan ? (sideByClan.get(normalizeName(clan)) ?? null) : null;
-  return games
-    .filter((game) => (game.rounds_count ?? 0) > 0)
-    .map((game) => {
-      const scores: { scoreA: number | null; scoreB: number | null } = {
-        scoreA: null,
-        scoreB: null,
-      };
-      for (const camp of [
-        { cote: cote(game.winner_clan_name), score: game.winner_clan_score ?? null },
-        { cote: cote(game.loser_clan_name), score: game.loser_clan_score ?? null },
-      ]) {
-        if (camp.cote === 'A') scores.scoreA = camp.score;
-        else if (camp.cote === 'B') scores.scoreB = camp.score;
-      }
-      return { position: game.number, map: game.map_name, ...scores };
-    });
+  return (
+    games
+      // `rounds_count` reste nul tant que la manche n'a pas produit de round :
+      // s'en tenir à lui écartait la manche EN COURS, donc le nom de la map en
+      // train de se jouer. Le statut discrimine mieux que la présence d'une map,
+      // celle d'une manche seulement programmée étant parfois déjà annoncée.
+      .filter((game) => (game.rounds_count ?? 0) > 0 || game.status === 'current')
+      .map((game) => {
+        const scores: { scoreA: number | null; scoreB: number | null } = {
+          scoreA: null,
+          scoreB: null,
+        };
+        for (const camp of [
+          { cote: cote(game.winner_clan_name), score: game.winner_clan_score ?? null },
+          { cote: cote(game.loser_clan_name), score: game.loser_clan_score ?? null },
+        ]) {
+          if (camp.cote === 'A') scores.scoreA = camp.score;
+          else if (camp.cote === 'B') scores.scoreB = camp.score;
+        }
+        return { position: game.number, map: game.map_name, ...scores };
+      })
+  );
 }
 
 /**

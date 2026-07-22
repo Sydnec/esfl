@@ -558,3 +558,48 @@ describe('resolveTeamProviderId', () => {
     expect(res).toMatchObject({ source: 'bo3', providerTeamId: '794' });
   });
 });
+
+describe('recordFailureDiagnosis — deux équipes déjà identifiées', () => {
+  /**
+   * Cas observé : « All Gamers vs Trace Esports », les deux portant leur id
+   * VLR, était étiqueté `name-mismatch` parce que la fenêtre contenait des
+   * adversaires inconnus. La page admin proposait donc un arbitrage sans effet,
+   * et la relance persistait jusqu'à la fenêtre d'arbitrage.
+   */
+  it('classe en no-coverage quand les deux équipes portent leur id provider', async () => {
+    const updates: Array<Record<string, unknown>> = [];
+    const prisma = {
+      match: {
+        update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+          updates.push(data);
+          return data;
+        }),
+      },
+    } as unknown as PrismaService;
+    const ingestion = new StatsIngestionService(
+      prisma,
+      { echec: vi.fn(), succes: vi.fn() } as never,
+      ...([{}, {}, {}, {}, {}, {}] as never[]),
+    );
+    const suggest = vi.fn(async () => [{ side: 'A' as const, name: 'Autre' }]);
+    const provider = { source: 'vlr', suggestTeamNames: suggest } as never;
+    const context = {
+      teamA: { id: 'a', name: 'All Gamers', providerIds: { vlr: '1119' } },
+      teamB: { id: 'b', name: 'Trace Esports', providerIds: { vlr: '2000' } },
+    } as never;
+
+    const kind = await (
+      ingestion as unknown as {
+        recordFailureDiagnosis: (
+          m: unknown,
+          c: unknown,
+          p: unknown,
+          f?: boolean,
+        ) => Promise<string>;
+      }
+    ).recordFailureDiagnosis({ id: 'm1', statsFailureKind: null } as never, context, provider);
+
+    expect(kind).toBe('no-coverage');
+    expect(suggest).not.toHaveBeenCalled();
+  });
+});
