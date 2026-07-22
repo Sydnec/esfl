@@ -90,6 +90,8 @@ interface IngestionHealth {
   >;
   sources: Array<{ gameId: string; source: string; configuree: boolean; live: boolean }>;
   sansStats: HealthMatch[];
+  /** Matchs finis que la source n'a jamais eus : aucun arbitrage possible. */
+  sansRecours: number;
   queue: {
     waiting: number;
     active: number;
@@ -649,7 +651,7 @@ export default function AdminPage() {
             </div>
           </section>
 
-          <TeamMatcher />
+          <TeamMatcher sansRecours={health?.sansRecours ?? 0} />
 
           <section className={styles.section}>
             <h2 className={styles.sectionTitle}>

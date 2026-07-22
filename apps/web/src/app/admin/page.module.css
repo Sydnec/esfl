@@ -421,3 +421,11 @@
   opacity: 0.5;
   cursor: default;
 }
+
+/* Compteur des matchs sans recours, à côté d'une file d'arbitrage vide :
+   distingue « rien à faire » de « rien à voir ». */
+.sansRecours {
+  display: block;
+  margin-top: var(--space-1);
+  font-size: 0.8125rem;
+}

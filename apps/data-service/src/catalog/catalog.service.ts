@@ -1162,6 +1162,13 @@ export class CatalogService {
     for (const match of running) jeu(match.gameId).enCours += 1;
     for (const gameId of upcomingByGame.keys()) jeu(gameId);
 
+    // Matchs finis dont la source n'a jamais eu les stats : rien n'est
+    // arbitrable là, contrairement aux équipes à rapprocher. Le compteur évite
+    // de chercher une action derrière une file d'arbitrage vide.
+    const sansRecours = await this.prisma.match.count({
+      where: { status: 'finished', statsFailureKind: 'no-coverage', stats: { none: {} } },
+    });
+
     // Borné : au-delà, la liste est un symptôme global (source en panne),
     // pas une liste d'actions unitaires — le compteur par jeu suffit.
     const SANS_STATS_MAX = 100;
@@ -1292,6 +1299,8 @@ export class CatalogService {
       catalogue,
       sources,
       sansStats,
+      /** Matchs finis que la source n'a jamais eus : aucun arbitrage possible. */
+      sansRecours,
       queue: { ...counts, echecs },
       aliases,
     };

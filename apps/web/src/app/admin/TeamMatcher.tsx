@@ -40,7 +40,7 @@ function gameLabel(gameId: string): string {
  * noms provider pré-remplies ; à droite une recherche libre. L'alias est
  * exploité par tous les providers et relance l'ingestion des matchs récents.
  */
-export function TeamMatcher() {
+export function TeamMatcher({ sansRecours = 0 }: { sansRecours?: number }) {
   const { authedFetch } = useAuth();
   const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -123,6 +123,7 @@ export function TeamMatcher() {
           busy={busy}
           applyAlias={applyAlias}
           applyVlrPage={applyVlrPage}
+          sansRecours={sansRecours}
         />
         <SearchPanel authedFetch={authedFetch} busy={busy} applyAlias={applyAlias} />
       </div>
@@ -413,11 +414,14 @@ function UnmatchedPanel({
   busy,
   applyAlias,
   applyVlrPage,
+  sansRecours,
 }: {
   authedFetch: AuthedFetch;
   busy: string | null;
   applyAlias: ApplyAlias;
   applyVlrPage: ApplyVlrPage;
+  /** Matchs finis que la source n'a jamais eus : rien à arbitrer dessus. */
+  sansRecours: number;
 }) {
   const [teams, setTeams] = useState<UnmatchedTeam[]>([]);
   const [suggestions, setSuggestions] = useState<Record<string, string[]>>({});
@@ -533,7 +537,18 @@ function UnmatchedPanel({
         </div>
       )}
       {items.length === 0 ? (
-        <p className={styles.empty}>Rien en attente sur les matchs récents.</p>
+        <p className={styles.empty}>
+          Rien en attente sur les matchs récents.
+          {sansRecours > 0 && (
+            <>
+              {' '}
+              <span className={styles.sansRecours}>
+                {sansRecours} match{sansRecours > 1 ? 's' : ''} sans stats chez la source : rien à
+                arbitrer, elle ne les a jamais eus.
+              </span>
+            </>
+          )}
+        </p>
       ) : (
         <ul className={styles.unmatchedList}>
           {visible.map((item) =>
