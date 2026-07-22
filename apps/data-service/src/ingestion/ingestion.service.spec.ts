@@ -36,7 +36,9 @@ function setup(configValue?: unknown) {
     { id: 'm2' },
   ]);
   const prisma = { match: { findMany } } as unknown as PrismaService;
-  const add = vi.fn(async (_name?: string, _data?: unknown, _opts?: { jobId?: string }) => undefined);
+  const add = vi.fn(
+    async (_name?: string, _data?: unknown, _opts?: { jobId?: string }) => undefined,
+  );
   const getJob = vi.fn(async () => undefined);
   const queue = { add, getJob } as unknown as Queue;
   const config = { get: vi.fn(() => configValue) } as unknown as ConfigService;
@@ -71,10 +73,12 @@ function flagSetup(opts: {
     },
     competition: {
       findMany: vi.fn(async () => opts.competitions),
-      update: vi.fn(async ({ where, data }: { where: { id: string }; data: { hidden: boolean } }) => {
-        updates.push({ id: where.id, hidden: data.hidden });
-        return data;
-      }),
+      update: vi.fn(
+        async ({ where, data }: { where: { id: string }; data: { hidden: boolean } }) => {
+          updates.push({ id: where.id, hidden: data.hidden });
+          return data;
+        },
+      ),
     },
   } as unknown as PrismaService;
   const service = new IngestionService(
@@ -185,16 +189,22 @@ function rosterSetup(opts: {
         gameId: 'cs2',
         teams: [{ team: localTeam }],
       })),
+      // Aucune compétition active : le passage global se réduit au balayage.
+      findMany: vi.fn(async () => []),
     },
-    team: { findUnique: vi.fn(async () => localTeam) },
+    team: {
+      findUnique: vi.fn(async () => localTeam),
+      findMany: vi.fn(async () => [localTeam]),
+    },
     player: {
       findMany: vi.fn(async ({ where }: { where: { pandascoreId?: null } }) =>
         opts.localPlayers.filter((player) =>
           where.pandascoreId === null ? player.pandascoreId === null : true,
         ),
       ),
-      findUnique: vi.fn(async ({ where }: { where: { pandascoreId: number } }) =>
-        opts.localPlayers.find((player) => player.pandascoreId === where.pandascoreId) ?? null,
+      findUnique: vi.fn(
+        async ({ where }: { where: { pandascoreId: number } }) =>
+          opts.localPlayers.find((player) => player.pandascoreId === where.pandascoreId) ?? null,
       ),
       update: vi.fn(async (args: { where: { id: string }; data: Record<string, unknown> }) => {
         playerUpdates.push({ id: args.where.id, data: args.data });
@@ -302,7 +312,7 @@ describe('syncRostersForCompetition (repurposé : adoption + fallback, zéro cr�
       matchsRecents: ['m1', 'm2', 'm3'],
       joueursVus: ['p1', 'p2', 'p3', 'p4', 'p5'],
     });
-    await service.syncRostersForCompetition('comp-1');
+    await service.syncAllActiveRosters();
     const balayage = updateManys.find((u) => u.where.active === true);
     expect(balayage?.data).toMatchObject({ active: false });
     expect(balayage?.where).toMatchObject({ id: { notIn: ['p1', 'p2', 'p3', 'p4', 'p5'] } });
@@ -315,7 +325,7 @@ describe('syncRostersForCompetition (repurposé : adoption + fallback, zéro cr�
       matchsRecents: ['m1', 'm2'],
       joueursVus: ['p1', 'p2', 'p3', 'p4', 'p5'],
     });
-    await service.syncRostersForCompetition('comp-1');
+    await service.syncAllActiveRosters();
     expect(updateManys.find((u) => u.where.active === true)).toBeUndefined();
   });
 
@@ -326,7 +336,20 @@ describe('syncRostersForCompetition (repurposé : adoption + fallback, zéro cr�
       matchsRecents: ['m1', 'm2', 'm3'],
       joueursVus: ['p1', 'p2', 'p3', 'p4'],
     });
+    await service.syncAllActiveRosters();
+    expect(updateManys.find((u) => u.where.active === true)).toBeUndefined();
+  });
+
+  it('la réconciliation par compétition ne balaye plus : elle contredirait Pandascore', async () => {
+    const { service, updateManys } = rosterSetup({
+      localPlayers: [],
+      pandascorePlayers: [{ id: 500, name: 'Recrue' }],
+      matchsRecents: ['m1', 'm2', 'm3'],
+      joueursVus: ['p1', 'p2', 'p3', 'p4', 'p5'],
+    });
     await service.syncRostersForCompetition('comp-1');
+    // Une recrue annoncée par Pandascore mais pas encore alignée resterait
+    // active : aucun balayage ne doit la désactiver dans la foulée.
     expect(updateManys.find((u) => u.where.active === true)).toBeUndefined();
   });
 
@@ -351,7 +374,10 @@ describe('applyStarterRoster (enrichissement provider des joueurs)', () => {
           playerUpdates.push({ id: args.where.id, data: args.data });
           return args.data;
         }),
-        create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ id: 'created', ...data })),
+        create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+          id: 'created',
+          ...data,
+        })),
         updateMany: vi.fn(async () => ({ count: 0 })),
       },
       team: { update: vi.fn(async () => ({})) },
@@ -370,10 +396,24 @@ describe('applyStarterRoster (enrichissement provider des joueurs)', () => {
 
   it('complète photo/pays/rôle d’un joueur existant (Leaguepedia source de vérité)', async () => {
     const { service, playerUpdates } = starterSetup([
-      { id: 'p1', name: 'Canna', teamId: 'team-a', role: 'Top', imageUrl: null, nationality: null, fieldSources: null, providerIds: null },
+      {
+        id: 'p1',
+        name: 'Canna',
+        teamId: 'team-a',
+        role: 'Top',
+        imageUrl: null,
+        nationality: null,
+        fieldSources: null,
+        providerIds: null,
+      },
     ]);
     await service.applyStarterRoster(team, [
-      { name: 'Canna', role: 'Top', imageUrl: 'https://lol.fandom.com/photo.png', nationality: 'KR' },
+      {
+        name: 'Canna',
+        role: 'Top',
+        imageUrl: 'https://lol.fandom.com/photo.png',
+        nationality: 'KR',
+      },
     ]);
     const update = playerUpdates.find((u) => u.id === 'p1');
     expect(update?.data).toMatchObject({
@@ -386,7 +426,16 @@ describe('applyStarterRoster (enrichissement provider des joueurs)', () => {
 
   it('pas d’update quand rien ne change', async () => {
     const { service, playerUpdates } = starterSetup([
-      { id: 'p1', name: 'Canna', teamId: 'team-a', role: 'Top', imageUrl: 'https://x.png', nationality: 'KR', fieldSources: { role: 'leaguepedia' }, providerIds: null },
+      {
+        id: 'p1',
+        name: 'Canna',
+        teamId: 'team-a',
+        role: 'Top',
+        imageUrl: 'https://x.png',
+        nationality: 'KR',
+        fieldSources: { role: 'leaguepedia' },
+        providerIds: null,
+      },
     ]);
     await service.applyStarterRoster(team, [
       { name: 'Canna', role: 'Top', imageUrl: 'https://x.png', nationality: 'KR' },
@@ -430,7 +479,13 @@ describe('upsertTeam (précédence des champs)', () => {
     );
     return { service, teamUpdates, teamCreates, queueAdds };
   }
-  const ref = { id: 10, name: 'Team Vitality', acronym: 'VIT', image_url: 'ps.png', location: 'FR' };
+  const ref = {
+    id: 10,
+    name: 'Team Vitality',
+    acronym: 'VIT',
+    image_url: 'ps.png',
+    location: 'FR',
+  };
 
   it('l’update Pandascore n’écrase pas les champs possédés par un provider', async () => {
     const { service, teamUpdates } = teamSetup({
@@ -451,7 +506,9 @@ describe('upsertTeam (précédence des champs)', () => {
 
 describe('backfillTeamPlayers', () => {
   it('enqueue l’ingestion des derniers matchs finis sans stats des équipes', async () => {
-    const add = vi.fn(async (_name?: string, _data?: unknown, _opts?: { jobId?: string }) => undefined);
+    const add = vi.fn(
+      async (_name?: string, _data?: unknown, _opts?: { jobId?: string }) => undefined,
+    );
     const prisma = {
       competition: {
         findUnique: vi.fn(async () => ({

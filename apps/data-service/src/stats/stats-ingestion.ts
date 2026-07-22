@@ -291,7 +291,7 @@ export class StatsIngestionService {
     // (alias volé, mauvaise page d'un matchup répété) — on n'enregistre rien,
     // le retry/diagnostic et le matching manuel prennent le relais.
     const sideOf = (line: ProviderResult['lines'][number]) =>
-      line.side ?? (line.teamName ? sideByTeam.get(line.teamName.trim()) ?? null : null);
+      line.side ?? (line.teamName ? (sideByTeam.get(line.teamName.trim()) ?? null) : null);
     for (const side of ['A', 'B'] as const) {
       const team = side === 'A' ? context.teamA : context.teamB;
       if (!team) continue;
@@ -319,7 +319,7 @@ export class StatsIngestionService {
     ]);
     for (const { line, local: existing } of resolved) {
       const side =
-        line.side ?? (line.teamName ? sideByTeam.get(line.teamName.trim()) ?? null : null);
+        line.side ?? (line.teamName ? (sideByTeam.get(line.teamName.trim()) ?? null) : null);
       let local = existing;
       if (!local) {
         const team = side === 'A' ? context.teamA : side === 'B' ? context.teamB : null;
@@ -334,10 +334,19 @@ export class StatsIngestionService {
         const lastName = rest.length > 0 ? rest.join(' ') : null;
         // Création tolérante à la course : un job concurrent sur la même
         // équipe peut avoir créé la fiche depuis le chargement de l'index.
+        // `applyMatchRoster` refuse de réconcilier un lineup antérieur au
+        // roster de référence de l'équipe : une fiche créée ici depuis un vieux
+        // match resterait active à vie (le défaut de la colonne) sans jamais
+        // repasser devant la réconciliation. Elle naît donc inactive, et le
+        // lineup la réactivera s'il est bien le plus récent.
+        const referenceRoster = match.beginAt ?? match.scheduledAt;
+        const lineupCourant =
+          !team.rosterSyncedAt || !referenceRoster || referenceRoster >= team.rosterSyncedAt;
         const created = await createPlayerSafely(this.prisma, {
           gameId: match.gameId,
           name: line.externalName,
           teamId: team.id,
+          active: lineupCourant,
           role: line.role ?? null,
           firstName: firstName || null,
           lastName,
@@ -357,7 +366,9 @@ export class StatsIngestionService {
         playersById.set(created.id, created);
         index.set(normalizeName(created.name), created);
         if (line.externalId) providerIdsByPlayer.set(created.id, { [source]: line.externalId });
-        this.logger.log(`Fiche joueur créée depuis ${source} : ${line.externalName} (${team.name})`);
+        this.logger.log(
+          `Fiche joueur créée depuis ${source} : ${line.externalName} (${team.name})`,
+        );
       }
       // Apprend l'id provider du joueur résolu (fiabilise les prochains matchings).
       if (line.externalId) {
@@ -398,7 +409,10 @@ export class StatsIngestionService {
           full.fieldSources,
         );
         if (Object.keys(data).length > 0) {
-          await this.prisma.player.update({ where: { id: local.id }, data: { ...data, fieldSources } });
+          await this.prisma.player.update({
+            where: { id: local.id },
+            data: { ...data, fieldSources },
+          });
           full.fieldSources = fieldSources;
         }
       }

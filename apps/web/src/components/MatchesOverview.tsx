@@ -1,17 +1,16 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { GAME_IDS, GAME_LABELS, GameId } from '@esfl/contracts';
 import { cheminCatalogue, request } from '@/lib/api';
-import { useMatchUpdates } from '@/lib/useMatchUpdates';
+import { useRafraichissementLive } from '@/lib/useMatchUpdates';
 import type { Competition, MatchSummary } from '@/lib/types';
 import { MatchGrid } from './MatchCard';
 import styles from './MatchesOverview.module.css';
 
 /** Compétitions décochées par l'utilisateur (les nouvelles restent visibles par défaut). */
 const FILTER_STORAGE_KEY = 'esfl.competitionFilter.excluded';
-const POLL_INTERVAL_MS = 60_000;
 /** Fenêtre affichée : terminés depuis moins de 24h et à venir sous 24h. */
 const WINDOW_MS = 24 * 3600 * 1000;
 
@@ -44,27 +43,15 @@ export function MatchesOverview() {
       .catch(() => setError('Planning indisponible pour le moment'));
   }, []);
 
+  // Chargé une fois : le filtre ne bouge pas au rythme des scores.
   useEffect(() => {
     setExcluded(loadExcluded());
     request<Competition[]>(cheminCatalogue())
       .then(setCompetitions)
       .catch(() => undefined);
-    void loadMatches();
-    // Actualisation périodique : débuts, scores live et fins de match sans reload.
-    const interval = setInterval(() => {
-      if (!document.hidden) void loadMatches();
-    }, POLL_INTERVAL_MS);
-    return () => clearInterval(interval);
-  }, [loadMatches]);
+  }, []);
 
-  // Mise à jour instantanée via SSE, lissée : un cycle de sync touche
-  // plusieurs matchs d'affilée, un seul refetch par fenêtre de 3 s suffit.
-  const lastLiveRefresh = useRef(0);
-  useMatchUpdates(() => {
-    if (Date.now() - lastLiveRefresh.current < 3_000) return;
-    lastLiveRefresh.current = Date.now();
-    void loadMatches();
-  });
+  useRafraichissementLive(loadMatches);
 
   function toggleCompetition(id: string) {
     setExcluded((current) => {

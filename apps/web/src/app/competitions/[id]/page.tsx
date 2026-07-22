@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { GAME_LABELS } from '@esfl/contracts';
 import { Avatar } from '@/components/Avatar';
@@ -8,11 +8,9 @@ import { MatchGrid } from '@/components/MatchCard';
 import { BracketDiagram } from '@/components/BracketDiagram';
 import { StandingsTable } from '@/components/StandingsTable';
 import { request } from '@/lib/api';
-import { useMatchUpdates } from '@/lib/useMatchUpdates';
+import { useRafraichissementLive } from '@/lib/useMatchUpdates';
 import type { CompetitionDetail, MatchSummary } from '@/lib/types';
 import styles from './page.module.css';
-
-const POLL_INTERVAL_MS = 60_000;
 
 /** Une phase est un arbre si ses matchs portent des noms de tour (finale, demi…). */
 const BRACKET_RE =
@@ -48,22 +46,7 @@ export default function CompetitionPage() {
     }
   }, [id]);
 
-  useEffect(() => {
-    void load();
-    // Scores live : même rythme que l'accueil.
-    const interval = setInterval(() => {
-      if (!document.hidden) void load();
-    }, POLL_INTERVAL_MS);
-    return () => clearInterval(interval);
-  }, [load]);
-
-  // Mise à jour instantanée des scores (arbres, poules) via SSE, lissée à 3 s.
-  const lastLiveRefresh = useRef(0);
-  useMatchUpdates(() => {
-    if (Date.now() - lastLiveRefresh.current < 3_000) return;
-    lastLiveRefresh.current = Date.now();
-    void load();
-  });
+  useRafraichissementLive(load);
 
   // Matchs regroupés par phase de tournoi (poule/playoffs), triées chronologiquement.
   const phases = useMemo(() => {

@@ -36,3 +36,34 @@ export function useMatchUpdates(onUpdate: (update: MatchUpdate) => void): void {
     return () => source.close();
   }, []);
 }
+
+/** Cadence du filet de sécurité quand le flux SSE est coupé ou en retard. */
+const INTERVALLE_POLLING_MS = 60_000;
+
+/** Deux mises à jour SSE plus rapprochées que ça ne déclenchent qu'un refetch. */
+const LISSAGE_SSE_MS = 3_000;
+
+/**
+ * Rafraîchissement live d'une page de matchs : polling de sécurité en arrière-
+ * plan (suspendu quand l'onglet est caché) et refetch immédiat sur événement
+ * SSE, lissé parce qu'un cycle de synchro touche plusieurs matchs d'affilée.
+ *
+ * `charger` doit être stable (`useCallback`), comme pour tout effet.
+ */
+export function useRafraichissementLive(charger: () => void | Promise<void>): void {
+  const dernier = useRef(0);
+
+  useEffect(() => {
+    void charger();
+    const interval = setInterval(() => {
+      if (!document.hidden) void charger();
+    }, INTERVALLE_POLLING_MS);
+    return () => clearInterval(interval);
+  }, [charger]);
+
+  useMatchUpdates(() => {
+    if (Date.now() - dernier.current < LISSAGE_SSE_MS) return;
+    dernier.current = Date.now();
+    void charger();
+  });
+}

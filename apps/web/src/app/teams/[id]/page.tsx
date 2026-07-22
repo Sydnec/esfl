@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { GAME_LABELS } from '@esfl/contracts';
@@ -9,11 +9,9 @@ import { MatchGrid } from '@/components/MatchCard';
 import { request } from '@/lib/api';
 import { flagEmoji } from '@/lib/flags';
 import { sortTeamPlayers } from '@/lib/roles';
-import { useMatchUpdates } from '@/lib/useMatchUpdates';
+import { useRafraichissementLive } from '@/lib/useMatchUpdates';
 import type { MatchSummary, TeamDetail } from '@/lib/types';
 import styles from './page.module.css';
-
-const POLL_INTERVAL_MS = 60_000;
 
 /** Bilan sur les matchs terminés : le forfait compte comme les autres. */
 function bilan(matches: MatchSummary[], teamId: string) {
@@ -52,22 +50,7 @@ export default function TeamPage() {
     }
   }, [id]);
 
-  useEffect(() => {
-    void load();
-    // Scores live : même rythme que l'accueil et la page compétition.
-    const interval = setInterval(() => {
-      if (!document.hidden) void load();
-    }, POLL_INTERVAL_MS);
-    return () => clearInterval(interval);
-  }, [load]);
-
-  // Mise à jour instantanée des scores via SSE, lissée à 3 s.
-  const dernierRafraichissement = useRef(0);
-  useMatchUpdates(() => {
-    if (Date.now() - dernierRafraichissement.current < 3_000) return;
-    dernierRafraichissement.current = Date.now();
-    void load();
-  });
+  useRafraichissementLive(load);
 
   const effectif = useMemo(() => sortTeamPlayers(team?.players ?? []), [team]);
   const aVenir = useMemo(

@@ -89,6 +89,14 @@ function clustersParPseudo<T extends { name: string }>(fiches: T[]): T[][] {
   return clusters;
 }
 
+/**
+ * Filtre du catalogue public : tiers S/A/B, tier null accepté, c/d exclus.
+ * Jumeau de `TIER_ALLOWED` côté ingestion, qui filtre la synchro.
+ */
+const TIER_PUBLIC: Prisma.CompetitionWhereInput = {
+  OR: [{ tier: null }, { tier: { notIn: ['c', 'd'] } }],
+};
+
 /** Noms lisibles des jobs BullMQ, pour la liste des échecs de la page admin. */
 const JOB_LABELS: Record<string, string> = {
   'ingest-stats': 'Ingestion des stats',
@@ -133,7 +141,15 @@ export class CatalogService {
    * deviennent inutilisables. `ids` force l'inclusion de compétitions hors
    * fenêtre (celles déjà suivies par une ligne, dont il faut encore le nom).
    */
-  listCompetitions(gameId?: string, search?: string, from?: Date, to?: Date, ids?: string[]) {
+  async listCompetitions(gameId?: string, search?: string, from?: Date, to?: Date, ids?: string[]) {
+    // Irrécupérables masquées + tier c/d exclus (catalogue restreint S/A/B,
+    // tier null accepté) : jamais proposées au parcours ni au suivi.
+    const base = {
+      hidden: false,
+      ...TIER_PUBLIC,
+      ...(gameId ? { gameId } : {}),
+      ...(search ? { name: { contains: search, mode: 'insensitive' as const } } : {}),
+    };
     const fenetre =
       from || to
         ? {
@@ -141,28 +157,22 @@ export class CatalogService {
               some: { scheduledAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } },
             },
           }
-        : null;
-    const portee = [
-      ...(fenetre ? [fenetre] : []),
-      ...(ids && ids.length > 0 ? [{ id: { in: ids } }] : []),
-    ];
-    return this.prisma.competition.findMany({
-      where: {
-        // Irrécupérables masquées + tier c/d exclus (catalogue restreint S/A/B,
-        // tier null accepté) : jamais proposées au parcours ni au suivi.
-        hidden: false,
-        // Deux OR distincts : un seul objet `where` ne peut pas porter la clé
-        // deux fois, ils passent donc par un AND explicite.
-        AND: [
-          { OR: [{ tier: null }, { tier: { notIn: ['c', 'd'] } }] },
-          ...(portee.length > 0 ? [{ OR: portee }] : []),
-        ],
-        ...(gameId ? { gameId } : {}),
-        ...(search ? { name: { contains: search, mode: 'insensitive' as const } } : {}),
-      },
+        : {};
+    const catalogue = await this.prisma.competition.findMany({
+      where: { ...base, ...fenetre },
       orderBy: [{ beginAt: 'desc' }],
       take: 100,
     });
+    if (!ids || ids.length === 0) return catalogue;
+
+    // Requête séparée pour les compétitions forcées : rassemblées en un seul
+    // `OR`, le plafond de 100 pouvait les écarter alors qu'elles sont là
+    // précisément pour être résolues (le nom d'une compétition déjà suivie).
+    const connus = new Set(catalogue.map((competition) => competition.id));
+    const forcees = await this.prisma.competition.findMany({
+      where: { ...base, id: { in: ids.filter((id) => !connus.has(id)) } },
+    });
+    return [...catalogue, ...forcees];
   }
 
   async getCompetition(id: string) {
@@ -206,14 +216,20 @@ export class CatalogService {
         players: {
           where: { active: true },
           orderBy: [{ name: 'asc' }],
+          // Mêmes champs publics que `PlayerRef` côté web : la plomberie
+          // d'adoption (fieldSources, providerIds, adoptionTriedAt…) n'a pas
+          // plus sa place ici que sur l'équipe.
+          select: {
+            id: true,
+            gameId: true,
+            name: true,
+            role: true,
+            imageUrl: true,
+            nationality: true,
+          },
         },
         competitions: {
-          where: {
-            competition: {
-              hidden: false,
-              OR: [{ tier: null }, { tier: { notIn: ['c', 'd'] } }],
-            },
-          },
+          where: { competition: { hidden: false, ...TIER_PUBLIC } },
           select: {
             competition: {
               select: {
@@ -255,10 +271,15 @@ export class CatalogService {
         // Irrécupérable ou tier c/d : masquée partout (accueil, board, scoring).
         competition: { hidden: false, OR: [{ tier: null }, { tier: { notIn: ['c', 'd'] } }] },
       },
-      orderBy: { scheduledAt: 'asc' },
+      // Tri décroissant pour que le plafond coupe les matchs les plus ANCIENS :
+      // en croissant, une équipe ou une compétition dépassant `take` perdait
+      // ses matchs récents, donc son actualité. L'ordre croissant attendu par
+      // les appelants est rétabli juste après.
+      orderBy: { scheduledAt: 'desc' },
       take: 500,
       include: { competition: { select: { id: true, name: true, gameId: true } } },
     });
+    matches.reverse();
 
     // teamA/teamB sont des ids sans relation Prisma : on résout en une requête.
     const teamIds = [
@@ -876,12 +897,12 @@ export class CatalogService {
         (all.find((p) => p.id === keepId)?.providerIds as Record<string, string> | null) ?? {},
       );
 
+      // `active` n'est PAS touché : il appartient à la réconciliation de roster
+      // (lineups des matchs, sources de titulaires). Le forcer ici ressuscitait
+      // un joueur correctement sorti du cinq, à chaque passage de fusion.
       await tx.player.update({
         where: { id: keepId },
-        data: {
-          providerIds: Object.keys(merged).length > 0 ? merged : Prisma.DbNull,
-          active: true,
-        },
+        data: { providerIds: Object.keys(merged).length > 0 ? merged : Prisma.DbNull },
       });
       await tx.player.deleteMany({ where: { id: { in: absorbedIds } } });
     });

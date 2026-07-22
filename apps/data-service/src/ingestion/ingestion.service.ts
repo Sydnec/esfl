@@ -333,8 +333,9 @@ export class IngestionService {
    * Le fallback Pandascore laisse deux trous, tous deux visibles en CS2 où
    * bo3 n'expose pas de titulaires : une équipe dont Pandascore rend un roster
    * VIDE n'est jamais réconciliée, et les fiches créées par le provider (sans
-   * pandascoreId) échappent de toute façon à son verdict. D'où le balayage par
-   * participation en dernier recours.
+   * pandascoreId) échappent de toute façon à son verdict. Le balayage par
+   * participation les rattrape, une seule fois par passage et pour tout le
+   * référentiel (cf. `sweepRostersSansSourceDeTitulaires`).
    */
   private async reconcileActiveRoster(team: Team, pandascoreIds: number[]): Promise<void> {
     const starters = await this.fetchSpecializedStarters(team);
@@ -355,15 +356,21 @@ export class IngestionService {
         data: { active: true },
       });
     }
-    await this.sweepRosterParParticipation(team);
   }
 
   /**
-   * Dernier recours : le cinq actuel se déduit de qui a réellement joué les
-   * derniers matchs de l'équipe. Ne fait que DÉSACTIVER — les recrues entrent
-   * par les lineups des matchs, jamais par ici — et n'est appelé que si aucune
-   * source de roster n'a tranché, pour ne pas contredire un titulaire annoncé
-   * par Leaguepedia ou VLR qui n'a pas encore joué.
+   * Filet de sécurité : le cinq actuel se déduit de qui a réellement joué les
+   * derniers matchs de l'équipe. Ne fait que DÉSACTIVER, jamais activer, les
+   * recrues entrant par les lineups.
+   *
+   * Parenté avec `applyMatchRoster` (stats-ingestion), qui réconcilie déjà le
+   * roster à chaque ingestion : celui-ci ne garde que le DERNIER lineup, ce
+   * balayage garde l'union des MATCHS_RECENTS derniers. Son ensemble conservé
+   * est donc un sur-ensemble : il ne peut retirer que des joueurs que
+   * `applyMatchRoster` aurait retirés aussi, et ne le contredit jamais. Il
+   * existe parce que `applyMatchRoster` s'abstient sur un match antérieur au
+   * roster de référence, ce qui laisse passer les fiches nées d'un backfill
+   * désordonné.
    *
    * Deux garde-fous contre les captures de stats trouées : il faut au moins
    * MATCHS_RECENTS matchs notés, et leur union doit couvrir un cinq complet.
@@ -374,6 +381,9 @@ export class IngestionService {
         status: 'finished',
         OR: [{ teamAId: team.id }, { teamBId: team.id }],
         stats: { some: {} },
+        // Sans date, un match remonterait en tête du tri décroissant (NULLS
+        // FIRST sous Postgres) et volerait un créneau à un vrai match récent.
+        scheduledAt: { not: null },
       },
       orderBy: { scheduledAt: 'desc' },
       take: MATCHS_RECENTS,
@@ -532,7 +542,11 @@ export class IngestionService {
    * titulaires, ce balayage cessera de lui être appliqué sans rien changer ici.
    */
   private async sweepRostersSansSourceDeTitulaires(): Promise<void> {
-    const jeux = GAME_IDS.filter((game) => !this.providerFor(game)?.fetchStarters);
+    const jeux = GAME_IDS.filter((game) => {
+      const provider = this.providerFor(game);
+      // Pas de provider du tout : aucune stat, donc rien à déduire non plus.
+      return provider != null && !provider.fetchStarters;
+    });
     if (jeux.length === 0) return;
     const teams = await this.prisma.team.findMany({ where: { gameId: { in: [...jeux] } } });
     for (const team of teams) {
@@ -558,7 +572,11 @@ export class IngestionService {
         .add(
           'backfill-team-players',
           { competitionId },
-          { jobId: `backfill-team-players-${competitionId}`, removeOnComplete: true, removeOnFail: 20 },
+          {
+            jobId: `backfill-team-players-${competitionId}`,
+            removeOnComplete: true,
+            removeOnFail: 20,
+          },
         )
         .catch((error) =>
           this.logger.warn(`enqueue backfill-team-players ${competitionId} : ${String(error)}`),
@@ -790,8 +808,7 @@ export class IngestionService {
     // Forfait : aucune stat à récupérer (personne n'a joué) — on saute.
     if (enqueueStats && saved.status === 'finished' && !saved.forfeit && !saved.finishedEventSent) {
       const finishedAt = saved.endAt ?? saved.beginAt ?? saved.scheduledAt;
-      const isRecent =
-        !finishedAt || Date.now() - finishedAt.getTime() < 48 * 3600 * 1000;
+      const isRecent = !finishedAt || Date.now() - finishedAt.getTime() < 48 * 3600 * 1000;
       if (isRecent) {
         await enqueueIngestStats(this.ingestionQueue, saved.id);
         // Flag posé après l'enqueue : s'il échoue, il n'est pas persisté et
