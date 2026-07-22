@@ -5,7 +5,7 @@ import type { Bo3StatsProvider } from './bo3.provider';
 import type { LeaguepediaStatsProvider } from './leaguepedia.provider';
 import type { VlrStatsProvider } from './vlr.provider';
 import type { MatchContext, ProviderResult } from './provider';
-import { relanceInutile, StatsIngestionService } from './stats-ingestion';
+import { avantGel, relanceInutile, StatsIngestionService } from './stats-ingestion';
 
 /**
  * Tests du cœur de l'ingestion (persistResult) avec un Prisma factice :
@@ -154,6 +154,139 @@ describe('relanceInutile', () => {
 
   it('persiste quand la date de fin est inconnue : rien pour juger', () => {
     expect(relanceInutile('no-coverage', null, maintenant)).toBe(false);
+  });
+});
+
+describe('avantGel', () => {
+  const maintenant = new Date('2026-07-22T18:00:00Z').getTime();
+  const ilYA = (heures: number) => new Date(maintenant - heures * 3600 * 1000);
+
+  it('autorise la relance tant que la journée n’est pas gelée (< J+3)', () => {
+    expect(avantGel(ilYA(48), maintenant)).toBe(true);
+  });
+
+  it('renonce passé le gel de la journée (> J+3)', () => {
+    expect(avantGel(ilYA(24 * 4), maintenant)).toBe(false);
+  });
+
+  it('laisse la porte ouverte quand la fin de match est inconnue', () => {
+    expect(avantGel(null, maintenant)).toBe(true);
+  });
+});
+
+/**
+ * Relance ciblée sur incohérence : le court-circuit « stats existantes » ne doit
+ * sauter le re-fetch que si les stats sont cohérentes, et seulement avant le gel.
+ */
+describe('ingestForMatchId — relance sur incohérence', () => {
+  const summaryCs2 = [
+    { position: 1, scoreA: 13, scoreB: 4, winner: 'A' },
+    { position: 2, scoreA: 7, scoreB: 13, winner: 'B' },
+    { position: 3, winner: 'B' },
+  ];
+
+  /** 10 lignes couvrant les positions données (rounds optionnels). */
+  function statLines(maps: Array<{ position: number; rounds?: number | null }>) {
+    return Array.from({ length: 10 }, () => ({
+      updatedAt: new Date('2026-07-22T21:00:00Z'),
+      perMap: maps.map((m) => ({ position: m.position, rounds: m.rounds ?? null })),
+    }));
+  }
+
+  function harness(options: {
+    endAt: Date;
+    existantes: Array<{ updatedAt: Date; perMap: unknown }>;
+    fetchStats: ReturnType<typeof vi.fn>;
+  }) {
+    const dbMatch = {
+      id: 'match-1',
+      name: 'Vitality vs NAVI',
+      gameId: 'cs2',
+      statsFailureKind: null,
+      gamesSummary: summaryCs2,
+      endAt: options.endAt,
+      beginAt: options.endAt,
+      scheduledAt: options.endAt,
+      teamAId: 'team-a',
+      teamBId: 'team-b',
+    };
+    const prisma = {
+      match: { findUnique: vi.fn(async () => dbMatch), update: vi.fn(async () => ({})) },
+      playerMatchStats: { findMany: vi.fn(async () => options.existantes) },
+      team: { findMany: vi.fn(async () => []) },
+      player: { findMany: vi.fn(async () => []) },
+    };
+    const statsIngestedQueue = { add: vi.fn() };
+    const ingestion = new StatsIngestionService(
+      prisma as unknown as PrismaService,
+      statsIngestedQueue as never,
+      { add: vi.fn(), getJob: vi.fn(async () => undefined) } as never,
+      { emitMatchUpdated: vi.fn() } as never,
+      { succes: vi.fn(), echec: vi.fn(async () => undefined) } as never,
+      {
+        gameId: 'cs2',
+        source: 'bo3',
+        fetchStats: options.fetchStats,
+      } as unknown as Bo3StatsProvider,
+      { gameId: 'valorant' } as VlrStatsProvider,
+      { gameId: 'lol' } as LeaguepediaStatsProvider,
+    );
+    return { ingestion, statsIngestedQueue };
+  }
+
+  const recent = new Date('2026-07-22T20:28:00Z');
+  const maintenant = new Date('2026-07-22T22:00:00Z');
+  const vieux = new Date('2026-07-18T20:28:00Z'); // > J+3
+
+  it('court-circuite sans re-fetch quand les stats sont cohérentes', async () => {
+    vi.setSystemTime(maintenant);
+    const fetchStats = vi.fn();
+    const { ingestion, statsIngestedQueue } = harness({
+      endAt: recent,
+      existantes: statLines([
+        { position: 1, rounds: 17 },
+        { position: 2, rounds: 20 },
+        { position: 3, rounds: null },
+      ]),
+      fetchStats,
+    });
+    await ingestion.ingestForMatchId('match-1');
+    expect(fetchStats).not.toHaveBeenCalled();
+    expect(statsIngestedQueue.add).toHaveBeenCalledOnce(); // publish 'existing'
+    vi.useRealTimers();
+  });
+
+  it('re-fetch quand les stats sont incohérentes et la journée non gelée', async () => {
+    vi.setSystemTime(maintenant);
+    // fetchStats appelé = le court-circuit a bien été franchi. On coupe court.
+    const fetchStats = vi.fn(async () => {
+      throw new Error('stop après fetch');
+    });
+    const { ingestion } = harness({
+      endAt: recent,
+      existantes: statLines([
+        { position: 1, rounds: 17 },
+        { position: 2, rounds: 20 },
+      ]), // position 3 absente → incohérent
+      fetchStats,
+    });
+    await expect(ingestion.ingestForMatchId('match-1')).rejects.toThrow('stop après fetch');
+    expect(fetchStats).toHaveBeenCalledOnce();
+    vi.useRealTimers();
+  });
+
+  it('n’insiste plus passé le gel, même incohérent', async () => {
+    vi.setSystemTime(maintenant);
+    const fetchStats = vi.fn();
+    const { ingestion, statsIngestedQueue } = harness({
+      endAt: vieux,
+      existantes: statLines([{ position: 1, rounds: 17 }]), // incohérent
+      fetchStats,
+    });
+    await ingestion.ingestForMatchId('match-1');
+    expect(fetchStats).not.toHaveBeenCalled();
+    expect(statsIngestedQueue.add).toHaveBeenCalledOnce(); // publish 'existing'
+    vi.useRealTimers();
   });
 });
 

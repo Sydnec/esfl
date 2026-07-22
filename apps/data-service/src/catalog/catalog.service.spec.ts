@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
-import { clustersParPseudo, identiteCivile } from './catalog.service';
+import { describe, expect, it, vi } from 'vitest';
+import type { PrismaService } from '../prisma.service';
+import { CatalogService, clustersParPseudo, identiteCivile } from './catalog.service';
 
 /**
  * Clés d'identité de la fusion des doublons : deux fiches ne doivent être
@@ -39,5 +40,64 @@ describe('clustersParPseudo', () => {
     expect(inverse.map((groupe) => groupe.length).sort()).toEqual(
       direct.map((groupe) => groupe.length).sort(),
     );
+  });
+});
+
+/**
+ * Complétude d'une journée = base du gel des scores. Un match fini aux stats
+ * INCOHÉRENTES ne doit pas la rendre complète, sinon la journée gèlerait sur des
+ * données partielles avant que la relance ne les corrige.
+ */
+describe('dayCompleteness — le gel attend des stats cohérentes', () => {
+  const beginAt = new Date('2026-07-22T18:00:00Z'); // 22/07 en heure de Paris
+  const summaryCs2 = [
+    { position: 1, scoreA: 13, scoreB: 4, winner: 'A' },
+    { position: 2, scoreA: 7, scoreB: 13, winner: 'B' },
+    { position: 3, winner: 'B' },
+  ];
+
+  function serviceAvecMatch(
+    perMapParPosition: Array<{ position: number; rounds?: number | null }>,
+  ) {
+    const stats = Array.from({ length: 10 }, () => ({
+      perMap: perMapParPosition.map((m) => ({ position: m.position, rounds: m.rounds ?? null })),
+    }));
+    const match = {
+      id: 'm1',
+      gameId: 'cs2',
+      status: 'finished',
+      forfeit: false,
+      beginAt,
+      scheduledAt: beginAt,
+      statsFailureKind: null,
+      teamAId: 'a',
+      teamBId: 'b',
+      gamesSummary: summaryCs2,
+      _count: { stats: stats.length },
+      stats,
+    };
+    const prisma = { match: { findMany: vi.fn(async () => [match]) } };
+    return new CatalogService(prisma as unknown as PrismaService);
+  }
+
+  it('journée NON complète tant qu’un match a des stats incohérentes (map absente)', async () => {
+    const service = serviceAvecMatch([
+      { position: 1, rounds: 17 },
+      { position: 2, rounds: 20 },
+    ]); // position 3 absente
+    const result = await service.dayCompleteness('2026-07-22');
+    expect(result.incoherentCount).toBe(1);
+    expect(result.complete).toBe(false);
+  });
+
+  it('journée complète une fois les stats cohérentes', async () => {
+    const service = serviceAvecMatch([
+      { position: 1, rounds: 17 },
+      { position: 2, rounds: 20 },
+      { position: 3, rounds: null },
+    ]);
+    const result = await service.dayCompleteness('2026-07-22');
+    expect(result.incoherentCount).toBe(0);
+    expect(result.complete).toBe(true);
   });
 });

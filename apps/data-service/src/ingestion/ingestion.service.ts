@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectQueue } from '@nestjs/bullmq';
-import { GAME_IDS, GameId } from '@esfl/contracts';
+import { FREEZE_DEADLINE_DAYS, GAME_IDS, GameId } from '@esfl/contracts';
 import type { Competition, Prisma, Team } from '../../generated/client';
 import { Queue } from 'bullmq';
 import { pandascoreUpdate, providerUpdate } from '../common/field-precedence';
@@ -9,6 +9,7 @@ import { createPlayerSafely } from '../common/player-create';
 import { Sequenceur } from '../common/sequenceur';
 import { mergeGamesSummary } from '../common/games-summary';
 import { buildPlayerIndex, matchPlayer, normalizeName } from '../stats/matching';
+import { evaluerCoherence } from '../stats/coherence';
 import type { StarterRef } from '../stats/provider';
 import { LeaguepediaStatsProvider } from '../stats/leaguepedia.provider';
 import { Bo3StatsProvider } from '../stats/bo3.provider';
@@ -833,21 +834,25 @@ export class IngestionService {
   }
 
   /**
-   * Rattrapage des sources publiées tardivement : ré-arme l'ingestion des
-   * stats pour tout match terminé encore sans stats dans l'horizon
-   * (`STATS_BACKFILL_DAYS`, surchargeable par env). Le flux normal n'enqueue
-   * qu'une fois dans les 48h de la fin du match ; si la source (bo3, upload
-   * ballchasing…) ne publie qu'après, le match reste sans stats à vie. Ici on
-   * relance `enqueueIngestStats` : la dédup par jobId sert d'auto-throttle
-   * (une chaîne de retries vivante n'est pas doublée, une chaîne échouée
-   * repart) et le job `ingest-stats` refait findSeries + diagnostic + persist.
-   * Tous jeux : le provider est choisi par gameId côté ingestion. Borné en
-   * horizon et en volume (quota des sources rate-limitées).
+   * Rattrapage des sources publiées tardivement OU incohérentes : ré-arme
+   * l'ingestion des stats. Deux cas :
+   *
+   * - **Aucune stat** dans l'horizon `STATS_BACKFILL_DAYS` : le flux normal
+   *   n'enqueue qu'une fois à la fin du match ; si la source (bo3, upload
+   *   ballchasing…) ne publie qu'après, le match resterait sans stats à vie.
+   * - **Stats présentes mais incohérentes** (map absente, roster ou manches
+   *   tronqués) jusqu'au gel de la journée (J+3) : un fetch prématuré a figé des
+   *   données partielles, aucune chaîne de retry n'est plus vivante. On les
+   *   ré-arme tant que la note peut encore changer.
+   *
+   * `enqueueIngestStats` déduplique par jobId (auto-throttle : chaîne vivante non
+   * doublée, chaîne échouée relancée) ; le job refait findSeries + diagnostic +
+   * persist. Tous jeux, provider choisi par gameId. Borné en horizon et volume.
    */
   async retryStatsBackfill(): Promise<number> {
     const days = Number(this.config.get('STATS_BACKFILL_DAYS')) || STATS_BACKFILL_DAYS;
     const cutoff = new Date(Date.now() - days * 24 * 3600 * 1000);
-    const matches = await this.prisma.match.findMany({
+    const sansStats = await this.prisma.match.findMany({
       where: {
         status: 'finished',
         stats: { none: {} },
@@ -861,13 +866,37 @@ export class IngestionService {
       take: 50,
       select: { id: true },
     });
-    for (const match of matches) {
+
+    // Matchs récents (≤ J+3, avant gel) déjà notés mais aux stats incohérentes :
+    // la cohérence se calcule à la volée sur le lot borné.
+    const gelCutoff = new Date(Date.now() - FREEZE_DEADLINE_DAYS * 24 * 3600 * 1000);
+    const avecStats = await this.prisma.match.findMany({
+      where: {
+        status: 'finished',
+        forfeit: false,
+        stats: { some: {} },
+        teamAId: { not: null },
+        teamBId: { not: null },
+        endAt: { gte: gelCutoff },
+        competition: { hidden: false },
+      },
+      orderBy: { endAt: 'desc' },
+      take: 100,
+      select: { id: true, gameId: true, gamesSummary: true, stats: { select: { perMap: true } } },
+    });
+    const incoherents = avecStats
+      .filter((match) => !evaluerCoherence(match, match.stats).coherent)
+      .slice(0, 50);
+
+    for (const match of [...sansStats, ...incoherents]) {
       await enqueueIngestStats(this.ingestionQueue, match.id);
     }
-    if (matches.length) {
-      this.logger.log(`retry-stats-backfill : ${matches.length} match(s) sans stats ré-armés`);
+    if (sansStats.length || incoherents.length) {
+      this.logger.log(
+        `retry-stats-backfill : ${sansStats.length} sans stats + ${incoherents.length} incohérent(s) ré-armés`,
+      );
     }
-    return matches.length;
+    return sansStats.length + incoherents.length;
   }
 
   /**

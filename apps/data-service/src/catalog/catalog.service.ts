@@ -3,6 +3,7 @@ import { parisDate } from '@esfl/contracts';
 import type { Job, Queue } from 'bullmq';
 import { Prisma } from '../../generated/client';
 import { FENETRE_ARBITRAGE_MS } from '../ingestion/ingestion.constants';
+import { evaluerCoherence } from '../stats/coherence';
 import { reassignPlayerStats } from '../common/player-merge';
 import { normalizeName, pseudosProches, teamNamesMatch } from '../stats/matching';
 import { PrismaService } from '../prisma.service';
@@ -473,7 +474,9 @@ export class CatalogService {
         statsFailureKind: true,
         teamAId: true,
         teamBId: true,
+        gamesSummary: true,
         _count: { select: { stats: true } },
+        stats: { select: { perMap: true } },
       },
     });
     const dayMatches = candidates.filter((match) => {
@@ -487,12 +490,20 @@ export class CatalogService {
     const missing = finished.filter(
       (match) => match._count.stats === 0 && match.statsFailureKind !== 'no-coverage',
     );
+    // Match fini AVEC des stats mais incohérentes (map absente, roster ou
+    // manches tronqués : fetch prématuré figé) : la journée ne doit pas être
+    // tenue pour complète, sinon elle gèlerait sur des données partielles avant
+    // la correction. Le gel dur J+3 reste le garde-fou (côté scoring).
+    const incoherent = finished.filter(
+      (match) => match._count.stats > 0 && !evaluerCoherence(match, match.stats).coherent,
+    );
     return {
       date,
       totalMatches: dayMatches.length,
       pendingCount: pending.length,
       missingCount: missing.length,
-      complete: pending.length === 0 && missing.length === 0,
+      incoherentCount: incoherent.length,
+      complete: pending.length === 0 && missing.length === 0 && incoherent.length === 0,
       /** Matchs finis avec stats : à re-noter une dernière fois avant le gel. */
       scoredMatchIds: finished.filter((match) => match._count.stats > 0).map((match) => match.id),
       /**

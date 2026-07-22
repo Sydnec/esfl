@@ -23,6 +23,7 @@ import {
 } from '../ingestion/ingestion.constants';
 import { LiveEventsService } from '../live/live-events.service';
 import { PrismaService } from '../prisma.service';
+import { evaluerCoherence } from './coherence';
 import { buildPlayerIndex, matchPlayer, normalizeName, teamMatches } from './matching';
 import type { NamedPlayer } from './matching';
 import { Bo3StatsProvider } from './bo3.provider';
@@ -72,6 +73,17 @@ export function relanceInutile(
   const age = maintenant - finDeMatch.getTime();
   if (age > FENETRE_ARBITRAGE_MS) return true;
   return diagnostic === 'no-coverage' && age > FENETRE_PUBLICATION_MS;
+}
+
+/**
+ * Peut-on encore espérer qu'une correction de stats serve à quelque chose ?
+ * Non passé le gel de la journée (J+3, `FENETRE_PUBLICATION_MS`) : la note est
+ * figée, relancer ne changerait plus rien. Une fin de match inconnue (trou
+ * Pandascore) laisse la porte ouverte, la borne large du backfill fera le reste.
+ */
+export function avantGel(finDeMatch: Date | null, maintenant: number = Date.now()): boolean {
+  if (!finDeMatch) return true;
+  return maintenant - finDeMatch.getTime() <= FENETRE_PUBLICATION_MS;
 }
 
 /** Slug d'un lien lol.fandom.com/wiki/... ; null si ce n'est pas un tel lien. */
@@ -196,15 +208,23 @@ export class StatsIngestionService {
     }
 
     if (!force) {
-      const newest = await this.prisma.playerMatchStats.aggregate({
-        _max: { updatedAt: true },
+      const existantes = await this.prisma.playerMatchStats.findMany({
         where: { matchId },
+        select: { updatedAt: true, perMap: true },
       });
-      const newestAt = newest._max.updatedAt;
+      const newestAt = existantes.reduce<Date | null>(
+        (max, s) => (max && max >= s.updatedAt ? max : s.updatedAt),
+        null,
+      );
       // Un instantané pris pendant le match (sync live) est antérieur au
       // coup de sifflet : on refait le fetch pour figer les stats finales.
       const liveSnapshot = newestAt && match.endAt && newestAt < match.endAt;
-      if (newestAt && !liveSnapshot) {
+      // Des stats incohérentes (map absente, roster ou manches tronqués) ne
+      // valent pas court-circuit : on refait le fetch même sans `force`, tant
+      // que la journée n'est pas gelée. Sinon un snapshot figé le resterait.
+      const coherentes = evaluerCoherence(match, existantes).coherent;
+      const relançable = !coherentes && avantGel(match.endAt ?? match.beginAt ?? match.scheduledAt);
+      if (newestAt && !liveSnapshot && !relançable) {
         await this.publish(match, 'existing');
         return;
       }
@@ -250,7 +270,28 @@ export class StatsIngestionService {
       });
     }
     this.logger.log(`${persisted} lignes de stats ${provider.source} pour ${match.name}`);
+    // Publier d'abord : le front montre le meilleur disponible et le scoring
+    // recalcule à chaque passe, jusqu'au gel.
     await this.publish(match, provider.source);
+
+    // Stats présentes mais incohérentes avec la structure du match (source
+    // encore en train de figer/corriger) : relance tant que la journée n'est
+    // pas gelée. Le fetch a réussi, aucun retry ne se déclencherait sinon.
+    const apres = await this.prisma.match.findUnique({
+      where: { id: match.id },
+      select: { gameId: true, gamesSummary: true },
+    });
+    const statsPersistees = await this.prisma.playerMatchStats.findMany({
+      where: { matchId: match.id },
+      select: { perMap: true },
+    });
+    const coherence = evaluerCoherence(apres ?? match, statsPersistees);
+    if (!coherence.coherent && avantGel(match.endAt ?? match.beginAt ?? match.scheduledAt)) {
+      this.logger.warn(
+        `${match.name} : stats incohérentes (${coherence.raison}), relance planifiée`,
+      );
+      throw new Error(`Stats incohérentes pour ${match.name} : ${coherence.raison}`);
+    }
   }
 
   /**

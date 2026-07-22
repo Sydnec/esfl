@@ -86,7 +86,10 @@ function entreesParPosition(stats: StatLineCoherence[]): Map<number, MapStatsEnt
   return parPosition;
 }
 
-export function evaluerCoherence(match: MatchCoherence, stats: StatLineCoherence[]): CoherenceResult {
+export function evaluerCoherence(
+  match: MatchCoherence,
+  stats: StatLineCoherence[],
+): CoherenceResult {
   const jouees = positionsJouees(match.gamesSummary);
   // Structure inconnue (trou Pandascore) : rien à quoi comparer, on ne bloque pas.
   if (jouees.length === 0) return { coherent: true };

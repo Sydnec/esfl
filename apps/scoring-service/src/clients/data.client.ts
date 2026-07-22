@@ -58,6 +58,8 @@ export interface DayCompleteness {
   totalMatches: number;
   pendingCount: number;
   missingCount: number;
+  /** Matchs finis avec des stats présentes mais incohérentes (bloquent le gel). */
+  incoherentCount: number;
   complete: boolean;
   /** Matchs finis avec stats : à re-noter une dernière fois avant le gel. */
   scoredMatchIds: string[];
