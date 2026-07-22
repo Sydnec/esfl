@@ -107,9 +107,9 @@ export const SIGMA_REF = 0.2;
  * requête de mesure est dans docs/scoring-et-donnees.md.
  */
 export const CALIBRAGE_JEU: Record<GameId, { mediane: number; sigma: number }> = {
-  cs2: { mediane: 1.072, sigma: 0.357 },
-  valorant: { mediane: 0.991, sigma: 0.202 },
-  lol: { mediane: 0.942, sigma: 0.247 },
+  cs2: { mediane: 1.06, sigma: 0.281 },
+  valorant: { mediane: 0.99, sigma: 0.204 },
+  lol: { mediane: 1.25, sigma: 0.241 },
 };
 
 /**
@@ -181,6 +181,12 @@ export function lolRating(i: { kda: number; kp: number; gpm: number; vsm: number
  * complet que pour les ligues majeures (bots Riot) ; les ligues mineures sont
  * saisies à la main, souvent limitées au KDA/KP. On surpondère alors ce qui est
  * toujours présent (KDA plafonné + Kill Participation).
+ *
+ * ATTENTION : sa distribution n'est PAS celle de `lolRating`, alors que les deux
+ * partagent la ligne `lol` de `CALIBRAGE_JEU`. Aucune ligue ne l'emprunte
+ * aujourd'hui (0 sur 5 242 lignes mesurées), mais le jour où une ligue mineure y
+ * bascule, ses notes seront décentrées d'autant. Il faudra alors mesurer sa
+ * médiane à part et lui donner son propre calibrage.
  */
 export function lolFallbackRating(i: { kda: number; kp: number }): number {
   return i.kda * 0.06 + i.kp * 0.008 + 0.2;

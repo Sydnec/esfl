@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CALIBRAGE_JEU,
   canonicalLolRole,
   cs2Rating,
   LOL_LAMBDA,
@@ -37,26 +38,29 @@ describe('mapsPlayed / roundsPlayed', () => {
 });
 
 describe('noteDepuisRating — échelle commune', () => {
+  // Les tests se lisent DEPUIS la table de calibrage : ils vérifient l'invariant,
+  // pas des constantes recopiées qui devraient être mises à jour à chaque mesure.
+  const jeux = ['cs2', 'valorant', 'lol'] as const;
+
   it('une perf médiane vaut 50 dans chacun des trois jeux', () => {
-    expect(noteDepuisRating('cs2', 1.072)).toBeCloseTo(50, 1);
-    expect(noteDepuisRating('valorant', 0.991)).toBeCloseTo(50, 1);
-    expect(noteDepuisRating('lol', 0.942)).toBeCloseTo(50, 1);
+    for (const jeu of jeux) {
+      expect(noteDepuisRating(jeu, CALIBRAGE_JEU[jeu].mediane)).toBeCloseTo(50, 1);
+    }
   });
 
   it('un rating calibré de 2,00 (+5σ) vaut 100, une sous-perf tombe à 0', () => {
-    // +5σ propres à chaque jeu → même note : c'est tout l'objet du calibrage.
-    expect(noteDepuisRating('cs2', 1.072 + 5 * 0.357)).toBeCloseTo(100, 1);
-    expect(noteDepuisRating('valorant', 0.991 + 5 * 0.202)).toBeCloseTo(100, 1);
-    expect(noteDepuisRating('lol', 0.942 - 5 * 0.247)).toBeCloseTo(0, 1);
+    for (const jeu of jeux) {
+      const { mediane, sigma } = CALIBRAGE_JEU[jeu];
+      expect(noteDepuisRating(jeu, mediane + 5 * sigma)).toBeCloseTo(100, 1);
+      expect(noteDepuisRating(jeu, mediane - 5 * sigma)).toBeCloseTo(0, 1);
+    }
   });
 
   it('à écart-type égal, les trois jeux donnent la même note', () => {
-    const aUnSigma = [
-      noteDepuisRating('cs2', 1.072 + 0.357),
-      noteDepuisRating('valorant', 0.991 + 0.202),
-      noteDepuisRating('lol', 0.942 + 0.247),
-    ];
-    for (const note of aUnSigma) expect(note).toBeCloseTo(60, 1);
+    for (const jeu of jeux) {
+      const { mediane, sigma } = CALIBRAGE_JEU[jeu];
+      expect(noteDepuisRating(jeu, mediane + sigma)).toBeCloseTo(60, 1);
+    }
   });
 
   it('borne à [0, 100] sans jamais sortir de l’échelle', () => {
@@ -85,8 +89,15 @@ describe('formules de rating — ancrages', () => {
     expect(fragger).toBeGreaterThan(soutien);
   });
 
-  it('LoL : joueur solide au-dessus de la médiane', () => {
-    expect(lolRating({ kda: 3, kp: 64, gpm: 400, vsm: 1.9 })).toBeGreaterThan(0.942);
+  it('LoL : la formule récompense chaque composante, à toutes choses égales', () => {
+    // Ancrage relatif plutôt qu'absolu : un seuil chiffré serait à réécrire à
+    // chaque recalibrage, alors que le sens de variation, lui, ne bouge pas.
+    const reference = { kda: 3, kp: 64, gpm: 400, vsm: 1.9 };
+    const base = lolRating(reference);
+    expect(lolRating({ ...reference, kda: 5 })).toBeGreaterThan(base);
+    expect(lolRating({ ...reference, kp: 75 })).toBeGreaterThan(base);
+    expect(lolRating({ ...reference, gpm: 480 })).toBeGreaterThan(base);
+    expect(lolRating({ ...reference, vsm: 2.6 })).toBeGreaterThan(base);
   });
 });
 
