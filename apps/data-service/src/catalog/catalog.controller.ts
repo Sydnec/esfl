@@ -75,12 +75,6 @@ export class CatalogController {
     return this.catalog.getCompetition(id);
   }
 
-  /** Ids des joueurs ayant des stats dans la compétition (ceux qui ont réellement joué). */
-  @Get('competitions/:id/stat-players')
-  statPlayers(@Param('id') id: string) {
-    return this.catalog.statPlayerIds(id);
-  }
-
   @Get('teams/:id')
   team(@Param('id') id: string) {
     return this.catalog.getTeamDetail(id);

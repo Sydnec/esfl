@@ -43,55 +43,13 @@
   color: var(--color-muted);
 }
 
-.teams {
-  list-style: none;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: var(--space-2);
-}
 
-.teamCard {
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  background: var(--color-surface);
-  padding: var(--space-2) var(--space-3);
-}
 
-.teamHeader {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  color: inherit;
-}
 
-.teamHeader:hover {
-  color: var(--color-accent);
-}
 
-.teamName {
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
-.teamPlayers {
-  list-style: none;
-  margin-top: var(--space-1);
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1) var(--space-2);
-  font-size: 0.875rem;
-}
 
-.playerLink {
-  color: var(--color-muted);
-}
 
-.playerLink:hover {
-  color: var(--color-accent);
-  text-decoration: underline;
-}
 
 .phaseMatches {
   margin-top: var(--space-2);

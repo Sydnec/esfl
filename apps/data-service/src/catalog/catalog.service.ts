@@ -291,16 +291,6 @@ export class CatalogService {
     });
   }
 
-  /** Ids des joueurs ayant réellement des stats dans une compétition (ceux qui ont joué). */
-  async statPlayerIds(competitionId: string): Promise<string[]> {
-    const rows = await this.prisma.playerMatchStats.findMany({
-      where: { match: { competitionId } },
-      select: { playerId: true },
-      distinct: ['playerId'],
-    });
-    return rows.map((row) => row.playerId);
-  }
-
   /** Fiche d'un joueur pro avec son équipe complète (page détail joueur). */
   async getPlayer(id: string) {
     const player = await this.prisma.player.findUnique({

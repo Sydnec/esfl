@@ -1,7 +1,6 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { GAME_LABELS } from '@esfl/contracts';
 import { Avatar } from '@/components/Avatar';
@@ -9,10 +8,8 @@ import { MatchGrid } from '@/components/MatchCard';
 import { BracketDiagram } from '@/components/BracketDiagram';
 import { StandingsTable } from '@/components/StandingsTable';
 import { request } from '@/lib/api';
-import { flagEmoji } from '@/lib/flags';
-import { sortTeamPlayers } from '@/lib/roles';
 import { useMatchUpdates } from '@/lib/useMatchUpdates';
-import type { CompetitionDetail, MatchSummary, PlayerRef } from '@/lib/types';
+import type { CompetitionDetail, MatchSummary } from '@/lib/types';
 import styles from './page.module.css';
 
 const POLL_INTERVAL_MS = 60_000;
@@ -36,22 +33,16 @@ export default function CompetitionPage() {
   const { id } = useParams<{ id: string }>();
   const [competition, setCompetition] = useState<CompetitionDetail | null>(null);
   const [matches, setMatches] = useState<MatchSummary[]>([]);
-  const [players, setPlayers] = useState<PlayerRef[]>([]);
-  const [statPlayerIds, setStatPlayerIds] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const [detail, matchList, playerList, statIds] = await Promise.all([
+      const [detail, matchList] = await Promise.all([
         request<CompetitionDetail>(`/data/competitions/${id}`),
         request<MatchSummary[]>(`/data/matches?competitionIds=${id}`),
-        request<PlayerRef[]>(`/data/players?competitionIds=${id}`),
-        request<string[]>(`/data/competitions/${id}/stat-players`),
       ]);
       setCompetition(detail);
       setMatches(matchList);
-      setPlayers(playerList);
-      setStatPlayerIds(new Set(statIds));
     } catch {
       setError('Compétition introuvable');
     }
@@ -118,27 +109,6 @@ export default function CompetitionPage() {
     [ungrouped],
   );
 
-  // Le tournoi a-t-il commencé ? (au moins un match en cours ou terminé)
-  const started = useMemo(
-    () => matches.some((match) => match.status === 'running' || match.status === 'finished'),
-    [matches],
-  );
-
-  // Joueurs affichés : aucun tant que le tournoi n'a pas commencé, puis seulement
-  // ceux qui ont réellement joué (qui ont des stats).
-  const playersByTeam = useMemo(() => {
-    const groups = new Map<string, PlayerRef[]>();
-    if (!started) return groups;
-    for (const player of players) {
-      if (!statPlayerIds.has(player.id)) continue;
-      const key = player.team?.id ?? 'sans-equipe';
-      groups.set(key, [...(groups.get(key) ?? []), player]);
-    }
-    // Ordre des rôles LoL (TOP/JUN/MID/ADC/SUP) au sein de chaque équipe.
-    for (const [key, list] of groups) groups.set(key, sortTeamPlayers(list));
-    return groups;
-  }, [players, started, statPlayerIds]);
-
   if (error) return <main className={styles.main}>{error}</main>;
   if (!competition) return <main className={styles.main}>Chargement…</main>;
 
@@ -194,33 +164,6 @@ export default function CompetitionPage() {
       )}
 
       {matches.length === 0 && <p className={styles.empty}>Aucun match référencé.</p>}
-
-      {competition.teams.length > 0 && (
-        <section className={styles.section}>
-          <h2 className={styles.sectionTitle}>{started ? 'Équipes & joueurs' : 'Équipes'}</h2>
-          <ul className={styles.teams}>
-            {competition.teams.map(({ team }) => (
-              <li key={team.id} className={styles.teamCard}>
-                <Link className={styles.teamHeader} href={`/teams/${team.id}`}>
-                  <Avatar src={team.imageUrl} label={team.name} size={28} />
-                  <span className={styles.teamName}>
-                    {team.name} {flagEmoji(team.location)}
-                  </span>
-                </Link>
-                <ul className={styles.teamPlayers}>
-                  {(playersByTeam.get(team.id) ?? []).map((player) => (
-                    <li key={player.id}>
-                      <Link className={styles.playerLink} href={`/players/${player.id}`}>
-                        {player.name}
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
     </main>
   );
 }

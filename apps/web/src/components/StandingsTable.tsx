@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import type { MatchSummary, TeamRef } from '@/lib/types';
 import { Avatar } from './Avatar';
 import styles from './StandingsTable.module.css';
@@ -46,9 +47,11 @@ export function StandingsTable({ matches }: { matches: MatchSummary[] }) {
         {rows.map((row, i) => (
           <tr key={row.team.id}>
             <td className={styles.rank}>{i + 1}</td>
-            <td className={styles.teamCell}>
-              <Avatar src={row.team.imageUrl} label={row.team.name} size={20} />
-              <span title={row.team.name}>{row.team.acronym || row.team.name}</span>
+            <td>
+              <Link className={styles.teamCell} href={`/teams/${row.team.id}`}>
+                <Avatar src={row.team.imageUrl} label={row.team.name} size={20} />
+                <span title={row.team.name}>{row.team.acronym || row.team.name}</span>
+              </Link>
             </td>
             <td className={styles.num}>{row.wins}</td>
             <td className={styles.num}>{row.losses}</td>
