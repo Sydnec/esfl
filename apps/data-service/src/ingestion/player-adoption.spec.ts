@@ -123,6 +123,7 @@ describe('adoptOrphans, passages concurrents', () => {
       { gameId: 'cs2' } as never,
       { gameId: 'valorant' } as never,
       { gameId: 'lol' } as never,
+      { playersMerged: async () => undefined } as never,
     );
   }
 

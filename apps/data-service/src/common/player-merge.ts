@@ -16,6 +16,11 @@ type Tx = Prisma.TransactionClient;
  *
  * Ne supprime PAS les fiches absorbées : chaque appelant le fait après ses
  * propres fusions de champs (providerIds, alias…), dans la même transaction.
+ *
+ * Les notes fantasy vivent dans un AUTRE schéma, sans clé étrangère possible :
+ * rien ne les suit automatiquement. C'est à l'appelant de les faire transférer
+ * (`ScoringClient.playersMerged`), sans quoi elles restent accrochées à une
+ * fiche supprimée et la fiche gardée perd son historique.
  */
 export async function reassignPlayerStats(
   tx: Tx,

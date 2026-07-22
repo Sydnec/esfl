@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { GAME_IDS, GameId } from '@esfl/contracts';
 import { Sequenceur } from '../common/sequenceur';
+import { ScoringClient } from '../scoring-client/scoring.client';
 import { pandascoreUpdate } from '../common/field-precedence';
 import { reassignPlayerStats } from '../common/player-merge';
 import { PandascoreClient } from '../pandascore/pandascore.client';
@@ -132,6 +133,7 @@ export class PlayerAdoptionService {
     bo3: Bo3StatsProvider,
     vlr: VlrStatsProvider,
     leaguepedia: LeaguepediaStatsProvider,
+    private readonly scoring: ScoringClient,
   ) {
     this.providers = [bo3, vlr, leaguepedia];
   }
@@ -369,6 +371,9 @@ export class PlayerAdoptionService {
     if (holder) {
       if (holder.id === orphan.id) return 'ignore';
       await this.mergeOrphanInto(holder.id, orphan.id);
+      // Les notes du doublon suivent la fiche gardée : elles vivent dans le
+      // schéma scoring, qu'aucune clé étrangère ne relie aux joueurs.
+      await this.scoring.playersMerged(holder.id, [orphan.id]);
       // Alias = toutes les identités secondaires, l'id principal de la fiche
       // gardée exclu (sinon il figurerait à la fois en principal et en alias).
       const known = new Set([...holder.pandascoreAliasIds, ...aliasIds, candidate.id]);

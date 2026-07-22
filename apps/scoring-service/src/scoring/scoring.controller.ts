@@ -1,4 +1,6 @@
 import {
+  BadRequestException,
+  Body,
   Controller,
   Delete,
   ForbiddenException,
@@ -110,6 +112,18 @@ export class ScoringController {
   async unfreezeDay(@Param('date') date: string) {
     await this.scoring.unfreezeDay(date);
     return { unfrozen: date };
+  }
+
+  /**
+   * Fusion de fiches joueur côté data-service : les notes suivent la fiche
+   * gardée. Sans clé étrangère inter-schémas, rien ne le ferait tout seul.
+   */
+  @Post('internal/players/merged')
+  async playersMerged(@Body() body: { keepId?: string; absorbedIds?: string[] }) {
+    if (!body?.keepId || !Array.isArray(body.absorbedIds)) {
+      throw new BadRequestException('keepId et absorbedIds attendus');
+    }
+    return { transferees: await this.scoring.reassignPoints(body.keepId, body.absorbedIds) };
   }
 
   /** Nettoyage à la suppression d'un compte (appel interne). */

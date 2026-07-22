@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { QUEUES } from '@esfl/contracts';
 import { AlerteService } from '../common/alerte.service';
 import { FantasyClient } from '../fantasy-client/fantasy.client';
+import { ScoringClient } from '../scoring-client/scoring.client';
 import { LiveModule } from '../live/live.module';
 import { PandascoreClient } from '../pandascore/pandascore.client';
 import { PrismaService } from '../prisma.service';
@@ -28,6 +29,7 @@ import { TeamEnrichmentService } from './team-enrichment.service';
     AlerteService,
     PandascoreClient,
     FantasyClient,
+    ScoringClient,
     IngestionService,
     IngestionProcessor,
     IngestionScheduler,
@@ -45,6 +47,7 @@ import { TeamEnrichmentService } from './team-enrichment.service';
     PlayerAdoptionService,
     PandascoreClient,
     FantasyClient,
+    ScoringClient,
     BullModule,
   ],
 })

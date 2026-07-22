@@ -834,6 +834,8 @@ export class CatalogService {
     fichesAbsorbees: number;
     statsDeplacees: number;
     details: Array<{ gameId: string; garde: string; absorbees: string[]; stats: number }>;
+    /** Couples fiche gardée / fiches absorbées : les notes doivent suivre. */
+    fusions: Array<{ garde: string; absorbees: string[] }>;
   }> {
     const players = await this.prisma.player.findMany({
       select: {
@@ -884,6 +886,8 @@ export class CatalogService {
       [];
     let fichesAbsorbees = 0;
     let statsDeplacees = 0;
+    // Fusions réalisées : leurs notes fantasy doivent suivre la fiche gardée.
+    const fusions: Array<{ garde: string; absorbees: string[] }> = [];
 
     for (const group of aFusionner) {
       if (group.length < 2) continue;
@@ -910,13 +914,20 @@ export class CatalogService {
       statsDeplacees += moved;
       if (dryRun) continue;
 
-      await this.mergePlayerInto(
-        keep.id,
-        absorbed.map((player) => player.id),
-      );
+      const absorbees = absorbed.map((player) => player.id);
+      await this.mergePlayerInto(keep.id, absorbees);
+      fusions.push({ garde: keep.id, absorbees });
     }
 
-    return { scope, dryRun, groupes: details.length, fichesAbsorbees, statsDeplacees, details };
+    return {
+      scope,
+      dryRun,
+      groupes: details.length,
+      fichesAbsorbees,
+      statsDeplacees,
+      details,
+      fusions,
+    };
   }
 
   /**

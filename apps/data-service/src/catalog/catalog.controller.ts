@@ -20,6 +20,7 @@ import {
   IngestionJobName,
 } from '../ingestion/ingestion.constants';
 import { PlayerAdoptionService } from '../ingestion/player-adoption.service';
+import { ScoringClient } from '../scoring-client/scoring.client';
 import { TeamEnrichmentService } from '../ingestion/team-enrichment.service';
 import { StatsIngestionService } from '../stats/stats-ingestion';
 import { CatalogService } from './catalog.service';
@@ -45,6 +46,7 @@ export class CatalogController {
     private readonly statsIngestion: StatsIngestionService,
     private readonly enrichment: TeamEnrichmentService,
     private readonly adoption: PlayerAdoptionService,
+    private readonly scoring: ScoringClient,
     @InjectQueue(INGESTION_QUEUE) private readonly ingestionQueue: Queue,
   ) {}
 
@@ -381,13 +383,19 @@ export class CatalogController {
    */
   @Post('admin/players/merge-duplicates')
   @UseGuards(AdminGuard)
-  mergeDuplicatePlayers(@Query('scope') scope?: string, @Query('dryRun') dryRun?: string) {
+  async mergeDuplicatePlayers(@Query('scope') scope?: string, @Query('dryRun') dryRun?: string) {
     const target = scope ?? 'same-team';
     if (target !== 'same-team' && target !== 'cross-team' && target !== 'same-person') {
       throw new BadRequestException(`Scope inconnu : ${scope}`);
     }
     const simulation = dryRun === '1' || dryRun === 'true' || target === 'cross-team';
-    return this.catalog.mergeDuplicatePlayers(target, simulation);
+    const rapport = await this.catalog.mergeDuplicatePlayers(target, simulation);
+    // Les notes fantasy vivent dans le schéma scoring, sans clé étrangère vers
+    // les joueurs : la fusion les laisserait accrochées à une fiche supprimée.
+    // On les TRANSFÈRE plutôt que de faire re-noter : une journée gelée refuse
+    // tout recalcul, et la note d'époque est précisément ce que le gel protège.
+    await Promise.all(rapport.fusions.map((f) => this.scoring.playersMerged(f.garde, f.absorbees)));
+    return rapport;
   }
 
   /** Équipes LoL/Valorant sans identité provider (saisie manuelle possible). */

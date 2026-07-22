@@ -180,6 +180,43 @@ export class ScoringService {
    * de base par joueur, puis bonus contextuels (le roster complet est charge
    * d'un coup, requis pour les bonus relatifs). Rounds tires des scores de map.
    */
+  /**
+   * Rattache à la fiche gardée les notes des fiches absorbées par une fusion.
+   *
+   * On TRANSFÈRE plutôt que de re-noter : une journée gelée refuse tout
+   * recalcul, si bien que ses notes resteraient à vie accrochées à une fiche
+   * supprimée. Le transfert préserve en outre la note telle qu'elle a été
+   * calculée à l'époque, ce que le gel garantit justement.
+   *
+   * Même contrainte que côté stats : l'index unique (match, joueur) interdit
+   * deux notes du même joueur sur un match. Quand la fiche gardée en a déjà
+   * une, celle de l'absorbée est écartée — la gardée fait foi.
+   */
+  async reassignPoints(keepId: string, absorbedIds: string[]): Promise<number> {
+    if (absorbedIds.length === 0) return 0;
+    const gardees = await this.prisma.fantasyPoints.findMany({
+      where: { playerId: keepId },
+      select: { matchId: true },
+    });
+    const dejaNotes = new Set(gardees.map((row) => row.matchId));
+    const entrantes = await this.prisma.fantasyPoints.findMany({
+      where: { playerId: { in: absorbedIds } },
+      select: { id: true, matchId: true },
+    });
+    const conflits = entrantes.filter((row) => dejaNotes.has(row.matchId)).map((row) => row.id);
+    if (conflits.length > 0) {
+      await this.prisma.fantasyPoints.deleteMany({ where: { id: { in: conflits } } });
+    }
+    const { count } = await this.prisma.fantasyPoints.updateMany({
+      where: { playerId: { in: absorbedIds } },
+      data: { playerId: keepId },
+    });
+    if (count > 0) {
+      this.logger.log(`Fusion : ${count} note(s) transférée(s) vers ${keepId}`);
+    }
+    return count;
+  }
+
   private async scorePlayers(match: DataMatch): Promise<number> {
     const stats = await this.data.listStats([match.id]);
     if (stats.length === 0) return 0;
@@ -198,6 +235,16 @@ export class ScoringService {
     };
 
     const scores = scoreMatch(players, ctx);
+    // Notes devenues sans objet : le joueur n'apparaît plus dans les stats du
+    // match, typiquement parce que sa fiche a été absorbée par une fusion. Sans
+    // ce ménage elles survivent à la fiche supprimée, faussent les analytics et
+    // privent la fiche gardée de son historique.
+    const { count: obsoletes } = await this.prisma.fantasyPoints.deleteMany({
+      where: { matchId: match.id, playerId: { notIn: scores.map((s) => s.playerId) } },
+    });
+    if (obsoletes > 0) {
+      this.logger.log(`${match.name} : ${obsoletes} note(s) obsolète(s) retirée(s)`);
+    }
     let playersScored = 0;
     for (const score of scores) {
       const gameId = byId.get(score.playerId)?.gameId ?? match.gameId;
