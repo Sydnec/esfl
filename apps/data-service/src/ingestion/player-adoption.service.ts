@@ -96,6 +96,14 @@ export interface AdoptionReport {
   ambigus: number;
   introuvables: number;
   erreurs: number;
+  /**
+   * Fiches encore JAMAIS tentées après ce passage. Le lot est plafonné par
+   * jeu : sans enchaînement, un arriéré (reconstruction de la base, panne du
+   * job) mettrait plusieurs jours à se résorber au rythme de 4 passages
+   * quotidiens. Critère volontairement restreint aux fiches jamais tentées :
+   * il décroît à chaque passage, l'enchaînement s'arrête donc tout seul.
+   */
+  reliquat: number;
 }
 
 /**
@@ -152,6 +160,7 @@ export class PlayerAdoptionService {
       ambigus: 0,
       introuvables: 0,
       erreurs: 0,
+      reliquat: 0,
     };
     if (!this.pandascore.enabled) {
       this.logger.warn('Adoption ignorée : PANDASCORE_TOKEN absent');
@@ -173,7 +182,6 @@ export class PlayerAdoptionService {
   }
 
   private async passe(report: AdoptionReport): Promise<AdoptionReport> {
-
     for (const gameId of GAME_IDS) {
       const orphans = await this.prisma.player.findMany({
         where: { gameId, pandascoreId: null },
@@ -262,16 +270,25 @@ export class PlayerAdoptionService {
         // orphelin : une fiche en erreur (conflit d'unicité inattendu) ne doit
         // pas faire échouer toute la passe.
         try {
-          const outcome = await this.adoptOne(orphan, resolved[0], resolved.slice(1).map((c) => c.id));
+          const outcome = await this.adoptOne(
+            orphan,
+            resolved[0],
+            resolved.slice(1).map((c) => c.id),
+          );
           if (outcome === 'fusion') report.fusionnes += 1;
           else if (outcome === 'adoption') report.adoptes += 1;
         } catch (error) {
           report.erreurs += 1;
-          this.logger.warn(`Adoption échouée pour ${orphan.name} (${orphan.id}) : ${String(error)}`);
+          this.logger.warn(
+            `Adoption échouée pour ${orphan.name} (${orphan.id}) : ${String(error)}`,
+          );
         }
       }
     }
 
+    report.reliquat = await this.prisma.player.count({
+      where: { pandascoreId: null, adoptionTriedAt: null },
+    });
     this.logger.log(
       `Adoption : ${report.adoptes} adoptée(s), ${report.fusionnes} fusionnée(s), ` +
         `${report.ambigus} ambiguë(s), ${report.introuvables} introuvable(s), ` +

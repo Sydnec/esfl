@@ -1,6 +1,6 @@
-import { Processor, WorkerHost } from '@nestjs/bullmq';
+import { InjectQueue, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
-import { Job } from 'bullmq';
+import { Job, Queue } from 'bullmq';
 import { StatsIngestionService } from '../stats/stats-ingestion';
 import { INGESTION_QUEUE, IngestionJobName } from './ingestion.constants';
 import { IngestionService } from './ingestion.service';
@@ -24,12 +24,15 @@ export class IngestionProcessor extends WorkerHost {
     private readonly statsIngestion: StatsIngestionService,
     private readonly teamEnrichment: TeamEnrichmentService,
     private readonly adoption: PlayerAdoptionService,
+    @InjectQueue(INGESTION_QUEUE) private readonly queue: Queue,
   ) {
     super();
   }
 
   async process(job: Job): Promise<void> {
-    this.logger.log(`Job ${job.name} démarré${job.attemptsMade ? ` (tentative ${job.attemptsMade + 1})` : ''}`);
+    this.logger.log(
+      `Job ${job.name} démarré${job.attemptsMade ? ` (tentative ${job.attemptsMade + 1})` : ''}`,
+    );
     switch (job.name as IngestionJobName) {
       case 'sync-series':
         await this.ingestion.syncSeries();
@@ -49,9 +52,19 @@ export class IngestionProcessor extends WorkerHost {
       case 'sync-live-stats':
         await this.statsIngestion.syncLiveStats();
         break;
-      case 'adopt-orphan-players':
-        await this.adoption.adoptOrphans();
+      case 'adopt-orphan-players': {
+        const rapport = await this.adoption.adoptOrphans();
+        // Arriéré : on relance sans attendre le prochain tir à 6 h. Le critère
+        // (fiches jamais tentées) décroît à chaque passage, la chaîne s'arrête.
+        if (rapport.reliquat > 0) {
+          await this.queue.add(
+            'adopt-orphan-players',
+            {},
+            { delay: 60_000, removeOnComplete: true, removeOnFail: 5 },
+          );
+        }
         break;
+      }
       case 'backfill-history': {
         // Premier démarrage (base vide) : ingestion de tout l'historique.
         const since = (job.data as { since?: string }).since;

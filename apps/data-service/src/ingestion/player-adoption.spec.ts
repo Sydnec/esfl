@@ -118,7 +118,7 @@ describe('adoptOrphans, passages concurrents', () => {
   /** Service câblé sur un Prisma qui ne rend aucun orphelin, sauf blocage. */
   function service(findMany: () => Promise<unknown[]>) {
     return new PlayerAdoptionService(
-      { player: { findMany } } as never,
+      { player: { findMany, count: async () => 0 } } as never,
       { enabled: true } as never,
       { gameId: 'cs2' } as never,
       { gameId: 'valorant' } as never,
@@ -150,6 +150,7 @@ describe('adoptOrphans, passages concurrents', () => {
       ambigus: 0,
       introuvables: 0,
       erreurs: 0,
+      reliquat: 0,
     });
     expect(appels).toBe(1);
 
