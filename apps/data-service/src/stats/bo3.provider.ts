@@ -268,6 +268,7 @@ export function mapBo3GameStats(
     acc.perMap.push({
       position: game?.number ?? 0,
       map: game?.map_name ?? null,
+      rounds,
       agent: null,
       agentImage: null,
       kills: row.kills ?? null,

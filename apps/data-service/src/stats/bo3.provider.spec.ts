@@ -111,7 +111,11 @@ describe('mapBo3GameStats', () => {
     expect(n.adr).toBe(64);
     // KAST pondéré : (0,75×20 + 0,5×30) / 50 = 60 %.
     expect(n.kast).toBe(60);
-    expect((lines[0].perMap as unknown[]).length).toBe(2);
+    const perMap = lines[0].perMap as Array<Record<string, number>>;
+    expect(perMap.length).toBe(2);
+    // Manches par map exposées pour le contrôle de cohérence (damage/adr).
+    expect(perMap[0].rounds).toBe(20);
+    expect(perMap[1].rounds).toBe(30);
   });
 
   it('ignore le KAST manquant d’une map en cours sans fausser le cumul', () => {

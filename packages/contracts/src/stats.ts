@@ -107,6 +107,12 @@ export const mapStatsEntrySchema = z.object({
   agent: z.string().nullable(),
   /** URL absolue de l'icône d'agent/champion (source provider). */
   agentImage: z.string().nullable(),
+  /**
+   * Nombre de manches jouées sur la map (CS2/Valorant). Sert au contrôle de
+   * cohérence : comparé à scoreA+scoreB de match.gamesSummary pour détecter un
+   * snapshot figé en cours de map. Null pour les jeux sans manches (LoL).
+   */
+  rounds: z.number().nullable().optional(),
   /** Null tant que la source ne publie pas la manche (map en cours). */
   kills: z.number().nullable(),
   deaths: z.number().nullable(),
