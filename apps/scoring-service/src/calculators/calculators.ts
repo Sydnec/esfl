@@ -115,15 +115,31 @@ export const CALIBRAGE_JEU: Record<GameId, { mediane: number; sigma: number }> =
 };
 
 /**
- * Rating brut → note sur 100. Le rating est d'abord ramené sur l'échelle
- * commune, puis converti à raison de 50 points par point de rating : une perf
- * médiane vaut 50, un rating calibré de 2,00 (soit +5σ, exceptionnel) vaut 100,
- * une vraie sous-performance tombe à 0.
+ * Pente de la conversion. Une droite reliant 50 à 100 tassait tout le monde
+ * autour de la médiane : le p90 sortait à 63 et le p99 à 75, alors que ces
+ * performances méritent d'être visiblement distinguées. La courbe en tangente
+ * hyperbolique étale le corps de la distribution et comprime les extrêmes.
+ *
+ * Calée sur les percentiles réels (p90 à 1,26σ, p99 à 2,46σ, moyenne des trois
+ * jeux) : 1,75 place le p90 à 81 et le p99 à 94.
+ */
+const PENTE_NOTE = 1.75;
+
+/**
+ * Rating brut → note sur 100.
+ *
+ * Le rating est d'abord ramené en écarts-types de SON jeu, puis converti par
+ * une courbe bornée. Les repères d'origine tiennent tous : une perf médiane
+ * vaut 50, un rating calibré de 2,00 (+5σ, exceptionnel) frôle 100, une vraie
+ * sous-performance tend vers 0. La courbe n'atteignant jamais ses bornes,
+ * aucune note n'est plus écrêtée : deux performances hors norme restent
+ * distinguables au lieu d'être collées à 100.
  */
 export function noteDepuisRating(gameId: GameId, ratingBrut: number): number {
   const { mediane, sigma } = CALIBRAGE_JEU[gameId];
-  const calibre = sigma > 0 ? 1 + (ratingBrut - mediane) * (SIGMA_REF / sigma) : ratingBrut;
-  return clamp(calibre * 50, 0, 100);
+  if (sigma <= 0) return clamp(ratingBrut * 50, 0, 100);
+  const ecarts = (ratingBrut - mediane) / sigma;
+  return clamp(50 * (1 + Math.tanh(ecarts / PENTE_NOTE)), 0, 100);
 }
 
 // ─── Formules de Rating de base (ÉDITABLES) ─────────────────────────────────

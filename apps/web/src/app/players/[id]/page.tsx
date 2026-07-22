@@ -17,9 +17,14 @@ function formatMatchDate(iso: string | null): string {
   return new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
 }
 
-/** Points fantasy : toujours 2 décimales pour aligner les colonnes (41 → 41.00). */
+/** Points fantasy : des entiers depuis le scoring v1, affichés tels quels. */
 function formatPoints(value: number | undefined): string {
-  return value === undefined ? '·' : value.toFixed(2);
+  return value === undefined ? '·' : String(Math.round(value));
+}
+
+/** Moyenne de notes entières : une décimale suffit à départager. */
+function formatMoyenne(value: number | null | undefined): string {
+  return value == null ? '·' : value.toFixed(1);
 }
 
 export default function PlayerPage() {
@@ -94,11 +99,11 @@ export default function PlayerPage() {
         <dl className={styles.summary}>
           <div className={styles.summaryItem}>
             <dt>Points fantasy</dt>
-            <dd>{totalPoints.toFixed(2)}</dd>
+            <dd>{formatPoints(totalPoints)}</dd>
           </div>
           <div className={styles.summaryItem}>
             <dt>Moyenne / match</dt>
-            <dd>{average?.toFixed(2) ?? '·'}</dd>
+            <dd>{formatMoyenne(average)}</dd>
           </div>
           <div className={styles.summaryItem}>
             <dt>Matchs notés</dt>

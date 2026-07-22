@@ -217,7 +217,7 @@ export default function AdminStatsPage() {
                         <td>{player.role ?? '·'}</td>
                         <td>{player.team ?? '·'}</td>
                         <td className={`${styles.num} ${styles.avg}`}>
-                          {player.avgPoints.toFixed(2)}
+                          {player.avgPoints.toFixed(1)}
                         </td>
                         <td className={styles.num}>{player.scores}</td>
                       </tr>

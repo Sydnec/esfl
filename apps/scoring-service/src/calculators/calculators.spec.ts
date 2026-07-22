@@ -49,24 +49,42 @@ describe('noteDepuisRating — échelle commune', () => {
     }
   });
 
-  it('un rating calibré de 2,00 (+5σ) vaut 100, une sous-perf tombe à 0', () => {
+  it('une perf exceptionnelle (+5σ) frôle 100, une sous-perf frôle 0', () => {
     for (const jeu of jeux) {
       const { mediane, sigma } = CALIBRAGE_JEU[jeu];
-      expect(noteDepuisRating(jeu, mediane + 5 * sigma)).toBeCloseTo(100, 1);
-      expect(noteDepuisRating(jeu, mediane - 5 * sigma)).toBeCloseTo(0, 1);
+      expect(noteDepuisRating(jeu, mediane + 5 * sigma)).toBeGreaterThan(99);
+      expect(noteDepuisRating(jeu, mediane - 5 * sigma)).toBeLessThan(1);
+    }
+  });
+
+  it('la courbe n’atteint pas ses bornes sur des écarts plausibles', () => {
+    // +10σ dépasse largement le maximum observé (6,8σ) : rien n'est écrêté.
+    for (const jeu of jeux) {
+      const { mediane, sigma } = CALIBRAGE_JEU[jeu];
+      expect(noteDepuisRating(jeu, mediane + 10 * sigma)).toBeLessThan(100);
+      expect(noteDepuisRating(jeu, mediane - 10 * sigma)).toBeGreaterThan(0);
     }
   });
 
   it('à écart-type égal, les trois jeux donnent la même note', () => {
-    for (const jeu of jeux) {
+    const notes = jeux.map((jeu) => {
       const { mediane, sigma } = CALIBRAGE_JEU[jeu];
-      expect(noteDepuisRating(jeu, mediane + sigma)).toBeCloseTo(60, 1);
-    }
+      return noteDepuisRating(jeu, mediane + sigma);
+    });
+    for (const note of notes) expect(note).toBeCloseTo(notes[0], 6);
   });
 
-  it('borne à [0, 100] sans jamais sortir de l’échelle', () => {
-    expect(noteDepuisRating('cs2', 10)).toBe(100);
-    expect(noteDepuisRating('cs2', -5)).toBe(0);
+  it('cale le p90 vers 81 et le p99 vers 94 (percentiles réels 1,26σ et 2,46σ)', () => {
+    const { mediane, sigma } = CALIBRAGE_JEU.valorant;
+    expect(noteDepuisRating('valorant', mediane + 1.26 * sigma)).toBeCloseTo(81, 0);
+    expect(noteDepuisRating('valorant', mediane + 2.46 * sigma)).toBeCloseTo(94, 0);
+  });
+
+  it('reste dans [0, 100] même sur une valeur aberrante', () => {
+    expect(noteDepuisRating('cs2', 10)).toBeLessThanOrEqual(100);
+    expect(noteDepuisRating('cs2', 10)).toBeGreaterThan(99);
+    expect(noteDepuisRating('cs2', -5)).toBeGreaterThanOrEqual(0);
+    expect(noteDepuisRating('cs2', -5)).toBeLessThan(1);
   });
 });
 
@@ -223,8 +241,10 @@ describe('scoreMatch — bonus contextuels', () => {
     const [sup] = scoreMatch([median('Support')], { rounds: 0 });
     const [top] = scoreMatch([median('Top')], { rounds: 0 });
     // Défaite des deux côtés : même modificateur de résultat, donc même note.
+    // C'est l'égalité entre postes qui compte ; l'écart à 50 vient du seul
+    // modificateur de résultat, qui pèse ~4 points sur la courbe actuelle.
     expect(sup.points).toBe(top.points);
-    expect(Math.abs(sup.points - 50)).toBeLessThanOrEqual(2);
+    expect(Math.abs(sup.points - 50)).toBeLessThanOrEqual(5);
   });
 
   it('Valorant : KAST/ADR absents → imputés (pas de note plombée)', () => {
