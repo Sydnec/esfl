@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   CALIBRAGE_JEU,
   canonicalLolRole,
+  LOL_DISTRIBUTIONS,
   cs2Rating,
   LOL_LAMBDA,
   LolDistributions,
@@ -187,19 +188,43 @@ describe('scoreMatch — bonus contextuels', () => {
     },
   });
 
-  it('LoL : Support +8 ; Jungler +2 par objectif d’équipe', () => {
+  it('LoL : plus aucun bonus de rôle, la standardisation par rôle les remplace', () => {
     const scores = scoreMatch(
-      [
-        lol('sup', 'Support', 'A', {}),
-        lol('jgl', 'Jungle', 'A', {}),
-        lol('mid', 'Mid', 'B', {}),
-      ],
+      [lol('sup', 'Support', 'A', {}), lol('jgl', 'Jungle', 'A', {}), lol('mid', 'Mid', 'B', {})],
       { rounds: 0, teamObjectives: { A: 3, B: 1 } },
     );
-    const byId = Object.fromEntries(scores.map((s) => [s.playerId, s.breakdown]));
-    expect(byId['sup'].bonusSupport).toBe(8);
-    expect(byId['jgl'].bonusObjectives).toBe(6);
-    expect(byId['mid'].bonus).toBe(0);
+    for (const score of scores) expect(score.breakdown.bonus).toBe(0);
+  });
+
+  it('LoL : un joueur médian de son rôle vaut 50, quel que soit le poste', () => {
+    // C'est l'invariant qui fait tomber la domination des supports : chaque
+    // métrique est comparée à la moyenne DU RÔLE.
+    const median = (role: 'Support' | 'Top') => {
+      const cle = role === 'Support' ? 'SUP' : 'TOP';
+      const d = LOL_DISTRIBUTIONS[cle];
+      return {
+        playerId: role,
+        gameId: 'lol' as const,
+        role,
+        teamSide: 'A' as const,
+        normalized: {
+          kills: 3,
+          deaths: 3,
+          assists: 6,
+          damageShare: d.dpmg.moyenne * d.visionShare.moyenne * 0 + d.dpmg.moyenne * 0.2,
+          goldShare: 0.2,
+          killParticipation: d.kp.moyenne,
+          visionShare: d.visionShare.moyenne,
+          objControl: d.objControl.moyenne,
+          win: false,
+        },
+      };
+    };
+    const [sup] = scoreMatch([median('Support')], { rounds: 0 });
+    const [top] = scoreMatch([median('Top')], { rounds: 0 });
+    // Défaite des deux côtés : même modificateur de résultat, donc même note.
+    expect(sup.points).toBe(top.points);
+    expect(Math.abs(sup.points - 50)).toBeLessThanOrEqual(2);
   });
 
   it('Valorant : KAST/ADR absents → imputés (pas de note plombée)', () => {

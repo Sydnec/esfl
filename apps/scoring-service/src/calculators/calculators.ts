@@ -109,7 +109,9 @@ export const SIGMA_REF = 0.2;
 export const CALIBRAGE_JEU: Record<GameId, { mediane: number; sigma: number }> = {
   cs2: { mediane: 1.06, sigma: 0.281 },
   valorant: { mediane: 0.99, sigma: 0.204 },
-  lol: { mediane: 1.25, sigma: 0.241 },
+  // LoL est centré par CONSTRUCTION : `lolRatingV5` rend 1,00 pour un joueur
+  // médian de son rôle, et λ cale sa dispersion sur SIGMA_REF.
+  lol: { mediane: 1.0, sigma: 0.2 },
 };
 
 /**
@@ -223,11 +225,44 @@ export interface LolMetriques {
  */
 export type LolDistributions = Record<string, Record<LolMetrique, { moyenne: number; sigma: number }>>;
 
-// À REMPLIR par la mesure, une fois les 938 matchs LoL ré-ingérés avec
-// visionShare et objControl. Table vide = tous les Z à 0 : la formule reste
-// définie mais ne discrimine rien, c'est pourquoi elle n'est pas encore
-// branchée dans `base()`.
-export const LOL_DISTRIBUTIONS: LolDistributions = {};
+// Mesurées sur 5 242 lignes de la base reconstruite, ~1 050 par rôle.
+// L'asymétrie saute aux yeux et justifie à elle seule la standardisation par
+// rôle : un support voit trois fois plus qu'un toplaner (0,42 de part de vision
+// contre 0,13) et fait deux fois moins de dégâts à or égal (0,62 de DPMG contre
+// 1,10). Un rôle inconnu n'a volontairement pas d'entrée : tous ses Z tombent à
+// 0, donc une note neutre, plutôt que d'être jugé contre le mauvais poste.
+export const LOL_DISTRIBUTIONS: LolDistributions = {
+  TOP: {
+    dpmg: { moyenne: 1.1027, sigma: 0.1829 },
+    kp: { moyenne: 0.505, sigma: 0.1371 },
+    visionShare: { moyenne: 0.1336, sigma: 0.0206 },
+    objControl: { moyenne: 0.4998, sigma: 0.2019 },
+  },
+  JUN: {
+    dpmg: { moyenne: 0.8193, sigma: 0.1382 },
+    kp: { moyenne: 0.7101, sigma: 0.1171 },
+    visionShare: { moyenne: 0.1787, sigma: 0.0229 },
+    objControl: { moyenne: 0.4999, sigma: 0.202 },
+  },
+  MID: {
+    dpmg: { moyenne: 1.1703, sigma: 0.1709 },
+    kp: { moyenne: 0.6292, sigma: 0.1288 },
+    visionShare: { moyenne: 0.1325, sigma: 0.0216 },
+    objControl: { moyenne: 0.4997, sigma: 0.2021 },
+  },
+  ADC: {
+    dpmg: { moyenne: 1.1261, sigma: 0.1563 },
+    kp: { moyenne: 0.6463, sigma: 0.1279 },
+    visionShare: { moyenne: 0.1318, sigma: 0.0243 },
+    objControl: { moyenne: 0.5, sigma: 0.202 },
+  },
+  SUP: {
+    dpmg: { moyenne: 0.6161, sigma: 0.1429 },
+    kp: { moyenne: 0.7332, sigma: 0.1199 },
+    visionShare: { moyenne: 0.4235, sigma: 0.0353 },
+    objControl: { moyenne: 0.4997, sigma: 0.2023 },
+  },
+};
 
 /** Bornage des sous-scores : un match aberrant ne doit pas polluer le rating. */
 const LOL_Z_CLIP = 3;
@@ -248,10 +283,11 @@ export const POIDS_ROLE_LOL: Record<string, { combat: number; macro: number }> =
 };
 
 /**
- * Facteur d'échelle du tanh. Fixé à `σ_raw / SIGMA_REF` pour que le rating
- * final ait la dispersion de référence commune aux trois jeux.
+ * Facteur d'échelle du tanh, fixé à `σ_raw / SIGMA_REF` pour que le rating ait
+ * la dispersion de référence commune aux trois jeux. σ du score pondéré mesuré
+ * à 0,582 sur la population : 0,582 / 0,20 = 2,91.
  */
-export const LOL_LAMBDA = 3.5;
+export const LOL_LAMBDA = 2.91;
 
 /** Modificateur de résultat : reflète la victoire sans écraser l'individuel. */
 export const LOL_BONUS_RESULTAT = 0.03;
@@ -394,6 +430,27 @@ function base(player: PlayerStatLine, ctx: MatchScoringContext): BaseResult {
   const kp = num(n, 'killParticipation') * 100;
   const gpm = num(n, 'goldPerMin');
   const vsm = num(n, 'visionPerMin');
+
+  // LoL-Rating : sous-scores standardisés DANS le rôle. Demande les parts
+  // d'équipe (dégâts, or, vision) ; le contrôle des objectifs peut manquer sur
+  // une partie trop courte, son Z tombe alors à 0 sans fausser le reste.
+  const goldShare = num(n, 'goldShare');
+  if (has(n, 'visionShare') && goldShare > 0) {
+    const metriques = {
+      dpmg: num(n, 'damageShare') / goldShare,
+      kp: num(n, 'killParticipation'),
+      visionShare: num(n, 'visionShare'),
+      objControl: num(n, 'objControl'),
+    };
+    const rating = lolRatingV5({
+      ...metriques,
+      role: canonicalLolRole(player.role),
+      win: n.win === true,
+    });
+    return { player, rating, derived: { ...metriques, kda, kp } };
+  }
+
+  // Repli historique quand les parts d'équipe manquent (ligues mineures).
   if (has(n, 'goldPerMin') && gpm > 0) {
     const derived = { kda, kp, gpm, vsm };
     return { player, rating: lolRating(derived), derived };
@@ -432,20 +489,12 @@ function contextualBonus(
       detail.bonusClutch = 2;
       total += 2;
     }
-  } else if (b.player.gameId === 'lol') {
-    const role = canonicalLolRole(b.player.role);
-    if (role === 'SUP') {
-      detail.bonusSupport = 8;
-      total += 8;
-    } else if (role === 'JUN' && ctx.teamObjectives && b.player.teamSide) {
-      // Approximation : objectifs neutres de l'équipe attribués au jungler.
-      const objectives = ctx.teamObjectives[b.player.teamSide] ?? 0;
-      if (objectives > 0) {
-        detail.bonusObjectives = objectives * 2;
-        total += objectives * 2;
-      }
-    }
   }
+  // LoL n'a plus de bonus de rôle : la standardisation par rôle les rend
+  // redondants. Le +8 support compensait un biais que la formule créait
+  // elle-même, et le bonus objectifs du jungler ne s'est jamais déclenché — le
+  // `teamObjectives` qu'il attendait n'a jamais été produit côté data-service.
+  // Le contrôle des objectifs entre désormais dans le sous-score Macro.
 
   return { total, detail };
 }
