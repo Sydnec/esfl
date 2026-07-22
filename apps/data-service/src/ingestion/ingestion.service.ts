@@ -6,6 +6,7 @@ import type { Competition, Prisma, Team } from '../../generated/client';
 import { Queue } from 'bullmq';
 import { pandascoreUpdate, providerUpdate } from '../common/field-precedence';
 import { createPlayerSafely } from '../common/player-create';
+import { Sequenceur } from '../common/sequenceur';
 import { mergeGamesSummary } from '../common/games-summary';
 import { buildPlayerIndex, matchPlayer, normalizeName } from '../stats/matching';
 import type { StarterRef } from '../stats/provider';
@@ -77,6 +78,9 @@ function pickStream(streams: PSStream[] | null): string | null {
 @Injectable()
 export class IngestionService {
   private readonly logger = new Logger(IngestionService.name);
+
+  /** Un seul balayage de la fenêtre live à la fois (cf. `Sequenceur`). */
+  private readonly cycleLive = new Sequenceur();
 
   /** Cache mémoire des titulaires par équipe (source spécialisée), TTL court. */
   private readonly starterCache = new Map<string, { starters: StarterRef[] | null; at: number }>();
@@ -632,6 +636,13 @@ export class IngestionService {
    * détecter rapidement débuts et fins de match (cadence 3 min, quota tenu).
    */
   async syncLiveWindow(): Promise<void> {
+    const lance = await this.cycleLive.passer(() => this.passeLiveWindow());
+    if (lance === null) {
+      this.logger.warn('Fenêtre live déjà en cours : tir ignoré');
+    }
+  }
+
+  private async passeLiveWindow(): Promise<void> {
     const from = new Date(Date.now() - 12 * 3600 * 1000);
     const to = new Date(Date.now() + 6 * 3600 * 1000);
     // Cadence 3 min × toutes les compétitions actives exploserait le quota :

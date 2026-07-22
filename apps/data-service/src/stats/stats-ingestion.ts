@@ -6,6 +6,7 @@ import { Prisma } from '../../generated/client';
 import type { Match, Player, Team } from '../../generated/client';
 import { AlerteService } from '../common/alerte.service';
 import { providerUpdate } from '../common/field-precedence';
+import { Sequenceur } from '../common/sequenceur';
 import { createPlayerSafely } from '../common/player-create';
 import { mergeGamesSummary } from '../common/games-summary';
 import {
@@ -81,6 +82,9 @@ function leaguepediaSlug(input: string): string | null {
 @Injectable()
 export class StatsIngestionService {
   private readonly logger = new Logger(StatsIngestionService.name);
+
+  /** Un seul cycle de stats live à la fois (cf. `Sequenceur`). */
+  private readonly cycleStatsLive = new Sequenceur();
   private readonly providers: GameStatsProvider[];
 
   constructor(
@@ -275,6 +279,15 @@ export class StatsIngestionService {
    * Sans retry : le cycle suivant repassera.
    */
   async syncLiveStats(): Promise<number> {
+    const synced = await this.cycleStatsLive.passer(() => this.passeLiveStats());
+    if (synced === null) {
+      this.logger.warn('Stats live déjà en cours : tir ignoré');
+      return 0;
+    }
+    return synced;
+  }
+
+  private async passeLiveStats(): Promise<number> {
     let synced = 0;
     for (const provider of this.providers) {
       if (!provider.fetchLiveStats) continue;

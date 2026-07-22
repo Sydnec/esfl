@@ -47,37 +47,70 @@ export class IngestionScheduler implements OnModuleInit {
       return;
     }
     await this.dropObsoleteSchedulers();
-    await this.queue.upsertJobScheduler('sync-series', { every: 12 * 3600 * 1000 }, {
-      name: 'sync-series',
-    });
-    await this.queue.upsertJobScheduler('sync-matches', { every: 15 * 60 * 1000 }, {
-      name: 'sync-matches',
-    });
-    await this.queue.upsertJobScheduler('sync-rosters', { every: 24 * 3600 * 1000 }, {
-      name: 'sync-rosters',
-    });
-    await this.queue.upsertJobScheduler('sync-live', { every: 3 * 60 * 1000 }, {
-      name: 'sync-live',
-    });
+    await this.queue.upsertJobScheduler(
+      'sync-series',
+      { every: 12 * 3600 * 1000 },
+      {
+        name: 'sync-series',
+      },
+    );
+    await this.queue.upsertJobScheduler(
+      'sync-matches',
+      { every: 15 * 60 * 1000 },
+      {
+        name: 'sync-matches',
+      },
+    );
+    await this.queue.upsertJobScheduler(
+      'sync-rosters',
+      { every: 24 * 3600 * 1000 },
+      {
+        name: 'sync-rosters',
+      },
+    );
+    // Cadence à la minute : les sources sont protégées par le throttle, et le
+    // `Sequenceur` empêche un cycle qui déborde d'être doublé — un dépassement
+    // ne coûte qu'un tir sauté. La file Pandascore restant séquentielle (4 s),
+    // un cycle plus fréquent partage les créneaux avec les autres jobs sans
+    // jamais dépasser le quota.
+    await this.queue.upsertJobScheduler(
+      'sync-live',
+      { every: 60 * 1000 },
+      {
+        name: 'sync-live',
+      },
+    );
     // Stats live des matchs en cours — jeux dont le provider expose
     // fetchLiveStats : Valorant (page VLR) et CS2 (bo3).
-    await this.queue.upsertJobScheduler('sync-live-stats', { every: 3 * 60 * 1000 }, {
-      name: 'sync-live-stats',
-    });
+    await this.queue.upsertJobScheduler(
+      'sync-live-stats',
+      { every: 60 * 1000 },
+      {
+        name: 'sync-live-stats',
+      },
+    );
     // Adoption des fiches créées par les providers de stats : elles naissent
     // sans identité Pandascore, donc sans photo ni nationalité fiables. Le job
     // traite un lot borné par passage (quota Pandascore), d'où une cadence
     // courte plutôt qu'un unique passage quotidien : un rattrapage de plusieurs
     // centaines de fiches s'écoule ainsi en une journée au lieu d'une semaine.
-    await this.queue.upsertJobScheduler('adopt-orphan-players', { every: 6 * 3600 * 1000 }, {
-      name: 'adopt-orphan-players',
-    });
+    await this.queue.upsertJobScheduler(
+      'adopt-orphan-players',
+      { every: 6 * 3600 * 1000 },
+      {
+        name: 'adopt-orphan-players',
+      },
+    );
     // Rattrapage des sources publiées tardivement (une source enregistre
     // parfois un tournoi après la fenêtre de 48h) : ré-arme
     // l'ingestion des matchs terminés restés sans stats, sur un horizon large.
-    await this.queue.upsertJobScheduler('retry-stats-backfill', { every: 60 * 60 * 1000 }, {
-      name: 'retry-stats-backfill',
-    });
+    await this.queue.upsertJobScheduler(
+      'retry-stats-backfill',
+      { every: 60 * 60 * 1000 },
+      {
+        name: 'retry-stats-backfill',
+      },
+    );
     this.logger.log(
       'Jobs d’ingestion planifiés (séries 12h, matchs 15min, live 3min, rosters 24h, adoption 6h, backfill 1h)',
     );
@@ -98,7 +131,10 @@ export class IngestionScheduler implements OnModuleInit {
 
     // Visibilité sur la consommation du quota Pandascore.
     setInterval(
-      () => this.logger.log(`Pandascore : ${this.pandascore.requestsLastHour} req sur la dernière heure`),
+      () =>
+        this.logger.log(
+          `Pandascore : ${this.pandascore.requestsLastHour} req sur la dernière heure`,
+        ),
       3600 * 1000,
     ).unref();
   }

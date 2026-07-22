@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { GAME_IDS, GameId } from '@esfl/contracts';
+import { Sequenceur } from '../common/sequenceur';
 import { pandascoreUpdate } from '../common/field-precedence';
 import { reassignPlayerStats } from '../common/player-merge';
 import { PandascoreClient } from '../pandascore/pandascore.client';
@@ -149,8 +150,9 @@ export class PlayerAdoptionService {
    */
   private static readonly LOT = 150;
 
-  /** Vrai tant qu'un passage est en cours (cf. `adoptOrphans`). */
-  private enCours = false;
+  /** Deux passages concurrents se marchent dessus : le premier fusionne une
+   * fiche que le second tient encore en mémoire. */
+  private readonly sequenceur = new Sequenceur();
 
   async adoptOrphans(): Promise<AdoptionReport> {
     const report: AdoptionReport = {
@@ -166,19 +168,12 @@ export class PlayerAdoptionService {
       this.logger.warn('Adoption ignorée : PANDASCORE_TOKEN absent');
       return report;
     }
-    // Deux passages concurrents (tir du scheduler + déclenchement manuel) se
-    // marchent dessus : le premier fusionne une fiche que le second tient
-    // encore en mémoire. Un seul à la fois, le suivant reprendra le reliquat.
-    if (this.enCours) {
+    const resultat = await this.sequenceur.passer(() => this.passe(report));
+    if (!resultat) {
       this.logger.warn('Adoption déjà en cours : passage ignoré');
       return report;
     }
-    this.enCours = true;
-    try {
-      return await this.passe(report);
-    } finally {
-      this.enCours = false;
-    }
+    return resultat;
   }
 
   private async passe(report: AdoptionReport): Promise<AdoptionReport> {
