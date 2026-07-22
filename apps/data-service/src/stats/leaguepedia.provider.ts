@@ -139,7 +139,14 @@ export interface LeaguepediaRow {
 /** Objectifs neutres d'une game, requêtés à part puis fusionnés dans les lignes. */
 type ObjectifsGame = Pick<
   LeaguepediaRow,
-  'T1Barons' | 'T1Dragons' | 'T1Heralds' | 'T1Grubs' | 'T2Barons' | 'T2Dragons' | 'T2Heralds' | 'T2Grubs'
+  | 'T1Barons'
+  | 'T1Dragons'
+  | 'T1Heralds'
+  | 'T1Grubs'
+  | 'T2Barons'
+  | 'T2Dragons'
+  | 'T2Heralds'
+  | 'T2Grubs'
 >;
 
 /** Retire la désambiguïsation Leaguepedia : "Faker (Lee Sang-hyeok)" → "Faker". */
@@ -160,10 +167,14 @@ export function objectiveShare(row: LeaguepediaRow): number | null {
   const t2 = somme(row.T2Barons, row.T2Dragons, row.T2Heralds, row.T2Grubs);
   const total = t1 + t2;
   if (total <= 0) return null;
-  const team = normalizeName(row.Team ?? '');
-  if (!team) return null;
-  if (team === normalizeName(row.Team1 ?? '')) return t1 / total;
-  if (team === normalizeName(row.Team2 ?? '')) return t2 / total;
+  const team = row.Team ?? '';
+  if (!normalizeName(team)) return null;
+  // `teamMatchesExact` et non une égalité de chaînes normalisées : c'est la
+  // règle de rapprochement commune, stricte pour Leaguepedia dont les noms
+  // sont canoniques (« Cloud9 » ne doit pas absorber « Cloud9 Academy »),
+  // et qui accepte en plus les alias connus de l'équipe.
+  if (teamMatchesExact(team, { name: row.Team1 ?? '' })) return t1 / total;
+  if (teamMatchesExact(team, { name: row.Team2 ?? '' })) return t2 / total;
   return null;
 }
 
@@ -440,12 +451,18 @@ export function mapLeaguepediaRows(
           csPerMin: perMin(aggregate.cs),
           win: aggregate.wins * 2 > aggregate.games,
           killParticipation:
-            aggregate.games > 0 ? Math.round((aggregate.kpSum / aggregate.games) * 1000) / 1000 : null,
+            aggregate.games > 0
+              ? Math.round((aggregate.kpSum / aggregate.games) * 1000) / 1000
+              : null,
           damageShare:
-            aggregate.games > 0 ? Math.round((aggregate.shareSum / aggregate.games) * 1000) / 1000 : null,
+            aggregate.games > 0
+              ? Math.round((aggregate.shareSum / aggregate.games) * 1000) / 1000
+              : null,
           visionScore: aggregate.vision,
           goldShare:
-            aggregate.games > 0 ? Math.round((aggregate.goldShareSum / aggregate.games) * 1000) / 1000 : null,
+            aggregate.games > 0
+              ? Math.round((aggregate.goldShareSum / aggregate.games) * 1000) / 1000
+              : null,
           // Scoring v5 : part de vision de l'équipe et contrôle des objectifs
           // neutres, les deux composantes du sous-score Macro.
           visionShare:
@@ -465,7 +482,9 @@ export function mapLeaguepediaRows(
           durationMinutes: aggregate.minutes > 0 ? Math.round(aggregate.minutes) : null,
         };
       })(),
-      perMap: aggregate.perMap.sort((a, b) => a.position - b.position) as unknown as Prisma.InputJsonValue,
+      perMap: aggregate.perMap.sort(
+        (a, b) => a.position - b.position,
+      ) as unknown as Prisma.InputJsonValue,
     });
   }
   return lines;
@@ -978,9 +997,7 @@ export class LeaguepediaStatsProvider implements GameStatsProvider {
     }
     if (acronym) {
       const rows = await this.queryTeamsByShort(acronym);
-      const confirmed = rows.filter(
-        (row) => row.name && teamMatches(row.name, { name, aliases }),
-      );
+      const confirmed = rows.filter((row) => row.name && teamMatches(row.name, { name, aliases }));
       if (confirmed.length === 1 && confirmed[0].page) {
         return { id: confirmed[0].page, name: confirmed[0].name ?? confirmed[0].page };
       }

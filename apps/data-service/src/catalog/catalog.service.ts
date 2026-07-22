@@ -66,10 +66,16 @@ function fandomTeamName(raw: string): string {
  * Les deux parties sont exigées : un prénom seul est bien trop partagé pour
  * servir de clé d'identité.
  */
-function identiteCivile(firstName: string | null, lastName: string | null): string | null {
-  const civil = normalizeName(`${firstName ?? ''}${lastName ?? ''}`);
-  if (!firstName?.trim() || !lastName?.trim() || !civil) return null;
-  return civil;
+export function identiteCivile(firstName: string | null, lastName: string | null): string | null {
+  if (!firstName?.trim() || !lastName?.trim()) return null;
+  // Chaque partie normalisée SÉPARÉMENT : `normalizeName` supprime tout ce qui
+  // n'est pas alphanumérique, espace compris, si bien qu'une concaténation
+  // brute confondait « Kimm Inseong » et « Kim Minseong ». Le séparateur est
+  // posé après normalisation pour survivre.
+  const prenom = normalizeName(firstName);
+  const nom = normalizeName(lastName);
+  if (!prenom || !nom) return null;
+  return `${prenom}|${nom}`;
 }
 
 /**
@@ -78,14 +84,23 @@ function identiteCivile(firstName: string | null, lastName: string | null): stri
  * (« Kim Min-seong » en LoL) : seul le pseudo tranche. Regroupement transitif,
  * un pseudo intermédiaire reliant les deux extrêmes.
  */
-function clustersParPseudo<T extends { name: string }>(fiches: T[]): T[][] {
+export function clustersParPseudo<T extends { name: string }>(fiches: T[]): T[][] {
   const clusters: T[][] = [];
   for (const fiche of fiches) {
-    const proche = clusters.find((cluster) =>
+    // TOUS les groupes que cette fiche touche, pas seulement le premier :
+    // si A et C ne se ressemblent pas mais que B ressemble aux deux, l'ordre
+    // d'arrivée décidait du résultat (A, C, B laissait C isolé). En fusionnant,
+    // le regroupement est réellement transitif et indépendant de l'ordre.
+    const touches = clusters.filter((cluster) =>
       cluster.some((membre) => pseudosProches(membre.name, fiche.name)),
     );
-    if (proche) proche.push(fiche);
-    else clusters.push([fiche]);
+    if (touches.length === 0) {
+      clusters.push([fiche]);
+      continue;
+    }
+    const [garde, ...absorbes] = touches;
+    garde.push(fiche, ...absorbes.flat());
+    for (const absorbe of absorbes) clusters.splice(clusters.indexOf(absorbe), 1);
   }
   return clusters;
 }

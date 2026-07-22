@@ -5,6 +5,7 @@ import {
   LOL_DISTRIBUTIONS,
   cs2Rating,
   LOL_LAMBDA,
+  lolFallbackRating,
   LolDistributions,
   lolRatingV5,
   mapsPlayed,
@@ -18,7 +19,12 @@ import {
 describe('mapsPlayed / roundsPlayed', () => {
   it('mapsPlayed compte les manches décidées, sinon les scores, sinon 1', () => {
     expect(
-      mapsPlayed({ gamesSummary: [{ position: 1, winner: 'A' }, { position: 2, winner: null }] }),
+      mapsPlayed({
+        gamesSummary: [
+          { position: 1, winner: 'A' },
+          { position: 2, winner: null },
+        ],
+      }),
     ).toBe(1);
     expect(mapsPlayed({ scoreA: 2, scoreB: 1 })).toBe(3);
     expect(mapsPlayed({})).toBe(1);
@@ -106,7 +112,6 @@ describe('formules de rating — ancrages', () => {
     const soutien = cs2Rating({ ...commun, kpr: 0.6, apr: 0.35 });
     expect(fragger).toBeGreaterThan(soutien);
   });
-
 });
 
 describe('canonicalLolRole', () => {
@@ -376,5 +381,19 @@ describe('lolRatingV5 — standardisation par rôle', () => {
 
   it('λ pilote la dispersion : un λ plus grand resserre les ratings', () => {
     expect(LOL_LAMBDA).toBeGreaterThan(0);
+  });
+});
+
+describe('lolFallbackRating, recentrage', () => {
+  it('rend 1,00 pour un profil médian, donc une note de 50', () => {
+    const rating = lolFallbackRating({ kda: 3, kp: 60 });
+    expect(rating).toBeCloseTo(1, 2);
+    expect(noteDepuisRating('lol', rating)).toBeCloseTo(50, 0);
+  });
+
+  it('reste monotone : mieux jouer ne peut pas baisser la note', () => {
+    const faible = lolFallbackRating({ kda: 1.5, kp: 45 });
+    const fort = lolFallbackRating({ kda: 6, kp: 75 });
+    expect(noteDepuisRating('lol', fort)).toBeGreaterThan(noteDepuisRating('lol', faible));
   });
 });

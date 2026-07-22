@@ -212,9 +212,7 @@ describe('providerTeamMatches', () => {
   });
 
   it('rapproche par le slug quand le nom est réduit au tag', () => {
-    expect(
-      providerTeamMatches({ name: 'EAC', slug: 'esport-academy-copenhagen' }, eac),
-    ).toBe(true);
+    expect(providerTeamMatches({ name: 'EAC', slug: 'esport-academy-copenhagen' }, eac)).toBe(true);
   });
 
   it('rapproche par égalité des tags de part et d’autre', () => {

@@ -42,11 +42,15 @@ export class IngestionScheduler implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
+    // Nettoyage AVANT le garde-fou du token : un scheduler obsolète survit dans
+    // Redis à la suppression de son code, et le processor boucle sur « Job
+    // inconnu ». Le laisser en place parce que le token manque ferait durer la
+    // panne précisément dans l'environnement le moins surveillé.
+    await this.dropObsoleteSchedulers();
     if (!this.pandascore.enabled) {
       this.logger.warn('PANDASCORE_TOKEN absent : ingestion désactivée');
       return;
     }
-    await this.dropObsoleteSchedulers();
     await this.queue.upsertJobScheduler(
       'sync-series',
       { every: 12 * 3600 * 1000 },

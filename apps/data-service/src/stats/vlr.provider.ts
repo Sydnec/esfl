@@ -2,7 +2,13 @@ import { Injectable, Logger } from '@nestjs/common';
 import * as cheerio from 'cheerio';
 import type { MapStatsEntry } from '@esfl/contracts';
 import type { Match, Prisma } from '../../generated/client';
-import { normalizeName, opponentAliasCandidates, OpponentPair, teamMatches, TeamRef } from './matching';
+import {
+  normalizeName,
+  opponentAliasCandidates,
+  OpponentPair,
+  teamMatches,
+  TeamRef,
+} from './matching';
 import { politeFetch } from './polite-fetch';
 import type {
   GameStatsProvider,
@@ -112,7 +118,9 @@ export function parseVlrTeamMatches(html: string): VlrTeamMatchItem[] {
         .find('.m-item-date')
         .text()
         .match(/(\d{4})\/(\d{2})\/(\d{2})/);
-      const date = day ? new Date(Date.UTC(Number(day[1]), Number(day[2]) - 1, Number(day[3]))) : null;
+      const date = day
+        ? new Date(Date.UTC(Number(day[1]), Number(day[2]) - 1, Number(day[3])))
+        : null;
       if (names.length >= 2) out.push({ href, names, scores, date });
     });
   return out;
@@ -331,7 +339,12 @@ function parseVlrPerformanceTable(
       // tooltips (« Round 5… ») dont les chiffres pollueraient l'extraction.
       const sq = $(cells[index]).find('.stats-sq').first().clone();
       sq.children().remove();
-      const value = Number(sq.text().trim().replace(/[^\d.-]/g, ''));
+      const value = Number(
+        sq
+          .text()
+          .trim()
+          .replace(/[^\d.-]/g, ''),
+      );
       return Number.isFinite(value) ? value : 0;
     };
     out.set(normalizeName(name), {
@@ -389,11 +402,7 @@ function headerMapName(text: string): string | null {
  * (tag). Colonnes repérées par en-têtes (ACS/FK) ; le K/D/A vit dans une cellule
  * `.ovw-cell.mod-kda` (spans `.ovw-kda-stat[data-col]`).
  */
-export function mapVlrMatchHtml(
-  html: string,
-  teamA: TeamRef,
-  teamB: TeamRef,
-): ProviderStatLine[] {
+export function mapVlrMatchHtml(html: string, teamA: TeamRef, teamB: TeamRef): ProviderStatLine[] {
   const $ = cheerio.load(html);
 
   const readBoth = (cell: ReturnType<typeof $> | null): number | null => {
@@ -510,8 +519,7 @@ export function mapVlrMatchHtml(
         // vides). Map en cours : l'agent est connu dès le pick, les stats
         // restent nulles jusqu'à la fin de la map — on les garde nulles
         // plutôt que d'afficher de faux zéros.
-        const empty =
-          stats.kills == null && stats.deaths == null && stats.assists == null;
+        const empty = stats.kills == null && stats.deaths == null && stats.assists == null;
         if (empty && !stats.agent) continue;
         const entries = perMapByPlayer.get(nameKey) ?? [];
         entries.push({
@@ -693,9 +701,7 @@ export class VlrStatsProvider implements GameStatsProvider {
       );
       if (!response.ok) continue;
       const results = parseVlrTeamSearch(await response.text());
-      const exact = results.filter(
-        (result) => normalizeName(result.name) === normalizeName(query),
-      );
+      const exact = results.filter((result) => normalizeName(result.name) === normalizeName(query));
       if (exact.length === 1) return exact[0];
       if (exact.length > 1) continue; // homonymes : indécidable sur le nom seul
       if (!acronym) continue; // pas de tag pour confirmer un nom proche

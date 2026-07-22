@@ -32,7 +32,9 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe('AlerteService', () => {
   it('n’envoie rien avant le seuil, puis une seule fois', async () => {
-    const envoi = vi.fn(async (_url: string, _init?: { body?: string }) => ({ ok: true }) as Response);
+    const envoi = vi.fn(
+      async (_url: string, _init?: { body?: string }) => ({ ok: true }) as Response,
+    );
     vi.stubGlobal('fetch', envoi);
     const alertes = service('https://discord.test/webhook');
 
@@ -48,7 +50,9 @@ describe('AlerteService', () => {
   });
 
   it('un succès réarme complètement la source', async () => {
-    const envoi = vi.fn(async (_url: string, _init?: { body?: string }) => ({ ok: true }) as Response);
+    const envoi = vi.fn(
+      async (_url: string, _init?: { body?: string }) => ({ ok: true }) as Response,
+    );
     vi.stubGlobal('fetch', envoi);
     const alertes = service('https://discord.test/webhook');
 
@@ -64,7 +68,9 @@ describe('AlerteService', () => {
   });
 
   it('compte chaque source séparément', async () => {
-    const envoi = vi.fn(async (_url: string, _init?: { body?: string }) => ({ ok: true }) as Response);
+    const envoi = vi.fn(
+      async (_url: string, _init?: { body?: string }) => ({ ok: true }) as Response,
+    );
     vi.stubGlobal('fetch', envoi);
     const alertes = service('https://discord.test/webhook');
 
@@ -99,7 +105,9 @@ describe('AlerteService', () => {
   });
 
   it('le message porte la source, le compte et le motif', async () => {
-    const envoi = vi.fn(async (_url: string, _init?: { body?: string }) => ({ ok: true }) as Response);
+    const envoi = vi.fn(
+      async (_url: string, _init?: { body?: string }) => ({ ok: true }) as Response,
+    );
     vi.stubGlobal('fetch', envoi);
     const alertes = service('https://discord.test/webhook');
     for (let i = 0; i < 10; i += 1) await alertes.echec('leaguepedia', 'MWException');

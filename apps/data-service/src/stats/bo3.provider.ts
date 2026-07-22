@@ -288,7 +288,7 @@ export function mapBo3GameStats(
     role: null,
     raw: acc.raw as unknown as Prisma.InputJsonValue,
     perMap: acc.perMap.sort(
-      (a, b) => ((a as { position: number }).position - (b as { position: number }).position),
+      (a, b) => (a as { position: number }).position - (b as { position: number }).position,
     ),
     normalized: {
       kills: acc.kills,
@@ -665,6 +665,21 @@ export class Bo3StatsProvider implements GameStatsProvider {
   }
 
   /** Fiche équipe bo3 (nom, tag, logo) par id connu — enrichissement CS2 (impossible avec Grid). */
+  /**
+   * Les liens d'équipe bo3 sont en slug (`bo3.gg/teams/3dmax`), pas en id :
+   * une saisie admin copiée depuis le site ne contient donc jamais le nombre
+   * attendu par l'API. On traduit via le filtre slug.
+   */
+  async resolveTeamIdFromSlug(saisie: string): Promise<string | null> {
+    const slug = (saisie.match(/\/teams?\/([^/?#]+)/)?.[1] ?? saisie).trim().toLowerCase();
+    if (!slug || /^\d+$/.test(slug)) return null;
+    const list = await this.get<Bo3List<Bo3TeamRef>>(
+      `/teams?page%5Blimit%5D=1&filter%5Bteams.slug%5D%5Beq%5D=${encodeURIComponent(slug)}`,
+    );
+    const id = list?.results?.[0]?.id;
+    return id == null ? null : String(id);
+  }
+
   async fetchTeamProfile(providerTeamId: string): Promise<TeamProfile | null> {
     const list = await this.get<Bo3List<Bo3TeamRef>>(
       `/teams?page%5Blimit%5D=1&filter%5Bteams.id%5D%5Beq%5D=${providerTeamId}`,

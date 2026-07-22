@@ -149,10 +149,17 @@ export class StatsIngestionService {
       providerTeamId = resolved[0] ?? name;
     } else {
       // VLR et bo3 : id numérique, dans un lien /team(s)/<id>/... ou saisi brut.
-      const id = raw.match(/\/teams?\/(\d+)/)?.[1] ?? (/^\d+$/.test(raw) ? raw : null);
+      // Segment numérique COMPLET : sans l'ancrage de fin, `/teams/3dmax`
+      // capturait « 3 » et pointait une tout autre équipe.
+      const numerique =
+        raw.match(/\/teams?\/(\d+)(?:[/?#]|$)/)?.[1] ?? (/^\d+$/.test(raw) ? raw : null);
+      // Sans id dans la saisie, on demande à la source de traduire son slug
+      // (bo3 publie `/teams/3dmax`). Branché sur la CAPACITÉ : une source qui
+      // ne sait pas le faire rejette la saisie comme avant.
+      const id = numerique ?? (await provider.resolveTeamIdFromSlug?.(raw)) ?? null;
       if (!id) {
         throw new BadRequestException(
-          `Id numérique attendu chez ${provider.source} (lien vers la page équipe ou nombre), reçu « ${raw} »`,
+          `Équipe introuvable chez ${provider.source} depuis « ${raw} » (lien vers la page équipe, slug ou id).`,
         );
       }
       providerTeamId = id;

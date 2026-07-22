@@ -22,10 +22,13 @@ describe('mergeGamesSummary', () => {
   });
 
   it('union des positions, triée', () => {
-    const merged = mergeGamesSummary([{ position: 2, winner: 'B' }], [
-      { position: 1, winner: 'A' },
-      { position: 3, winner: null },
-    ]);
+    const merged = mergeGamesSummary(
+      [{ position: 2, winner: 'B' }],
+      [
+        { position: 1, winner: 'A' },
+        { position: 3, winner: null },
+      ],
+    );
     expect(merged.map((entry) => entry.position)).toEqual([1, 2, 3]);
   });
 

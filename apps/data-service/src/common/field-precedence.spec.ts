@@ -38,11 +38,7 @@ describe('providerUpdate', () => {
   });
 
   it('fusionne la possession multi-providers sans perdre l’existant', () => {
-    const { fieldSources } = providerUpdate(
-      { role: 'Bot' },
-      'leaguepedia',
-      { name: 'vlr' },
-    );
+    const { fieldSources } = providerUpdate({ role: 'Bot' }, 'leaguepedia', { name: 'vlr' });
     expect(fieldSources).toEqual({ name: 'vlr', role: 'leaguepedia' });
   });
 });

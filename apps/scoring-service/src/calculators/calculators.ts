@@ -171,12 +171,7 @@ export function cs2Rating(i: {
 }): number {
   const impact = 2.13 * i.kpr + 0.42 * i.apr - 0.41;
   return (
-    0.0073 * i.kast +
-    0.3591 * i.kpr -
-    0.5329 * i.dpr +
-    0.2372 * impact +
-    0.0032 * i.adr +
-    0.1587
+    0.0073 * i.kast + 0.3591 * i.kpr - 0.5329 * i.dpr + 0.2372 * impact + 0.0032 * i.adr + 0.1587
   );
 }
 /**
@@ -203,14 +198,20 @@ export function valorantRating(i: {
  * saisies à la main, souvent limitées au KDA/KP. On surpondère alors ce qui est
  * toujours présent (KDA plafonné + Kill Participation).
  *
- * ATTENTION : sa distribution n'est PAS celle de `lolRatingV5`, alors que les
- * deux partagent la ligne `lol` de `CALIBRAGE_JEU`, calibrée sur la seconde.
- * Aucune ligue ne l'emprunte aujourd'hui (0 sur 5 242 lignes mesurées), mais le
- * jour où une ligue mineure y bascule, ses notes seront décentrées d'autant. Il
- * faudra alors mesurer sa médiane à part et lui donner son propre calibrage.
+ * Les deux partagent la ligne `lol` de `CALIBRAGE_JEU`, mesurée sur
+ * `lolRatingV5` : le repli doit donc rendre 1,00 pour un joueur médian, sans
+ * quoi `noteDepuisRating` le décentre. La formule brute rendait 0,86 sur un
+ * profil médian (KDA 3,0, KP 60 %), soit une note de 31 au lieu de 50 : d'où
+ * le recentrage ci-dessous.
+ *
+ * Sa DISPERSION, elle, reste non mesurée faute de ligne qui l'emprunte (0 sur
+ * 5 242). Elle est un peu plus large que SIGMA_REF, donc les écarts extrêmes
+ * seront légèrement exagérés. À remesurer le jour où une ligue y bascule.
  */
+const LOL_REPLI_MEDIAN = 0.86;
+
 export function lolFallbackRating(i: { kda: number; kp: number }): number {
-  return i.kda * 0.06 + i.kp * 0.008 + 0.2;
+  return i.kda * 0.06 + i.kp * 0.008 + 0.2 + (1 - LOL_REPLI_MEDIAN);
 }
 
 // ─── LoL-Rating 1.0 : sous-scores standardisés PAR RÔLE ─────────────────────
@@ -248,7 +249,10 @@ export interface LolMetriques {
  * Mesurées sur la population réelle ; à repasser après la ré-ingestion ou un
  * changement de meta (requête dans docs/scoring-et-donnees.md).
  */
-export type LolDistributions = Record<string, Record<LolMetrique, { moyenne: number; sigma: number }>>;
+export type LolDistributions = Record<
+  string,
+  Record<LolMetrique, { moyenne: number; sigma: number }>
+>;
 
 // Mesurées sur 5 242 lignes de la base reconstruite, ~1 050 par rôle.
 // L'asymétrie saute aux yeux et justifie à elle seule la standardisation par
@@ -365,7 +369,8 @@ export function lolRatingV5(
   const combat = (z('dpmg', input.dpmg) + z('kp', input.kp) + z('kda', input.kda)) / 3;
   // Le WPM de la spec est hors de portée : la table Cargo n'expose aucun champ
   // de wards. Les deux poids restants sont renormalisés à somme 1.
-  const macro = 0.667 * z('visionShare', input.visionShare) + 0.333 * z('objControl', input.objControl);
+  const macro =
+    0.667 * z('visionShare', input.visionShare) + 0.333 * z('objControl', input.objControl);
   const poids = POIDS_ROLE_LOL[input.role] ?? POIDS_ROLE_LOL.Autre;
   const raw = poids.combat * combat + poids.macro * macro;
   return 1 + Math.tanh(raw / LOL_LAMBDA) + (input.win ? LOL_BONUS_RESULTAT : -LOL_BONUS_RESULTAT);

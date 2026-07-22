@@ -32,9 +32,13 @@ export class ScoringMaintenanceScheduler implements OnModuleInit {
       this.logger.warn('Gel des journées désactivé (SCORING_FREEZE_ENABLED=0)');
       return;
     }
-    await this.queue.upsertJobScheduler('freeze-days', { every: 3600 * 1000 }, {
-      name: 'freeze-days',
-    });
+    await this.queue.upsertJobScheduler(
+      'freeze-days',
+      { every: 3600 * 1000 },
+      {
+        name: 'freeze-days',
+      },
+    );
     this.logger.log('Gel des journées planifié (contrôle toutes les heures)');
   }
 }

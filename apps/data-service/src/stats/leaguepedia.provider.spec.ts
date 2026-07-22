@@ -119,8 +119,32 @@ const rows: LeaguepediaRow[] = [
 describe('mapLeaguepediaRows — KP%, damageShare, visionScore', () => {
   it('calcule les ratios via les totaux d’équipe par game', () => {
     const game: LeaguepediaRow[] = [
-      { Link: 'Caps', Kills: '5', Deaths: '2', Assists: '7', Team: 'G2 Esports', Team1: 'G2 Esports', Team2: 'Fnatic', GameId: 'g1', DamageToChampions: '20000', VisionScore: '30', Gold: '12000' },
-      { Link: 'Jankos', Kills: '3', Deaths: '1', Assists: '10', Team: 'G2 Esports', Team1: 'G2 Esports', Team2: 'Fnatic', GameId: 'g1', DamageToChampions: '10000', VisionScore: '50', Gold: '8000' },
+      {
+        Link: 'Caps',
+        Kills: '5',
+        Deaths: '2',
+        Assists: '7',
+        Team: 'G2 Esports',
+        Team1: 'G2 Esports',
+        Team2: 'Fnatic',
+        GameId: 'g1',
+        DamageToChampions: '20000',
+        VisionScore: '30',
+        Gold: '12000',
+      },
+      {
+        Link: 'Jankos',
+        Kills: '3',
+        Deaths: '1',
+        Assists: '10',
+        Team: 'G2 Esports',
+        Team1: 'G2 Esports',
+        Team2: 'Fnatic',
+        GameId: 'g1',
+        DamageToChampions: '10000',
+        VisionScore: '50',
+        Gold: '8000',
+      },
     ];
     const caps = mapLeaguepediaRows(game, { name: 'G2 Esports' }, { name: 'Fnatic' }).find(
       (line) => line.externalName === 'Caps',
@@ -142,8 +166,14 @@ describe('objectiveShare', () => {
   const game = {
     Team1: 'G2 Esports',
     Team2: 'Fnatic',
-    T1Barons: '1', T1Dragons: '3', T1Heralds: '1', T1Grubs: '3',
-    T2Barons: '0', T2Dragons: '1', T2Heralds: '0', T2Grubs: '3',
+    T1Barons: '1',
+    T1Dragons: '3',
+    T1Heralds: '1',
+    T1Grubs: '3',
+    T2Barons: '0',
+    T2Dragons: '1',
+    T2Heralds: '0',
+    T2Grubs: '3',
   };
 
   it('rapporte les objectifs neutres du camp du joueur au total de la game', () => {
@@ -153,9 +183,7 @@ describe('objectiveShare', () => {
   });
 
   it('null quand la game n’a aucun objectif neutre', () => {
-    expect(
-      objectiveShare({ Team: 'G2 Esports', Team1: 'G2 Esports', Team2: 'Fnatic' }),
-    ).toBeNull();
+    expect(objectiveShare({ Team: 'G2 Esports', Team1: 'G2 Esports', Team2: 'Fnatic' })).toBeNull();
   });
 
   it('null quand l’équipe du joueur ne correspond à aucun des deux camps', () => {
@@ -245,8 +273,32 @@ describe('mapLeaguepediaRows', () => {
 
   it('détaille les ratios d’équipe par game (vue avancée d’une game précise)', () => {
     const game: LeaguepediaRow[] = [
-      { Link: 'Caps', Kills: '5', Assists: '7', Team: 'G2 Esports', Team1: 'G2 Esports', Team2: 'Fnatic', GameId: 'g1', GameNumber: '1', DamageToChampions: '20000', VisionScore: '30', Gold: '12000' },
-      { Link: 'Jankos', Kills: '3', Assists: '10', Team: 'G2 Esports', Team1: 'G2 Esports', Team2: 'Fnatic', GameId: 'g1', GameNumber: '1', DamageToChampions: '10000', VisionScore: '50', Gold: '8000' },
+      {
+        Link: 'Caps',
+        Kills: '5',
+        Assists: '7',
+        Team: 'G2 Esports',
+        Team1: 'G2 Esports',
+        Team2: 'Fnatic',
+        GameId: 'g1',
+        GameNumber: '1',
+        DamageToChampions: '20000',
+        VisionScore: '30',
+        Gold: '12000',
+      },
+      {
+        Link: 'Jankos',
+        Kills: '3',
+        Assists: '10',
+        Team: 'G2 Esports',
+        Team1: 'G2 Esports',
+        Team2: 'Fnatic',
+        GameId: 'g1',
+        GameNumber: '1',
+        DamageToChampions: '10000',
+        VisionScore: '50',
+        Gold: '8000',
+      },
     ];
     const caps = mapLeaguepediaRows(game, { name: 'G2 Esports' }, { name: 'Fnatic' }).find(
       (line) => line.externalName === 'Caps',
@@ -267,7 +319,9 @@ describe('mapLeaguepediaRows', () => {
   });
 
   it('retourne vide si aucune game ne correspond aux équipes', () => {
-    expect(mapLeaguepediaRows(rows, { name: 'Karmine Corp' }, { name: 'Vitality' })).toHaveLength(0);
+    expect(mapLeaguepediaRows(rows, { name: 'Karmine Corp' }, { name: 'Vitality' })).toHaveLength(
+      0,
+    );
   });
 
   describe('scopeMatchRows — repli quand aucun groupe n’est exact', () => {
@@ -280,7 +334,13 @@ describe('mapLeaguepediaRows', () => {
       link: string,
       page: string,
       dateTime: string,
-    ): LeaguepediaRow => ({ Team1: team1, Team2: team2, Link: link, OverviewPage: page, DateTime: dateTime });
+    ): LeaguepediaRow => ({
+      Team1: team1,
+      Team2: team2,
+      Link: link,
+      OverviewPage: page,
+      DateTime: dateTime,
+    });
     const windowRows: LeaguepediaRow[] = [
       row('KT Rolster', 'T1', 'Real (X)', 'LCK/2026', '2026-04-25 09:00:00'),
       row('KT Rolster Challengers', 'T1 EA', 'Aca (Y)', 'LCK_CL/2026', '2026-04-25 02:00:00'),
@@ -349,7 +409,8 @@ describe('LeaguepediaStatsProvider — cache de fenêtre', () => {
     teamB: { name: 'Fnatic', aliases: [] },
     players: [],
   } as unknown as MatchContext;
-  const matchAt = (iso: string) => ({ id: 'm', beginAt: new Date(iso), scheduledAt: null }) as Match;
+  const matchAt = (iso: string) =>
+    ({ id: 'm', beginAt: new Date(iso), scheduledAt: null }) as Match;
   // Sans identifiants configurés → accès anonyme (pas de login supplémentaire).
   const configMock = { get: () => undefined } as unknown as ConfigService;
   const makeProvider = () => new LeaguepediaStatsProvider(configMock);

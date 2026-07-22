@@ -41,6 +41,9 @@ export class FantasyClient {
       headers: { 'x-user-id': userId },
     });
     if (!response.ok) return null;
-    return (await response.json()) as { id: string; competitions: Array<{ competitionId: string }> };
+    return (await response.json()) as {
+      id: string;
+      competitions: Array<{ competitionId: string }>;
+    };
   }
 }

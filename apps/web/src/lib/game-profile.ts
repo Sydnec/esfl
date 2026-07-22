@@ -10,8 +10,6 @@ import type { GameId } from '@esfl/contracts';
  * libellés d'un autre jeu.
  */
 export interface GameProfile {
-  /** Source spécialisée du jeu, telle qu'elle se nomme côté data-service. */
-  source: string;
   /** Invite du champ de saisie d'identité provider. */
   placeholderIdentite: string;
   /** Invite du champ d'alias/nom provider. */
@@ -41,7 +39,6 @@ export interface GameProfile {
 
 export const GAME_PROFILE: Record<GameId, GameProfile> = {
   cs2: {
-    source: 'bo3',
     placeholderIdentite: 'id bo3 de l’équipe',
     placeholderAlias: 'alias manuel…',
     champLarge: false,
@@ -54,7 +51,6 @@ export const GAME_PROFILE: Record<GameId, GameProfile> = {
     triParRole: false,
   },
   valorant: {
-    source: 'vlr',
     placeholderIdentite: 'lien vlr.gg/team/… ou id',
     placeholderAlias: 'alias manuel…',
     champLarge: false,
@@ -67,7 +63,6 @@ export const GAME_PROFILE: Record<GameId, GameProfile> = {
     triParRole: false,
   },
   lol: {
-    source: 'leaguepedia',
     placeholderIdentite: 'lien lol.fandom.com ou nom…',
     placeholderAlias: 'nom ou lien lol.fandom.com…',
     champLarge: true,
@@ -83,5 +78,28 @@ export const GAME_PROFILE: Record<GameId, GameProfile> = {
 
 /** Repli sûr : un jeu inconnu du front ne doit pas casser la page. */
 export function gameProfile(gameId: string): GameProfile {
-  return GAME_PROFILE[gameId as GameId] ?? GAME_PROFILE.cs2;
+  const profil = GAME_PROFILE[gameId as GameId];
+  if (profil) return profil;
+  // Retomber sur CS2 servait les libellés d'un autre jeu sans rien signaler,
+  // exactement le travers que cette table existe pour supprimer. Un profil
+  // neutre reste lisible et rend l'oubli visible en console.
+  console.warn(`Aucun profil de jeu pour « ${gameId} » : profil neutre appliqué`);
+  return PROFIL_NEUTRE;
 }
+
+/**
+ * Profil de repli d'un jeu non déclaré : n'affirme rien de faux. Pas de source
+ * nommée, pas de correction par lien, vocabulaire générique.
+ */
+const PROFIL_NEUTRE: GameProfile = {
+  placeholderIdentite: 'id de l’équipe chez la source',
+  placeholderAlias: 'nom de l’équipe chez la source',
+  champLarge: false,
+  correctionParLien: false,
+  libelleSource: 'source',
+  baseUrlStats: null,
+  libellePersonnage: 'Personnage',
+  afficheDuree: false,
+  mancheNumerotee: true,
+  triParRole: false,
+};

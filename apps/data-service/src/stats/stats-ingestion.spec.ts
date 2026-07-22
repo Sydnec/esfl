@@ -532,11 +532,22 @@ describe('resolveTeamProviderId', () => {
     );
   });
 
-  it('refuse une saisie non numérique là où la source a des ids numériques', async () => {
+  it('refuse une saisie non numérique là où la source ne sait pas traduire un slug', async () => {
     const ingestion = withProviders({ vlr: { fetchTeamProfile: vi.fn(async () => ({})) } });
     await expect(ingestion.resolveTeamProviderId(valoTeam, 'Weibo Gaming')).rejects.toThrow(
-      /Id numérique attendu chez vlr/,
+      /Équipe introuvable chez vlr/,
     );
+  });
+
+  it('bo3 : un lien en slug est traduit en id par la source', async () => {
+    const ingestion = withProviders({
+      bo3: {
+        resolveTeamIdFromSlug: vi.fn(async () => '696'),
+        fetchTeamProfile: vi.fn(async () => ({ name: '3DMAX', acronym: '3DM' })),
+      },
+    });
+    const res = await ingestion.resolveTeamProviderId(cs2Team, 'https://bo3.gg/teams/3dmax');
+    expect(res).toMatchObject({ source: 'bo3', providerTeamId: '696' });
   });
 
   it('CS2 : id bo3 accepté (la fiche équipe existe désormais)', async () => {

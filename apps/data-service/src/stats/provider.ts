@@ -173,4 +173,11 @@ export interface GameStatsProvider {
    * l'enrichissement (provider = source de vérité sur les métadonnées équipe).
    */
   fetchTeamProfile?(providerTeamId: string): Promise<TeamProfile | null>;
+  /**
+   * Traduit une saisie admin (slug, ou lien contenant un slug) en identifiant
+   * provider. Réservé aux sources dont les URLs d'équipe ne portent PAS l'id :
+   * bo3 expose `/teams/3dmax`, sans le 696 attendu par l'API. Null si la
+   * saisie ne désigne aucune équipe connue.
+   */
+  resolveTeamIdFromSlug?(saisie: string): Promise<string | null>;
 }

@@ -54,9 +54,7 @@ export class TeamEnrichmentService {
         where: { id: team.id },
         data: { providerIds: { ...providerIds, [provider.source]: found.id } },
       });
-      this.logger.log(
-        `Id ${provider.source} résolu par recherche : ${team.name} → ${found.id}`,
-      );
+      this.logger.log(`Id ${provider.source} résolu par recherche : ${team.name} → ${found.id}`);
     }
     if (!providerTeamId) return;
 

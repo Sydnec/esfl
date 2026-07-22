@@ -98,9 +98,7 @@ const teamProfileHtml = (name: string, tag: string, logo: string) =>
 
 describe('parseVlrTeamProfile', () => {
   it('extrait nom, tag, logo, pays (code drapeau) et roster', () => {
-    const profile = parseVlrTeamProfile(
-      teamProfileHtml('LOUD', 'LLL', '//owcdn.net/img/loud.png'),
-    );
+    const profile = parseVlrTeamProfile(teamProfileHtml('LOUD', 'LLL', '//owcdn.net/img/loud.png'));
     expect(profile).toEqual({
       name: 'LOUD',
       acronym: 'LLL',
@@ -124,7 +122,9 @@ describe('mapVlrGames', () => {
     `<div class="team-name">100 Thieves</div><div class="score">${scoreB}</div></div>`;
 
   it('ignore les maps 0-0 jamais jouées (game 3 d’un BO3 plié en 2-0)', () => {
-    const games = mapVlrGames(header('Ascent', 13, 9) + header('Bind', 13, 11) + header('Haven', 0, 0));
+    const games = mapVlrGames(
+      header('Ascent', 13, 9) + header('Bind', 13, 11) + header('Haven', 0, 0),
+    );
     expect(games.map((game) => game.map)).toEqual(['Ascent', 'Bind']);
   });
 });
@@ -188,13 +188,7 @@ describe('parseVlrMatchListing / vlrListingEntryMatches', () => {
   });
 });
 
-const historyItem = (
-  href: string,
-  self: string,
-  opponent: string,
-  score: string,
-  date: string,
-) =>
+const historyItem = (href: string, self: string, opponent: string, score: string, date: string) =>
   `<a href="${href}" class="wf-card fc-flex m-item">` +
   `<div class="m-item-team"><div class="m-item-team-name">${self}</div></div>` +
   `<div class="m-item-result"><span>${score.split(':')[0]}</span>:<span>${score.split(':')[1]}</span></div>` +
@@ -225,25 +219,37 @@ describe('historique de matchs d’équipe VLR (matchs anciens)', () => {
   it('retrouve le bon match d’un matchup répété par la date et le score', () => {
     const items = parseVlrTeamMatches(html);
     expect(
-      pickVlrTeamHistoryMatch(items, { name: '100 Thieves' }, {
-        reference: new Date('2026-03-08T18:00:00Z'),
-        ownScore: 0,
-        oppScore: 2,
-      }),
+      pickVlrTeamHistoryMatch(
+        items,
+        { name: '100 Thieves' },
+        {
+          reference: new Date('2026-03-08T18:00:00Z'),
+          ownScore: 0,
+          oppScore: 2,
+        },
+      ),
     ).toBe('/0900/nrg-vs-100t');
     // Score contradictoire → rien (pas de best guess).
     expect(
-      pickVlrTeamHistoryMatch(items, { name: '100 Thieves' }, {
-        reference: new Date('2026-03-08T18:00:00Z'),
-        ownScore: 2,
-        oppScore: 0,
-      }),
+      pickVlrTeamHistoryMatch(
+        items,
+        { name: '100 Thieves' },
+        {
+          reference: new Date('2026-03-08T18:00:00Z'),
+          ownScore: 2,
+          oppScore: 0,
+        },
+      ),
     ).toBeNull();
     // Date hors tolérance → rien.
     expect(
-      pickVlrTeamHistoryMatch(items, { name: 'Sentinels' }, {
-        reference: new Date('2026-06-01T18:00:00Z'),
-      }),
+      pickVlrTeamHistoryMatch(
+        items,
+        { name: 'Sentinels' },
+        {
+          reference: new Date('2026-06-01T18:00:00Z'),
+        },
+      ),
     ).toBeNull();
   });
 });
@@ -334,7 +340,12 @@ const kdaCell = (k: number | string, d: number | string, a: number | string) =>
   `<span class="ovw-kda-stat" data-col="assists"><span class="side mod-both">${a}</span></span>` +
   `</div>`;
 
-function statRow(name: string, tag: string, agent: string | null, v: Array<number | string>): string {
+function statRow(
+  name: string,
+  tag: string,
+  agent: string | null,
+  v: Array<number | string>,
+): string {
   const agentHtml = agent
     ? `<div class="ovw-agents"><span class="mod-agent"><img title="${agent}" alt="${agent}" src="/img/vlr/game/agents/${agent.toLowerCase()}.png"></span></div>`
     : '';
@@ -349,7 +360,12 @@ function statRow(name: string, tag: string, agent: string | null, v: Array<numbe
 }
 
 const emptyRow = (name: string, tag: string, agent: string | null) =>
-  statRow(name, tag, agent, Array.from({ length: 12 }, () => '&nbsp;'));
+  statRow(
+    name,
+    tag,
+    agent,
+    Array.from({ length: 12 }, () => '&nbsp;'),
+  );
 
 const head = `
   <div class="ovw-row mod-head">
@@ -496,7 +512,9 @@ describe('mapVlrMatchHtml', () => {
   });
 
   it('retourne vide sans bloc de stats « all »', () => {
-    expect(mapVlrMatchHtml('<div>rien</div>', { name: 'Sentinels' }, { name: 'Fnatic' })).toHaveLength(0);
+    expect(
+      mapVlrMatchHtml('<div>rien</div>', { name: 'Sentinels' }, { name: 'Fnatic' }),
+    ).toHaveLength(0);
   });
 });
 
@@ -509,7 +527,9 @@ describe('parseVlrPerformance', () => {
     '<td><div class="stats-sq"><img></div></td>' +
     values
       .map((value) =>
-        value ? `<td><div class="stats-sq">${value}</div></td>` : '<td><div class="stats-sq mod-egg"></div></td>',
+        value
+          ? `<td><div class="stats-sq">${value}</div></td>`
+          : '<td><div class="stats-sq mod-egg"></div></td>',
       )
       .join('') +
     '</tr>';
@@ -530,8 +550,16 @@ describe('parseVlrPerformance', () => {
     row('daiki', [
       '3 <div class="wf-popable-contents">Round 5 Xdll Round 13</div>',
       '1',
-      '', '', '1', '', '', '', '',
-      '70', '4', '0',
+      '',
+      '',
+      '1',
+      '',
+      '',
+      '',
+      '',
+      '70',
+      '4',
+      '0',
     ]) +
     '</tbody></table>';
 
