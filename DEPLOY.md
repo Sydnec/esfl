@@ -92,7 +92,25 @@ matchs finis. Détails et suivi dans [docs/premier-lancement.md](docs/premier-la
 git pull && docker compose up -d --build
 ```
 
-## 5. Sauvegarde et restauration
+## 5. Supervision des conteneurs
+
+Chaque service expose `/health` et le compose l'interroge toutes les 30 s.
+`restart: unless-stopped` ne relance qu'un process **mort** : sans sonde, un
+service qui démarre mais ne répond plus — base injoignable, boucle bloquée —
+resterait indéfiniment « up ». La sonde le fait basculer en `unhealthy`, visible
+d'un `docker compose ps`.
+
+`start_period: 60s` laisse le temps au `prisma migrate deploy` du démarrage.
+Le gateway attend que les quatre services soient **sains** avant de démarrer,
+et non seulement lancés : il ne route donc jamais vers un service qui n'a pas
+fini de migrer.
+
+```bash
+docker compose ps                     # colonne STATUS : healthy / unhealthy
+docker inspect --format '{{json .State.Health}}' esfl-data-service-1
+```
+
+## 6. Sauvegarde et restauration
 
 Le service `backup` du compose tourne en continu et écrit dans `./backups` sur
 l'hôte. Deux niveaux, parce que les 97 Mo de la base ne se valent pas :

@@ -58,7 +58,21 @@ services:
       DATA_SERVICE_URL: http://data-service:4002
       FANTASY_SERVICE_URL: http://fantasy-service:4003
       SCORING_SERVICE_URL: http://scoring-service:4004
-    depends_on: [auth-service, data-service, fantasy-service, scoring-service]
+    depends_on:
+      auth-service: { condition: service_healthy }
+      data-service: { condition: service_healthy }
+      fantasy-service: { condition: service_healthy }
+      scoring-service: { condition: service_healthy }
+    # Sonde applicative : `restart: unless-stopped` ne relance qu'un process
+    # MORT. Un service qui démarre mais ne répond plus — base injoignable,
+    # boucle bloquée — resterait « up » sans elle. `start_period` couvre le
+    # `prisma migrate deploy` du démarrage.
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O- http://localhost:4000/health || exit 1']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     restart: unless-stopped
 
   auth-service:
@@ -79,6 +93,12 @@ services:
       COOKIE_SAMESITE: ${COOKIE_SAMESITE:-none}
     depends_on:
       postgres: { condition: service_healthy }
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O- http://localhost:4001/health || exit 1']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     restart: unless-stopped
 
   data-service:
@@ -97,6 +117,12 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O- http://localhost:4002/health || exit 1']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     restart: unless-stopped
 
   fantasy-service:
@@ -111,6 +137,12 @@ services:
       ADMIN_TOKEN: ${ADMIN_TOKEN:?}
     depends_on:
       postgres: { condition: service_healthy }
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O- http://localhost:4003/health || exit 1']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     restart: unless-stopped
 
   scoring-service:
@@ -127,6 +159,12 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O- http://localhost:4004/health || exit 1']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     restart: unless-stopped
 
   caddy:
