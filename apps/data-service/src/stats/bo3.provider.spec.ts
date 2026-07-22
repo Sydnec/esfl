@@ -217,3 +217,36 @@ describe('mapBo3Games', () => {
     expect(games[0]).toMatchObject({ scoreA: null, scoreB: null });
   });
 });
+
+describe('mapBo3GameStats — instantané partiel d’une map', () => {
+  /**
+   * bo3 publie parfois, sur une map fraîchement terminée, des stats ne couvrant
+   * qu'une partie des manches. Cas observé en direct : 699 dégâts et un ADR de
+   * 116,5 (donc 6 manches) alors que la map en annonce 17.
+   */
+  it('garde l’ADR de la source plutôt que de diviser par le total officiel', () => {
+    const games = new Map([[1, game(1, 1, 17)]]);
+    const sideByTeamId = new Map([[10, 'A' as const]]);
+    const nameByTeamId = new Map([[10, 'Team Falcons']]);
+    const lines = mapBo3GameStats(
+      [statRow(1, 1, 10, 'NiKo', { damage: 699, adr: 116.5, kills: 7 })],
+      games,
+      sideByTeamId,
+      nameByTeamId,
+    );
+    expect((lines[0].normalized as Record<string, number>).adr).toBeCloseTo(116.5, 1);
+  });
+
+  it('reste inchangé quand la map est complète : les deux comptes coïncident', () => {
+    const games = new Map([[1, game(1, 1, 20)]]);
+    const sideByTeamId = new Map([[10, 'A' as const]]);
+    const nameByTeamId = new Map([[10, 'Vitality']]);
+    const lines = mapBo3GameStats(
+      [statRow(1, 1, 10, 'ZywOo', { damage: 1700, adr: 85 })],
+      games,
+      sideByTeamId,
+      nameByTeamId,
+    );
+    expect((lines[0].normalized as Record<string, number>).adr).toBeCloseTo(85, 1);
+  });
+});

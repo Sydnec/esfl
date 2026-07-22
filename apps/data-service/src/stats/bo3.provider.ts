@@ -128,13 +128,20 @@ const round3 = (value: number | null | undefined) =>
  */
 const bound = (date: Date): string => date.toISOString().slice(0, 19);
 
-/** Manches jouées sur une map : la source les donne, sinon `damage / adr`. */
+/**
+ * Manches couvertes par UNE ligne de stats, dénominateur de nos moyennes.
+ *
+ * On déduit d'abord la valeur de la ligne elle-même (`damage / adr`), et non le
+ * `rounds_count` de la map : bo3 publie parfois, sur une map fraîchement
+ * terminée, un instantané partiel dont les dégâts ne couvrent qu'une partie des
+ * manches. Diviser ces dégâts partiels par le total officiel écrasait l'ADR
+ * (699 dégâts sur 6 manches réelles donnaient 41 au lieu de 116). Sur une map
+ * complète les deux coïncident, ce repli ne change donc rien aux stats finales.
+ */
 function roundsOf(row: Bo3GamePlayerStat, roundsByGameId: Map<number, number>): number {
-  const known = roundsByGameId.get(row.game_id);
-  if (known && known > 0) return known;
-  // Map en cours : `rounds_count` est encore null, mais adr = damage / manches.
   if (row.adr && row.damage) return Math.max(1, Math.round(row.damage / row.adr));
-  return 0;
+  const known = roundsByGameId.get(row.game_id);
+  return known && known > 0 ? known : 0;
 }
 
 /** Manches multi-kills : bo3 compte par palier (2K, 3K…), on veut le total. */
