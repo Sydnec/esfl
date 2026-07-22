@@ -94,6 +94,7 @@ const JOB_LABELS: Record<string, string> = {
   'sync-live': 'Fenêtre live (scores)',
   'sync-live-stats': 'Stats live',
   'sync-competition': 'Sync d’une compétition',
+  'adopt-orphan-players': 'Adoption des joueurs orphelins',
 };
 
 /**

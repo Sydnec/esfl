@@ -132,6 +132,15 @@ export class PlayerAdoptionService {
     return this.providers.find((provider) => provider.gameId === gameId) ?? null;
   }
 
+  /**
+   * Orphelins traités par passage. Le repli de résolution coûte UN appel
+   * Pandascore par orphelin non trouvé en lot, et le client s'espace de 4 s :
+   * 150 orphelins font donc au pire 10 minutes de requêtes. Sans ce plafond, un
+   * rattrapage de 1 000 fiches monopoliserait le quota horaire et affamerait la
+   * synchro des matchs. Le reliquat part au passage suivant.
+   */
+  private static readonly LOT = 150;
+
   async adoptOrphans(): Promise<AdoptionReport> {
     const report: AdoptionReport = {
       orphelins: 0,
@@ -149,6 +158,11 @@ export class PlayerAdoptionService {
     for (const gameId of GAME_IDS) {
       const orphans = await this.prisma.player.findMany({
         where: { gameId, pandascoreId: null },
+        // Les plus récentes d'abord : un cuid croît avec le temps, et `Player`
+        // ne porte pas d'horodatage. Ce sont les fiches qu'un utilisateur a le
+        // plus de chances de croiser dans un board.
+        orderBy: { id: 'desc' },
+        take: PlayerAdoptionService.LOT,
         select: {
           id: true,
           name: true,

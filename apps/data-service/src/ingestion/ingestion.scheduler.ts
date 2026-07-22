@@ -64,6 +64,14 @@ export class IngestionScheduler implements OnModuleInit {
     await this.queue.upsertJobScheduler('sync-live-stats', { every: 3 * 60 * 1000 }, {
       name: 'sync-live-stats',
     });
+    // Adoption des fiches créées par les providers de stats : elles naissent
+    // sans identité Pandascore, donc sans photo ni nationalité fiables. Le job
+    // traite un lot borné par passage (quota Pandascore), d'où une cadence
+    // courte plutôt qu'un unique passage quotidien : un rattrapage de plusieurs
+    // centaines de fiches s'écoule ainsi en une journée au lieu d'une semaine.
+    await this.queue.upsertJobScheduler('adopt-orphan-players', { every: 6 * 3600 * 1000 }, {
+      name: 'adopt-orphan-players',
+    });
     // Rattrapage des sources publiées tardivement (une source enregistre
     // parfois un tournoi après la fenêtre de 48h) : ré-arme
     // l'ingestion des matchs terminés restés sans stats, sur un horizon large.
@@ -71,7 +79,7 @@ export class IngestionScheduler implements OnModuleInit {
       name: 'retry-stats-backfill',
     });
     this.logger.log(
-      'Jobs d’ingestion planifiés (séries 12h, matchs 15min, live 3min, rosters 24h, backfill 1h)',
+      'Jobs d’ingestion planifiés (séries 12h, matchs 15min, live 3min, rosters 24h, adoption 6h, backfill 1h)',
     );
 
     // Premier démarrage (base vide) : backfill historique en arrière-plan
