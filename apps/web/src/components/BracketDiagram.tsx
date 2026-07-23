@@ -10,11 +10,15 @@ const CARD_H = 72; // carte : entête heure + 2 lignes d'équipe (≈ hauteur r�
 const SLOT_H = 92; // hauteur réservée par match du 1er tour (carte + espace)
 const COL_W = 160;
 
+/** Grande finale (EN/FR) : partagé par le classement des tours et l'aiguillage
+ *  double élimination, pour que les deux ne divergent jamais. */
+const GRANDE_FINALE_RE = /grand ?final|grande finale/i;
+
 /** Tour d'un match : rank 0 = finale (droite), rank plus grand = tour plus tôt (gauche). */
 const ROUND_RANKS: Array<{ re: RegExp; rank: number; label: string }> = [
   // Grande finale : colonne à DROITE de la finale upper (rang négatif), pas
   // confondue avec elle. Doit précéder l'entrée « final » générique.
-  { re: /grand ?final|grande finale/i, rank: -1, label: 'Grande finale' },
+  { re: GRANDE_FINALE_RE, rank: -1, label: 'Grande finale' },
   { re: /(^|:)\s*final|\bfinale?\b/i, rank: 0, label: 'Finale' },
   { re: /semi.?final|demi.?finale/i, rank: 1, label: 'Demi-finales' },
   { re: /quarter.?final|quart/i, rank: 2, label: 'Quarts' },
@@ -109,7 +113,7 @@ export function BracketDiagram({ matches }: { matches: MatchSummary[] }) {
   const hasLower = matches.some((match) => /\blower\b/i.test(match.name));
   for (const match of matches) {
     const lower_name = match.name.toLowerCase();
-    if (hasLower && /grand ?final/.test(lower_name)) upper.push(match);
+    if (hasLower && GRANDE_FINALE_RE.test(lower_name)) upper.push(match);
     else if (/\bupper\b/.test(lower_name)) upper.push(match);
     else if (/\blower\b/.test(lower_name)) lower.push(match);
     else rest.push(match);
