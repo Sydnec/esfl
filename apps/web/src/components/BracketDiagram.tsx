@@ -103,11 +103,13 @@ export function BracketDiagram({ matches }: { matches: MatchSummary[] }) {
   const upper: MatchSummary[] = [];
   const lower: MatchSummary[] = [];
   const rest: MatchSummary[] = [];
+  // Double élimination = présence d'un lower bracket. La grande finale ne
+  // prolonge l'arbre upper que dans ce cas ; en simple élimination elle EST la
+  // finale et reste avec le reste de l'arbre.
+  const hasLower = matches.some((match) => /\blower\b/i.test(match.name));
   for (const match of matches) {
     const lower_name = match.name.toLowerCase();
-    // La grande finale prolonge l'arbre upper (à droite de la finale upper),
-    // même sans le mot « upper » dans son nom.
-    if (/grand ?final/.test(lower_name)) upper.push(match);
+    if (hasLower && /grand ?final/.test(lower_name)) upper.push(match);
     else if (/\bupper\b/.test(lower_name)) upper.push(match);
     else if (/\blower\b/.test(lower_name)) lower.push(match);
     else rest.push(match);
@@ -149,6 +151,14 @@ function SubBracket({ matches, label }: { matches: MatchSummary[]; label?: strin
     byRank.set(r.rank, list);
   }
   for (const list of byRank.values()) list.sort((a, b) => a.index - b.index);
+
+  // Sans finale upper (rang 0) dans ce sous-arbre, une « grande finale » (rang
+  // -1) est simplement LA finale (simple élimination) : on la ramène au rang 0,
+  // étiquetée « Finale » et placée normalement plutôt qu'en colonne détachée.
+  if (byRank.has(-1) && !byRank.has(0)) {
+    byRank.set(0, byRank.get(-1)!);
+    byRank.delete(-1);
+  }
 
   const ranks = [...byRank.keys()].sort((a, b) => b - a); // gauche→droite : tour le plus tôt d'abord
   if (ranks.length === 0) {
