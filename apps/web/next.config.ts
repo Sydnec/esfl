@@ -34,11 +34,11 @@ if (isProd) {
 
 const nextConfig: NextConfig = {
   transpilePackages: ['@esfl/contracts'],
-  // `next build` écrit dans un dossier séparé : un build de vérification
-  // lancé pendant que `next dev` tourne ne corrompt plus son cache
-  // (« Cannot find module ./vendor-chunks/… »). `next start` lit le même
-  // distDir en production, Vercel gère.
-  distDir: process.env.NODE_ENV === 'production' ? '.next-build' : '.next',
+  // `.next-build` isole les builds de vérification LOCAUX (`next build` lancé
+  // pendant que `next dev` tourne) pour ne pas corrompre le cache `.next` du dev.
+  // Mais Vercel s'attend à trouver la sortie dans `.next` : on y reste donc sur
+  // Vercel (comme en dev). Seul un build prod local utilise `.next-build`.
+  distDir: process.env.NODE_ENV === 'production' && !process.env.VERCEL ? '.next-build' : '.next',
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders }];
   },
