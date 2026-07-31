@@ -18,9 +18,13 @@ coverage/
 
 # Divers
 .DS_Store
+._*
 *.log
 generated/
 CLAUDE.md
+
+# Outillage local (Claude Code : permissions machine, locks runtime)
+.claude/
 
 # Dumps produits par le service `backup` (cf. DEPLOY.md).
 backups/
