@@ -1,5 +1,7 @@
-# Stack de production sur le VPS : infra + les 5 services + reverse proxy TLS.
-# Le frontend (apps/web) est déployé séparément sur Vercel.
+# Stack de production : infra + les 5 services. L'accès public passe par un
+# tunnel Cloudflare (service hôte `cloudflared`) qui route vers le gateway
+# publié en loopback ; Cloudflare termine le TLS, donc pas de reverse proxy
+# dans le stack. Le frontend (apps/web) est déployé séparément sur Vercel.
 services:
   postgres:
     image: postgres:17-alpine
@@ -50,6 +52,11 @@ services:
     build:
       context: .
       args: { SERVICE: gateway }
+    # Exposé en loopback uniquement : le tunnel Cloudflare (service hôte
+    # cloudflared) l'atteint via http://localhost:4000. Jamais publié sur une
+    # interface publique ni sur le LAN — Cloudflare termine le TLS en amont.
+    ports:
+      - '127.0.0.1:4000:4000'
     environment:
       PORT: 4000
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?}
@@ -83,7 +90,6 @@ services:
       PORT: 4001
       AUTH_DATABASE_URL: postgresql://esfl:${POSTGRES_PASSWORD:?}@postgres:5432/esfl?schema=auth
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?}
-      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?}
       FRONTEND_URL: ${FRONTEND_URL:?}
       OAUTH_CALLBACK_BASE_URL: ${OAUTH_CALLBACK_BASE_URL:?}
       DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:-}
@@ -111,10 +117,9 @@ services:
       REDIS_URL: redis://redis:6379
       PANDASCORE_TOKEN: ${PANDASCORE_TOKEN:-}
       DISCORD_ALERT_WEBHOOK_URL: ${DISCORD_ALERT_WEBHOOK_URL:-}
-      GRID_API_KEY: ${GRID_API_KEY:-}
-      BALLCHASING_API_KEY: ${BALLCHASING_API_KEY:-}
       ADMIN_TOKEN: ${ADMIN_TOKEN:?}
       HISTORY_BACKFILL_SINCE: ${HISTORY_BACKFILL_SINCE:-2026-01-01}
+      STATS_BACKFILL_DAYS: ${STATS_BACKFILL_DAYS:-}
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -157,6 +162,7 @@ services:
       DATA_SERVICE_URL: http://data-service:4002
       FANTASY_SERVICE_URL: http://fantasy-service:4003
       ADMIN_TOKEN: ${ADMIN_TOKEN:?}
+      SCORING_FREEZE_ENABLED: ${SCORING_FREEZE_ENABLED:-}
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -168,22 +174,6 @@ services:
       start_period: 60s
     restart: unless-stopped
 
-  caddy:
-    image: caddy:2-alpine
-    ports:
-      - '80:80'
-      - '443:443'
-    environment:
-      API_DOMAIN: ${API_DOMAIN:?}
-    volumes:
-      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    depends_on: [gateway]
-    restart: unless-stopped
-
 volumes:
   postgres_data:
   redis_data:
-  caddy_data:
-  caddy_config:
