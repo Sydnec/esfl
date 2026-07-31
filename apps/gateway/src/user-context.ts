@@ -13,11 +13,16 @@ import type { NextFunction, Request, Response } from 'express';
  *    ferait passer pour un admin.
  * 2. `isAdmin` doit valoir exactement `true`. Une comparaison lâche promouvrait
  *    admin tout token dont la claim est une chaîne non vide.
+ * 3. L'en-tête `x-admin-token` entrant est supprimé : c'est le token d'ops que
+ *    l'AdminGuard des services accepte en interne. Reçu du public, il ferait du
+ *    gateway un chemin de brute-force vers les routes admin — il ne doit jamais
+ *    transiter par le proxy.
  */
 export function contexteUtilisateur(jwtSecret: string) {
   return (req: Request, _res: Response, next: NextFunction): void => {
     delete req.headers['x-user-id'];
     delete req.headers['x-user-admin'];
+    delete req.headers['x-admin-token'];
 
     const header = req.headers.authorization;
     if (header?.startsWith('Bearer ')) {

@@ -23,6 +23,11 @@ describe('contexteUtilisateur — usurpation', () => {
     expect(req.headers['x-user-admin']).toBeUndefined();
   });
 
+  it('supprime un x-admin-token entrant (le token d’ops ne passe jamais par le proxy)', () => {
+    const req = passe(requete({ 'x-admin-token': 'ops-secret' }));
+    expect(req.headers['x-admin-token']).toBeUndefined();
+  });
+
   it('supprime les x-user-* entrants même quand un token valide suit', () => {
     // Le token décide, jamais l'en-tête : l'identité forgée ne doit pas survivre.
     const token = sign({ sub: 'reel' }, SECRET);
