@@ -1,5 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { createProxyMiddleware } from 'http-proxy-middleware';
+import rateLimit from 'express-rate-limit';
 import { AppModule } from './app.module';
 import { bloquerRoutesInternes, contexteUtilisateur } from './user-context';
 
@@ -24,6 +25,32 @@ async function bootstrap() {
   // être testés unitairement (cf. `user-context.spec.ts`).
   app.use(bloquerRoutesInternes);
   app.use(contexteUtilisateur(jwtSecret));
+
+  // Anti-brute-force sur les points d'authentification sensibles (login,
+  // inscription). Derrière le tunnel Cloudflare, l'IP source vue par Express est
+  // 127.0.0.1 (cloudflared) : on clé sur `CF-Connecting-IP` (posé par
+  // Cloudflare), avec repli sur X-Forwarded-For puis req.ip en local.
+  const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 20,
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+    message: { message: 'Trop de tentatives, réessayez plus tard.' },
+    keyGenerator: (req) => {
+      const cf = req.headers['cf-connecting-ip'];
+      if (typeof cf === 'string' && cf.length > 0) return cf;
+      const xff = req.headers['x-forwarded-for'];
+      if (typeof xff === 'string' && xff.length > 0) {
+        const first = xff.split(',')[0]?.trim();
+        if (first) return first;
+      }
+      return req.ip ?? 'inconnu';
+    },
+    // req.ip est toujours loopback derrière le tunnel : les validations
+    // trust-proxy / X-Forwarded-For d'express-rate-limit ne s'appliquent pas.
+    validate: false,
+  });
+  app.use(['/auth/login', '/auth/register'], authLimiter);
 
   const routes: Array<[prefix: string, target: string]> = [
     ['/auth', process.env.AUTH_SERVICE_URL ?? 'http://localhost:4001'],

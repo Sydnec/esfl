@@ -1,15 +1,20 @@
 # Déploiement ESFL
 
-Backend (5 micro-services + Postgres + Redis + Caddy) sur un VPS via Docker Compose,
-frontend Next.js sur Vercel.
+Backend (5 micro-services + Postgres + Redis) sur un serveur via Docker Compose,
+exposé par un tunnel Cloudflare (`cloudflared`) qui termine le TLS — pas de
+reverse proxy dans le stack. Frontend Next.js sur Vercel.
 
 > Pour la **toute première mise en route** (création de la base, compte admin,
 > ingestion automatique de l'historique), voir [docs/premier-lancement.md](docs/premier-lancement.md).
 
 ## 1. Prérequis
 
-- Un VPS avec Docker + le plugin compose, et un nom de domaine.
-- DNS : un enregistrement A `api.mondomaine.fr` → IP du VPS.
+- Un serveur avec Docker + le plugin compose.
+- Un tunnel Cloudflare (`cloudflared`, service hôte) et un domaine géré par
+  Cloudflare. Le tunnel route un hostname public (ex. `api.mondomaine.fr`) vers
+  le gateway publié en loopback (`http://localhost:4000`). Le routage se
+  configure dans le dashboard Cloudflare (tunnel token-managed) ; Cloudflare
+  gère le certificat TLS — le stack n'expose donc aucun port public.
 - Comptes externes :
   - **Pandascore** : token API (gratuit) → `PANDASCORE_TOKEN`
   - **Discord** : application OAuth (redirect `https://api.mondomaine.fr/auth/oauth/discord/callback`)
@@ -19,22 +24,26 @@ Les trois sources de stats (bo3.gg, VLR.gg, Leaguepedia) ne demandent aucune cl�
 obligatoire. Leaguepedia accepte un compte bot, qui desserre nettement son rate limit :
 `LEAGUEPEDIA_USERNAME` / `LEAGUEPEDIA_BOT_PASSWORD`.
 
-## 2. Backend sur le VPS
+## 2. Backend sur le serveur
 
 ```bash
 git clone <repo> esfl && cd esfl
-cp .env.example .env
+cp .env.example .env.prod
 ```
 
-Variables à renseigner dans `.env` (celles utilisées par `docker-compose.yml`) :
+> Le compose lit `.env` par défaut. Si la machine fait aussi tourner le dev
+> (avec son propre `.env`), on isole la prod dans un `.env.prod` dédié :
+> `export COMPOSE_ENV_FILES=.env.prod` une fois par session, ou préfixer chaque
+> commande par `docker compose --env-file .env.prod …`. (Sur un serveur dédié à
+> la prod, un simple `.env` suffit.)
+
+Variables à renseigner dans `.env.prod` (celles utilisées par `docker-compose.yml`) :
 
 ```env
 POSTGRES_PASSWORD=<fort et aléatoire>
 JWT_ACCESS_SECRET=<openssl rand -hex 32>
-JWT_REFRESH_SECRET=<openssl rand -hex 32>
-FRONTEND_URL=https://esfl.vercel.app        # ou ton domaine
-API_DOMAIN=api.mondomaine.fr
-OAUTH_CALLBACK_BASE_URL=https://api.mondomaine.fr
+FRONTEND_URL=https://esfl.vercel.app        # URL finale du front Vercel
+OAUTH_CALLBACK_BASE_URL=https://api.mondomaine.fr   # hostname public du tunnel
 COOKIE_SAMESITE=none                        # front et API sur des domaines différents
 PANDASCORE_TOKEN=...
 DISCORD_CLIENT_ID=... / DISCORD_CLIENT_SECRET=...
@@ -82,8 +91,12 @@ matchs finis. Détails et suivi dans [docs/premier-lancement.md](docs/premier-la
 1. Importer le repo dans Vercel.
 2. **Root Directory** : `apps/web` (activer « Include source files outside of the
    Root Directory » — nécessaire au monorepo pnpm).
-3. Variable d'environnement : `NEXT_PUBLIC_API_URL=https://api.mondomaine.fr`.
-4. Déployer. Reporter l'URL finale dans `FRONTEND_URL` du VPS puis
+3. **Build Command** : `pnpm --filter @esfl/contracts build && next build` (c'est
+   déjà le script `build` de `apps/web`, donc `pnpm run build` convient aussi).
+   `@esfl/contracts` est consommé via son `dist/` (gitignoré) : sans ce build
+   préalable, `next build` échoue sur « Can't resolve '@esfl/contracts' ».
+4. Variable d'environnement : `NEXT_PUBLIC_API_URL=https://api.mondomaine.fr`.
+5. Déployer. Reporter l'URL finale dans `FRONTEND_URL` du serveur puis
    `docker compose up -d gateway auth-service` pour recharger.
 
 ## 4. Mise à jour

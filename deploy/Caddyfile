@@ -1,4 +1,0 @@
-# Reverse proxy TLS automatique (Let's Encrypt) devant le gateway.
-{$API_DOMAIN} {
-	reverse_proxy gateway:4000
-}
