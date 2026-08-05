@@ -96,8 +96,21 @@ matchs finis. Détails et suivi dans [docs/premier-lancement.md](docs/premier-la
    `@esfl/contracts` est consommé via son `dist/` (gitignoré) : sans ce build
    préalable, `next build` échoue sur « Can't resolve '@esfl/contracts' ».
 4. Variable d'environnement : `NEXT_PUBLIC_API_URL=https://api.mondomaine.fr`.
+   **Obligatoire** : elle alimente `connect-src` et `img-src` du CSP, et le build
+   échoue explicitement sans elle plutôt que de livrer un front incapable de
+   joindre l'API.
 5. Déployer. Reporter l'URL finale dans `FRONTEND_URL` du serveur puis
    `docker compose up -d gateway auth-service` pour recharger.
+
+> **CSP et images distantes.** `apps/web/next.config.ts` pose un CSP en
+> production uniquement : il n'apparaît jamais en `next dev`, donc une directive
+> trop stricte ne se voit qu'une fois déployée. Sa directive `img-src` liste les
+> hôtes des CDN d'où proviennent logos d'équipes et photos de joueurs
+> (Pandascore, Fandom/Wikia, communitydragon, owcdn, vlr, bo3) : ces images sont
+> hotlinkées, pas servies par l'API. **Brancher une nouvelle source de données
+> impose d'ajouter son hôte à `IMAGE_HOSTS`** — sinon ses images tombent sur le
+> placeholder à initiales, sans autre trace que la console du navigateur. Le CSP
+> est figé au build : toute modification exige un redéploiement Vercel.
 
 ## 4. Mise à jour
 
