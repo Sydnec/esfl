@@ -26,7 +26,12 @@ jobs:
     # rouge déclencherait quand même le déploiement.
     if: github.event.workflow_run.conclusion == 'success'
     runs-on: [self-hosted, esfl-prod]
-    timeout-minutes: 30
+    # Large à dessein : un build sans cache Docker reconstruit les cinq images
+    # depuis zéro, avec cinq `pnpm install` complets. Un premier essai à 30 min a
+    # été annulé en plein `pnpm install`, registre npm à 800 s par requête. Un
+    # timeout trop court ne protège de rien et coupe au pire moment — la vraie
+    # protection contre un déploiement qui part en vrille, c'est le test de santé.
+    timeout-minutes: 90
     steps:
       # Le script est pris dans le workspace du runner, pas dans le répertoire de
       # prod : celui-ci est encore sur le commit PRÉCÉDENT quand le job démarre,
@@ -43,10 +48,11 @@ jobs:
       - name: Déployer
         run: sh ./scripts/deploy.sh "${{ github.event.workflow_run.head_sha }}"
 
-      # Le script a déjà ramené la prod au commit précédent : ce résumé sert à
-      # retrouver, depuis l'onglet Actions, ce qui a été tenté et pourquoi.
+      # `cancelled()` autant que `failure()` : un dépassement de timeout annule le
+      # job, et `failure()` seul laisserait passer ce cas sans le moindre rapport.
+      # C'est précisément ce qui s'est produit au premier déploiement.
       - name: Rapport d'échec
-        if: failure()
+        if: failure() || cancelled()
         run: |
           {
             echo "## Déploiement échoué"
