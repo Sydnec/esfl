@@ -1,0 +1,64 @@
+name: CD
+
+# Se déclenche à la fin de la CI plutôt que sur `push: main` : les deux
+# écouteraient le même évènement et partiraient en parallèle, donc on déploierait
+# sans attendre le verdict. `workflow_run` garantit l'ordre.
+#
+# Le frontend n'est pas concerné : Vercel déploie `apps/web` par sa propre
+# intégration GitHub. Ce pipeline ne couvre que le backend auto-hébergé.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+# Jamais deux déploiements simultanés sur la même machine : ils se disputeraient
+# le répertoire de prod et le daemon Docker. Et surtout, pas de
+# `cancel-in-progress` — interrompre un déploiement à mi-course laisserait le
+# stack dans un état indéterminé.
+concurrency:
+  group: cd-prod
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # `completed` couvre aussi l'échec et l'annulation : sans ce test, une CI
+    # rouge déclencherait quand même le déploiement.
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: [self-hosted, esfl-prod]
+    timeout-minutes: 30
+    steps:
+      # Le script est pris dans le workspace du runner, pas dans le répertoire de
+      # prod : celui-ci est encore sur le commit PRÉCÉDENT quand le job démarre,
+      # et n'aurait donc pas le script au tout premier déploiement. Bénéfice
+      # collatéral : une évolution de deploy.sh s'applique dès le déploiement qui
+      # la contient. Le script, lui, opère bien sur /home/sydnec/ESFL.
+      #
+      # `ref` est indispensable : sur `workflow_run`, checkout prend sinon la
+      # tête de la branche par défaut, pas le commit qui a déclenché la CI.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Déployer
+        run: sh ./scripts/deploy.sh "${{ github.event.workflow_run.head_sha }}"
+
+      # Le script a déjà ramené la prod au commit précédent : ce résumé sert à
+      # retrouver, depuis l'onglet Actions, ce qui a été tenté et pourquoi.
+      - name: Rapport d'échec
+        if: failure()
+        run: |
+          {
+            echo "## Déploiement échoué"
+            echo ""
+            echo "Commit visé : \`${{ github.event.workflow_run.head_sha }}\`"
+            echo ""
+            echo "Le script tente un retour arrière automatique. Vérifier l'état réel :"
+            echo ""
+            echo '```bash'
+            echo "cd /home/sydnec/ESFL && docker compose --env-file .env.prod ps"
+            echo '```'
+            echo ""
+            echo "Une migration Prisma déjà appliquée n'est pas défaite par le retour"
+            echo "arrière : voir « Sauvegarde et restauration » dans DEPLOY.md."
+          } >> "$GITHUB_STEP_SUMMARY"

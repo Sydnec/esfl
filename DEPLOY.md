@@ -96,13 +96,97 @@ matchs finis. Détails et suivi dans [docs/premier-lancement.md](docs/premier-la
    `@esfl/contracts` est consommé via son `dist/` (gitignoré) : sans ce build
    préalable, `next build` échoue sur « Can't resolve '@esfl/contracts' ».
 4. Variable d'environnement : `NEXT_PUBLIC_API_URL=https://api.mondomaine.fr`.
+   **Obligatoire** : elle alimente `connect-src` et `img-src` du CSP, et le build
+   échoue explicitement sans elle plutôt que de livrer un front incapable de
+   joindre l'API.
 5. Déployer. Reporter l'URL finale dans `FRONTEND_URL` du serveur puis
    `docker compose up -d gateway auth-service` pour recharger.
 
-## 4. Mise à jour
+> **CSP et images distantes.** `apps/web/next.config.ts` pose un CSP en
+> production uniquement : il n'apparaît jamais en `next dev`, donc une directive
+> trop stricte ne se voit qu'une fois déployée. Sa directive `img-src` liste les
+> hôtes des CDN d'où proviennent logos d'équipes et photos de joueurs
+> (Pandascore, Fandom/Wikia, communitydragon, owcdn, vlr, bo3) : ces images sont
+> hotlinkées, pas servies par l'API. **Brancher une nouvelle source de données
+> impose d'ajouter son hôte à `IMAGE_HOSTS`** — sinon ses images tombent sur le
+> placeholder à initiales, sans autre trace que la console du navigateur. Le CSP
+> est figé au build : toute modification exige un redéploiement Vercel.
+
+## 4. Mise à jour (CD automatique)
+
+Un merge sur `main` déploie. Le chemin complet :
+
+1. Le travail se fait sur `dev`, la mise en production passe par une **PR vers
+   `main`**. `main` est protégée : le check `ci` doit être vert et la branche à
+   jour avant que le merge soit possible. Rien d'invalide n'atteint donc `main`.
+2. Le merge relance la CI sur `main`. Le workflow **CD**
+   (`.github/workflows/cd.yml`) attend sa conclusion via `workflow_run` et ne
+   part que si elle vaut `success`.
+3. Le CD s'exécute sur le **runner self-hosted de cette machine** (label
+   `esfl-prod`) et lance `scripts/deploy.sh`.
+
+`scripts/deploy.sh` enchaîne : sauvegarde pré-migration (via `backup.sh --once`,
+car `prisma migrate deploy` s'applique au démarrage des conteneurs et ne se
+défait pas) → `git reset --hard` sur le commit visé → `docker compose up -d
+--build` → attente des cinq sondes `healthy` → test de fumée sur
+`https://api-esfl.simonbourlier.fr/health`, **à travers le tunnel** et non en
+loopback, seule façon de détecter une panne de routage Cloudflare. Tout échec
+après le build ramène au commit précédent.
+
+> **Le retour arrière ramène le code, pas le schéma.** Une migration Prisma déjà
+> appliquée reste en place et l'ancien code peut ne pas savoir la lire. Dans ce
+> cas, le vrai recours est la restauration du dump pris juste avant — voir
+> « Sauvegarde et restauration » plus bas.
+
+Le **frontend n'est pas dans ce pipeline** : Vercel déploie `apps/web` par sa
+propre intégration GitHub, sur le même push `main`. La protection de branche est
+ce qui garantit que Vercel, lui aussi, ne parte que sur du code validé.
+
+### Déployer ou reprendre à la main
+
+Le script est autonome — utile si le runner est arrêté ou pour rejouer un
+déploiement échoué :
 
 ```bash
-git pull && docker compose up -d --build
+sh /home/sydnec/ESFL/scripts/deploy.sh
+```
+
+Il accepte un commit précis en argument (`sh scripts/deploy.sh <sha>`) et
+s'arrête sans rien toucher si la prod est déjà sur ce commit.
+
+### Le runner
+
+Installé dans `/home/sydnec/actions-runner-esfl`, enregistré sous le nom
+`esfl-prod` (label du même nom), et exécuté en service systemd sous l'utilisateur
+`sydnec` — il lui faut l'accès au socket Docker et à `/home/sydnec/ESFL`. Le
+faire tourner en `root` serait à la fois inutile et dangereux : le runner
+exécute ce que contient le dépôt.
+
+```bash
+systemctl status 'actions.runner.Sydnec-esfl.*'   # état local
+gh api repos/Sydnec/esfl/actions/runners          # état vu par GitHub
+```
+
+Runner arrêté = déploiements en file d'attente, jamais perdus : ils repartent au
+redémarrage du service.
+
+Réinstallation depuis zéro (le token d'enregistrement expire au bout d'une
+heure) :
+
+```bash
+cd /home/sydnec/actions-runner-esfl
+./config.sh --unattended --replace --url https://github.com/Sydnec/esfl --name esfl-prod --labels esfl-prod --token "$(gh api -X POST repos/Sydnec/esfl/actions/runners/registration-token --jq .token)"
+sudo ./svc.sh install sydnec && sudo ./svc.sh start
+```
+
+### Espace disque
+
+Chaque déploiement reconstruit cinq images. `deploy.sh` purge les images
+orphelines et le cache de build à la fin d'un déploiement réussi, mais la marge
+reste à surveiller — un disque plein arrête Postgres en écriture :
+
+```bash
+df -h / && docker system df
 ```
 
 ## 5. Supervision des conteneurs
