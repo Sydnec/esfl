@@ -18,7 +18,11 @@ if (isProd && process.env.VERCEL && !apiOrigin) {
 // autoriser explicitement. Brancher une source sans ajouter son hôte ici la fait
 // tomber sur le placeholder à initiales de <Avatar>, silencieusement.
 const IMAGE_HOSTS = [
-  'https://cdn.pandascore.co', // logos d'équipes et de ligues, photos de joueurs (source principale)
+  // Source principale, et de loin : 1360 des 1366 images en base. Wildcard
+  // délibéré — l'hôte réel est `cdn-api.pandascore.co` et non le `cdn.` qu'on
+  // suppose spontanément ; il ne figure nulle part dans le code, il arrive dans
+  // le champ image_url du payload Pandascore.
+  'https://*.pandascore.co',
   'https://lol.fandom.com', // Leaguepedia : Special:Filepath/… redirige (302) vers wikia
   'https://*.wikia.nocookie.net', // cible de cette redirection — le CSP réévalue l'hôte après le 302
   'https://cdn.communitydragon.org', // icônes de champions LoL

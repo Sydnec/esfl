@@ -28,3 +28,6 @@ CLAUDE.md
 
 # Dumps produits par le service `backup` (cf. DEPLOY.md).
 backups/
+
+# Commit actuellement en service, écrit par scripts/deploy.sh sur le serveur.
+.deploye
