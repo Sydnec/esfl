@@ -17,6 +17,11 @@ set -eu
 RACINE="${ESFL_DIR:-/home/sydnec/ESFL}"
 ENV_FICHIER="${ESFL_ENV_FILE:-.env.prod}"
 CIBLE="${1:-origin/main}"
+# Commit réellement EN SERVICE, écrit seulement une fois les conteneurs sains.
+# Se fier au HEAD du dépôt serait faux : il bascule avant le build, si bien qu'un
+# déploiement interrompu en cours de route laisse un HEAD en avance sur les
+# images qui tournent — et toute reprise conclurait « rien à faire ».
+TEMOIN="$RACINE/.deploye"
 SONDE_PUBLIQUE="${ESFL_HEALTH_URL:-https://api-esfl.simonbourlier.fr/health}"
 # Le démarrage rejoue `prisma migrate deploy` et le gateway attend les quatre
 # services sains : compter large, le compose lui-même pose start_period=60s.
@@ -93,10 +98,14 @@ journal "commit courant : $PRECEDENT"
 # pour un déploiement qui n'a rien à déployer.
 git fetch --quiet origin
 NOUVEAU=$(git rev-parse "$CIBLE")
-if [ "$NOUVEAU" = "$PRECEDENT" ]; then
-  journal "déjà sur $NOUVEAU — rien à faire"
+DEPLOYE=$(cat "$TEMOIN" 2>/dev/null || true)
+if [ "$NOUVEAU" = "$DEPLOYE" ]; then
+  journal "déjà déployé et sain : $NOUVEAU — rien à faire"
   exit 0
 fi
+# Témoin absent (premier passage, ou déploiement précédent interrompu) : on
+# déploie, quitte à reconstruire des images identiques. Rejouer un build coûte
+# du temps ; rester sur un état incertain coûte une panne.
 
 # Sauvegarde AVANT la bascule : le démarrage des conteneurs applique
 # `prisma migrate deploy`, qui ne se défait pas. Réutilise scripts/backup.sh,
@@ -111,6 +120,7 @@ journal "bascule $PRECEDENT -> $NOUVEAU"
 git reset --hard --quiet "$NOUVEAU"
 
 if compose up -d --build && attendre_sante && fumee; then
+  echo "$NOUVEAU" > "$TEMOIN"
   journal "déploiement de $NOUVEAU réussi"
   # Les builds successifs empilent images et couches intermédiaires. Sans purge,
   # le disque de l'hôte finit par saturer et Postgres tombe en écriture.
@@ -126,8 +136,12 @@ fi
 journal "ÉCHEC du déploiement — retour arrière vers $PRECEDENT"
 git reset --hard --quiet "$PRECEDENT"
 if compose up -d --build && attendre_sante; then
+  echo "$PRECEDENT" > "$TEMOIN"
   journal "retour arrière effectué : la prod tourne à nouveau sur $PRECEDENT"
 else
+  # Témoin effacé plutôt que faux : plus personne ne sait ce qui tourne, et la
+  # prochaine exécution doit repartir d'un déploiement complet.
+  rm -f "$TEMOIN"
   journal "ALERTE : le retour arrière a échoué lui aussi — intervention manuelle requise"
 fi
 exit 1
