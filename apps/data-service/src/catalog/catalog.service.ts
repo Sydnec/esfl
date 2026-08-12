@@ -1439,4 +1439,32 @@ export class CatalogService {
     }
     return { removed };
   }
+
+  /**
+   * Remet un job épuisé en file (bouton « Rejouer » de la page admin).
+   *
+   * Un job qui a consommé toutes ses tentatives ne repart jamais seul, et la
+   * seule alternative jusqu'ici était de le purger — donc de perdre pour de bon
+   * ce qu'il portait. Or la cause est souvent extérieure au job et corrigée
+   * depuis (service injoignable, alias posé) : rejouer suffit alors à rattraper,
+   * là où reconstruire les données à la main est parfois impossible (une fusion
+   * de fiches déjà appliquée côté catalogue ne se re-déclenche pas).
+   *
+   * Les jobs visant un match ont leur propre bouton « Relancer », qui reconstruit
+   * le job au lieu de le rejouer : celui-ci sert aux autres.
+   */
+  async retryFailedJob(queue: Queue, jobId: string): Promise<{ rejoue: string }> {
+    const job = await queue.getJob(jobId);
+    if (!job) {
+      throw new NotFoundException(`Job ${jobId} introuvable`);
+    }
+    const state = await job.getState();
+    if (state !== 'failed') {
+      throw new BadRequestException(`Job ${jobId} n'est pas en échec (état : ${state})`);
+    }
+    // Remet le compteur de tentatives à zéro : le job repart pour une chaîne
+    // complète de retries, backoff compris.
+    await job.retry();
+    return { rejoue: job.name };
+  }
 }
