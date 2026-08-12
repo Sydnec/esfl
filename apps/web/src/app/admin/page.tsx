@@ -246,6 +246,23 @@ export default function AdminPage() {
     }
   }
 
+  /** Remet un job épuisé en file, une fois sa cause corrigée. */
+  async function retryJob(jobId: string) {
+    setPending(`retry-${jobId}`);
+    setError(null);
+    try {
+      await authedFetch(`/data/admin/queue/jobs/${encodeURIComponent(jobId)}/retry`, {
+        method: 'POST',
+      });
+      setNotice('Job remis en file.');
+      await loadQueue();
+    } catch {
+      setError('Rejeu du job impossible');
+    } finally {
+      setPending(null);
+    }
+  }
+
   async function cleanQueue(
     state: 'completed' | 'failed' | 'pending' | 'all',
     confirmLabel?: string,
@@ -825,7 +842,7 @@ export default function AdminPage() {
                             <td>{job.tentatives}</td>
                             <td className={styles.reason}>{job.raison ?? ''}</td>
                             <td>
-                              {job.matchId && (
+                              {job.matchId ? (
                                 <button
                                   className={styles.action}
                                   disabled={pending === job.matchId}
@@ -833,6 +850,19 @@ export default function AdminPage() {
                                 >
                                   Relancer
                                 </button>
+                              ) : (
+                                // Sans match cible, rien ne reconstruit le job :
+                                // le rejouer est le seul rattrapage.
+                                job.state === 'failed' &&
+                                job.id && (
+                                  <button
+                                    className={styles.action}
+                                    disabled={pending === `retry-${job.id}`}
+                                    onClick={() => void retryJob(job.id as string)}
+                                  >
+                                    Rejouer
+                                  </button>
+                                )
                               )}
                             </td>
                           </tr>

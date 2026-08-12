@@ -1,4 +1,5 @@
 import { NestFactory } from '@nestjs/core';
+import { verifierUrlsServices } from '@esfl/contracts';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import rateLimit from 'express-rate-limit';
 import { AppModule } from './app.module';
@@ -11,6 +12,13 @@ async function bootstrap() {
   if (!jwtSecret) {
     throw new Error('JWT_ACCESS_SECRET manquant : le gateway ne peut pas vérifier les tokens');
   }
+
+  // Même raisonnement pour les cibles du proxy : sans elles, tout le trafic
+  // public partirait sur le conteneur du gateway.
+  verifierUrlsServices(
+    ['AUTH_SERVICE_URL', 'DATA_SERVICE_URL', 'FANTASY_SERVICE_URL', 'SCORING_SERVICE_URL'],
+    process.env,
+  );
 
   // bodyParser désactivé : le gateway ne fait que proxyfier, un body déjà
   // consommé casserait le stream vers les services.
