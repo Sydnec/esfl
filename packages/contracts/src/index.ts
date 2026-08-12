@@ -4,3 +4,4 @@ export * from './auth';
 export * from './stats';
 export * from './fantasy';
 export * from './paris-date';
+export * from './services-internes';

@@ -1,8 +1,11 @@
 import { NestFactory } from '@nestjs/core';
 import cookieParser from 'cookie-parser';
+import { verifierUrlsServices } from '@esfl/contracts';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
+  // Suppression de compte : nettoyage chez fantasy et scoring.
+  verifierUrlsServices(['FANTASY_SERVICE_URL', 'SCORING_SERVICE_URL'], process.env);
   const app = await NestFactory.create(AppModule);
   app.use(cookieParser());
   app.enableShutdownHooks();

@@ -207,6 +207,19 @@ docker compose ps                     # colonne STATUS : healthy / unhealthy
 docker inspect --format '{{json .State.Health}}' esfl-data-service-1
 ```
 
+### Un conteneur refuse de démarrer sur « Configuration incomplète »
+
+Une URL de service interne manque dans `docker-compose.yml` (`environment` du
+service concerné). Chaque client se replie sinon sur `http://localhost:<port>`,
+juste en développement mais faux dans un conteneur, où il désigne le conteneur
+lui-même : les appels partiraient en `fetch failed` sans que rien ne le signale
+au déploiement. Le service échoue donc au démarrage, le déploiement n'atteint
+jamais l'état sain et `deploy.sh` revient au commit précédent.
+
+Ajouter la variable citée dans le message, puis redéployer. Les jobs de fond
+tombés pour cette raison (`players-merged`, par exemple) se rejouent depuis la
+page admin, colonne d'actions de la file — un job épuisé ne repart jamais seul.
+
 ### Alerte sur panne de source
 
 Un parser qui casse ne lève pas d'exception : il rend zéro ligne, le job part en

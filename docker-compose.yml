@@ -92,6 +92,10 @@ services:
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?}
       FRONTEND_URL: ${FRONTEND_URL:?}
       OAUTH_CALLBACK_BASE_URL: ${OAUTH_CALLBACK_BASE_URL:?}
+      # Suppression de compte : nettoyage des ligues et des notes chez les deux
+      # services concernés.
+      FANTASY_SERVICE_URL: http://fantasy-service:4003
+      SCORING_SERVICE_URL: http://scoring-service:4004
       DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:-}
       DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET:-}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
@@ -115,6 +119,12 @@ services:
       PORT: 4002
       DATA_DATABASE_URL: postgresql://esfl:${POSTGRES_PASSWORD:?}@postgres:5432/esfl?schema=data
       REDIS_URL: redis://redis:6379
+      # Appels internes sortants : transfert des notes après une fusion de
+      # fiches joueur (scoring) et ciblage de l'ingestion sur les compétitions
+      # réellement suivies (fantasy). Sans ces URL, les clients se replient sur
+      # `localhost`, qui dans un conteneur désigne le conteneur lui-même.
+      FANTASY_SERVICE_URL: http://fantasy-service:4003
+      SCORING_SERVICE_URL: http://scoring-service:4004
       PANDASCORE_TOKEN: ${PANDASCORE_TOKEN:-}
       DISCORD_ALERT_WEBHOOK_URL: ${DISCORD_ALERT_WEBHOOK_URL:-}
       # Optionnels : desserrent nettement le rate limit Leaguepedia (LoL).

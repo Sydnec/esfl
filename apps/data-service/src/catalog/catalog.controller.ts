@@ -235,6 +235,16 @@ export class CatalogController {
     return { enqueued: matchIds.length, days };
   }
 
+  /**
+   * Rejoue un job en échec définitif, une fois sa cause corrigée. Sans ça, un
+   * job épuisé ne laisse que la purge — et ce qu'il portait est perdu.
+   */
+  @Post('admin/queue/jobs/:jobId/retry')
+  @UseGuards(AdminGuard)
+  retryJob(@Param('jobId') jobId: string) {
+    return this.catalog.retryFailedJob(this.ingestionQueue, jobId);
+  }
+
   /** Purge les échecs de jobs visant un match supprimé (reliquats de purge/re-sync). */
   @Post('admin/queue/prune-failures')
   @UseGuards(AdminGuard)
