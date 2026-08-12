@@ -1,9 +1,10 @@
 import { Controller, Get } from '@nestjs/common';
+import { identiteVersion } from '@esfl/contracts';
 
 @Controller('health')
 export class HealthController {
   @Get()
   health() {
-    return { status: 'ok', service: 'scoring-service' };
+    return { status: 'ok', service: 'scoring-service', ...identiteVersion(process.env) };
   }
 }

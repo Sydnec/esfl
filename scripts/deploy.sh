@@ -32,6 +32,19 @@ journal() {
   echo "$(date -u +%FT%TZ) $*"
 }
 
+# Identité gravée dans les images (cf. `x-identite-build` du compose), que
+# `/health` renvoie ensuite. À recalculer APRÈS chaque bascule de commit : le
+# retour arrière reconstruit sur un autre commit, et une identité figée ferait
+# alors mentir la page admin sur ce qui tourne. La version est lue dans le
+# package.json du commit construit, pas dans une variable d'environnement, pour
+# qu'elle ne puisse pas diverger du code déployé.
+identite_build() {
+  ESFL_VERSION=$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' package.json | head -1)
+  ESFL_COMMIT=$(git rev-parse --short HEAD)
+  export ESFL_VERSION ESFL_COMMIT
+  journal "build : version ${ESFL_VERSION:-?} commit $ESFL_COMMIT"
+}
+
 compose() {
   docker compose --env-file "$ENV_FICHIER" "$@"
 }
@@ -118,6 +131,7 @@ fi
 
 journal "bascule $PRECEDENT -> $NOUVEAU"
 git reset --hard --quiet "$NOUVEAU"
+identite_build
 
 if compose up -d --build && attendre_sante && fumee; then
   echo "$NOUVEAU" > "$TEMOIN"
@@ -135,6 +149,7 @@ fi
 # (voir la section « Sauvegarde et restauration » de DEPLOY.md).
 journal "ÉCHEC du déploiement — retour arrière vers $PRECEDENT"
 git reset --hard --quiet "$PRECEDENT"
+identite_build
 if compose up -d --build && attendre_sante; then
   echo "$PRECEDENT" > "$TEMOIN"
   journal "retour arrière effectué : la prod tourne à nouveau sur $PRECEDENT"
