@@ -22,5 +22,14 @@ RUN corepack enable pnpm
 WORKDIR /repo
 COPY --from=build /repo ./
 WORKDIR /repo/apps/${SERVICE}
+
+# Identité du build, exposée par /health. Déclarée ici, tout à la fin : ces
+# valeurs changent à chaque déploiement, et une couche `ENV` plus haut
+# invaliderait le cache de tout ce qui suit.
+ARG VERSION=dev
+ARG COMMIT=local
+ENV APP_VERSION=${VERSION}
+ENV APP_COMMIT=${COMMIT}
+
 # Applique les migrations du service (si schéma Prisma) puis démarre.
 CMD ["sh", "-c", "if [ -f prisma/schema.prisma ]; then pnpm exec prisma migrate deploy; fi && node dist/main.js"]

@@ -2,6 +2,15 @@
 # tunnel Cloudflare (service hôte `cloudflared`) qui route vers le gateway
 # publié en loopback ; Cloudflare termine le TLS, donc pas de reverse proxy
 # dans le stack. Le frontend (apps/web) est déployé séparément sur Vercel.
+
+# Identité du build, commune aux cinq images : les services sont construits et
+# démarrés ensemble par scripts/deploy.sh, donc ils portent le même numéro.
+# `deploy.sh` exporte ces deux variables ; les replis servent aux builds à la
+# main, où l'image n'a pas d'identité fiable à revendiquer.
+x-identite-build: &identite-build
+  VERSION: ${ESFL_VERSION:-dev}
+  COMMIT: ${ESFL_COMMIT:-local}
+
 services:
   postgres:
     image: postgres:17-alpine
@@ -51,7 +60,9 @@ services:
   gateway:
     build:
       context: .
-      args: { SERVICE: gateway }
+      args:
+        <<: *identite-build
+        SERVICE: gateway
     # Exposé en loopback uniquement : le tunnel Cloudflare (service hôte
     # cloudflared) l'atteint via http://localhost:4000. Jamais publié sur une
     # interface publique ni sur le LAN — Cloudflare termine le TLS en amont.
@@ -85,7 +96,9 @@ services:
   auth-service:
     build:
       context: .
-      args: { SERVICE: auth-service }
+      args:
+        <<: *identite-build
+        SERVICE: auth-service
     environment:
       PORT: 4001
       AUTH_DATABASE_URL: postgresql://esfl:${POSTGRES_PASSWORD:?}@postgres:5432/esfl?schema=auth
@@ -114,7 +127,9 @@ services:
   data-service:
     build:
       context: .
-      args: { SERVICE: data-service }
+      args:
+        <<: *identite-build
+        SERVICE: data-service
     environment:
       PORT: 4002
       DATA_DATABASE_URL: postgresql://esfl:${POSTGRES_PASSWORD:?}@postgres:5432/esfl?schema=data
@@ -147,7 +162,9 @@ services:
   fantasy-service:
     build:
       context: .
-      args: { SERVICE: fantasy-service }
+      args:
+        <<: *identite-build
+        SERVICE: fantasy-service
     environment:
       PORT: 4003
       FANTASY_DATABASE_URL: postgresql://esfl:${POSTGRES_PASSWORD:?}@postgres:5432/esfl?schema=fantasy
@@ -167,7 +184,9 @@ services:
   scoring-service:
     build:
       context: .
-      args: { SERVICE: scoring-service }
+      args:
+        <<: *identite-build
+        SERVICE: scoring-service
     environment:
       PORT: 4004
       SCORING_DATABASE_URL: postgresql://esfl:${POSTGRES_PASSWORD:?}@postgres:5432/esfl?schema=scoring

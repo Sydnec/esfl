@@ -65,6 +65,10 @@ Voir [DEPLOY.md](DEPLOY.md) — backend Docker Compose sur VPS (Caddy TLS), fron
 Premier lancement (création de la base, compte admin, backfill historique) :
 [docs/premier-lancement.md](docs/premier-lancement.md).
 
+Chaque changement de code incrémente la version du `package.json` racine, gravée
+dans les images avec le commit et affichée en tête de la page admin. Règles :
+[docs/versionnement.md](docs/versionnement.md).
+
 ## Sources de données
 
 - **Pandascore** — planning, résultats, équipes, joueurs, tiers (free tier)
