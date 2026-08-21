@@ -37,7 +37,7 @@ model FantasyPoints {
 model FrozenMatchDay {
   date     String   @id
   frozenAt DateTime @default(now()) @map("frozen_at")
-  /** 'complete' (toutes les stats attendues présentes) | 'deadline' (gel à J+3 malgré des trous) | 'manual'. */
+  /** 'complete' (toutes les stats attendues présentes) | 'deadline' (gel à l'échéance malgré des trous) | 'manual'. */
   reason   String
 
   @@map("frozen_match_days")

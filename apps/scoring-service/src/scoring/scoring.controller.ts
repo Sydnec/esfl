@@ -17,6 +17,11 @@ import { FantasyClient } from '../clients/fantasy.client';
 import { AdminGuard } from '../common/admin.guard';
 import { ScoringService } from './scoring.service';
 
+/** Paramètre « a,b,c » → liste d'ids, vides écartés. */
+function listeIds(value?: string): string[] {
+  return value ? value.split(',').filter(Boolean) : [];
+}
+
 function userIdFrom(req: Request): string {
   const userId = req.headers['x-user-id'];
   if (typeof userId !== 'string' || userId.length === 0) {
@@ -58,9 +63,10 @@ export class ScoringController {
     );
   }
 
+  /** `matchIds` (optionnel) restreint aux notes de ces matchs. */
   @Get('players')
-  playerPoints(@Query('playerIds') playerIds?: string) {
-    return this.scoring.playerPoints(playerIds ? playerIds.split(',').filter(Boolean) : []);
+  playerPoints(@Query('playerIds') playerIds?: string, @Query('matchIds') matchIds?: string) {
+    return this.scoring.playerPoints(listeIds(playerIds), listeIds(matchIds));
   }
 
   /** Analytics de santé des points fantasy (page admin). */
@@ -82,6 +88,16 @@ export class ScoringController {
   @UseGuards(AdminGuard)
   recomputeAll() {
     return this.scoring.recomputeAll();
+  }
+
+  /**
+   * Rattrapage immédiat des matchs terminés ayant des stats mais aucune note
+   * (sinon joué toutes les heures) — admin.
+   */
+  @Post('admin/backfill-scores')
+  @UseGuards(AdminGuard)
+  backfillScores() {
+    return this.scoring.backfillMissingScores();
   }
 
   /** Bascule : purge tous les scores puis recalcul complet — admin. */

@@ -1,12 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { GAME_LABELS, GameId } from '@esfl/contracts';
 import { useAuth } from '@/components/AuthProvider';
 import { API_URL } from '@/lib/api';
 import { gameProfile } from '@/lib/game-profile';
 import { formatDateTime } from '@/lib/format';
+import { datesDeRattrapage } from './degel-rattrapage';
 import { TeamMatcher } from './TeamMatcher';
 import styles from './page.module.css';
 
@@ -138,6 +139,8 @@ export default function AdminPage() {
   const [api, setApi] = useState<IdentiteApi | null>(null);
   /** URL VLR saisie par match (matchs Valorant sans stats). */
   const [vlrUrl, setVlrUrl] = useState<Record<string, string>>({});
+  /** TEMPORAIRE — fenêtre du dégel de rattrapage, figée pour la visite. */
+  const fenetreDegel = useMemo(() => datesDeRattrapage(), []);
 
   const load = useCallback(async () => {
     try {
@@ -306,6 +309,35 @@ export default function AdminPage() {
       await load();
     } catch {
       setError('Nettoyage de la file impossible');
+    } finally {
+      setPending(null);
+    }
+  }
+
+  /**
+   * TEMPORAIRE — à supprimer avec `degel-rattrapage.ts`. Dégèle la fenêtre
+   * gelée trop tôt par l'ancienne échéance, puis relance le rattrapage des
+   * notes manquantes.
+   */
+  async function degelerRattrapage() {
+    const dates = fenetreDegel;
+    if (!window.confirm(`Dégeler les journées ${dates.at(-1)} → ${dates[0]} et re-noter ?`)) return;
+    setPending('degel-rattrapage');
+    setError(null);
+    setNotice(null);
+    try {
+      for (const date of dates) {
+        await authedFetch(`/scoring/admin/freeze/${date}`, { method: 'DELETE' });
+      }
+      const { missing, scored } = await authedFetch<{ missing: number; scored: number }>(
+        '/scoring/admin/backfill-scores',
+        { method: 'POST' },
+      );
+      setNotice(
+        `${dates.length} journée(s) dégelée(s) — ${scored} match(s) noté(s) sur ${missing} sans note.`,
+      );
+    } catch {
+      setError('Dégel de rattrapage impossible');
     } finally {
       setPending(null);
     }
@@ -679,6 +711,30 @@ export default function AdminPage() {
                 </table>
               </div>
             )}
+          </section>
+
+          {/* TEMPORAIRE — à supprimer avec `degel-rattrapage.ts` et
+              `degelerRattrapage`. */}
+          <section className={styles.section}>
+            <h2 className={styles.sectionTitle}>Dégel de rattrapage (temporaire)</h2>
+            <p className={styles.hint}>
+              L’échéance du gel est passée de 3 à 7 jours. Les journées gelées sous l’ancienne règle
+              le restent, et leurs matchs dont les stats sont arrivées après coup n’ont jamais eu de
+              note. Ce bouton rouvre {fenetreDegel.at(-1)} → {fenetreDegel[0]}, puis relance le
+              rattrapage des notes. Le gel automatique refermera ces journées de lui-même, après un
+              dernier re-score. À retirer une fois le rattrapage fait.
+            </p>
+            <div className={styles.actions}>
+              <button
+                className={styles.action}
+                disabled={pending === 'degel-rattrapage'}
+                onClick={() => void degelerRattrapage()}
+              >
+                {pending === 'degel-rattrapage'
+                  ? 'Dégel en cours…'
+                  : 'Dégeler la fenêtre et re-noter'}
+              </button>
+            </div>
           </section>
 
           <section className={styles.section}>

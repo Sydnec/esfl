@@ -108,9 +108,16 @@ export class DataClient {
     return this.get<DataPlayerMatchStats[]>('/data/stats', { matchIds: matchIds.join(',') });
   }
 
-  /** Ids des matchs ayant des stats (pour le recalcul en masse). */
-  listStatsMatchIds(): Promise<string[]> {
-    return this.get<string[]>('/data/internal/stats/match-ids');
+  /**
+   * Ids des matchs ayant des stats (pour le recalcul en masse). `since` borne
+   * aux matchs terminés depuis cette date — le rattrapage des notes manquantes
+   * n'a pas besoin de tout l'historique.
+   */
+  listStatsMatchIds(since?: Date): Promise<string[]> {
+    return this.get<string[]>(
+      '/data/internal/stats/match-ids',
+      since ? { since: since.toISOString() } : {},
+    );
   }
 
   /** Métadonnées de tous les joueurs (pour l'analytics de points). */

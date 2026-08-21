@@ -83,7 +83,7 @@ export default function MatchPage() {
           const [refs, fantasyPoints] = await Promise.all([
             request<PlayerRef[]>(`/data/players/by-ids?ids=${ids}`),
             definitifs
-              ? request<FantasyPointsLine[]>(`/scoring/players?playerIds=${ids}`)
+              ? request<FantasyPointsLine[]>(`/scoring/players?playerIds=${ids}&matchIds=${id}`)
               : Promise.resolve([] as FantasyPointsLine[]),
           ]);
           setPlayers(new Map(refs.map((player) => [player.id, player])));

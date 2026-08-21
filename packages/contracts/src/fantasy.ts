@@ -45,5 +45,12 @@ export type SubmitRosterInput = z.infer<typeof submitRosterInputSchema>;
  * Partagée parce qu'elle borne aussi l'ingestion : chercher les stats d'un
  * match au-delà est sans objet, la note ne peut plus changer. Les deux services
  * doivent bouger ensemble, d'où la constante commune.
+ *
+ * Sept jours et non trois : le gel est bien censé fermer la porte aux stats
+ * tardives, mais à trois jours il la fermait avant que certaines sources ne
+ * publient (tournoi enregistré après coup, upload communautaire). Le match
+ * gardait alors ses stats affichées et aucune note, définitivement. Une semaine
+ * couvre les retards observés tout en gardant le scoreboard figé bien avant que
+ * quiconque le rouvre.
  */
-export const FREEZE_DEADLINE_DAYS = 3;
+export const FREEZE_DEADLINE_DAYS = 7;
