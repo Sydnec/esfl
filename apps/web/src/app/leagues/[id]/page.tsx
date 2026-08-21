@@ -9,6 +9,7 @@ import { Avatar } from '@/components/Avatar';
 import { MatchGrid } from '@/components/MatchCard';
 import { API_URL, ApiError, cheminCatalogue, request } from '@/lib/api';
 import { formatDateTime, formatDayChip, parisDateOf } from '@/lib/format';
+import { decalageCentrage, journeeParDefaut, todayParis } from './timeline';
 import type {
   Competition,
   LeaderboardEntry,
@@ -28,11 +29,6 @@ const MEDALS = ['🥇', '🥈', '🥉'];
 interface TopPerf {
   points: number;
   player: PlayerRef | null;
-}
-
-/** Date calendaire Europe/Paris du jour (YYYY-MM-DD). */
-function todayParis(): string {
-  return new Date().toLocaleDateString('fr-CA', { timeZone: 'Europe/Paris' });
 }
 
 /** Repère relatif lisible : « Aujourd'hui », « Demain », « Dans 3 jours »… */
@@ -107,10 +103,7 @@ export default function LeaguePage() {
       setLeaderboard(board);
       setCatalog(allCompetitions);
       setMembers(new Map(memberRefs.map((member) => [member.id, member])));
-      setSelectedDayId(
-        (current) =>
-          current ?? (days.find((day) => !day.deadlinePassed) ?? days.at(-1))?.id ?? null,
-      );
+      setSelectedDayId((current) => current ?? journeeParDefaut(days)?.id ?? null);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Chargement impossible');
     }
@@ -204,6 +197,23 @@ export default function LeaguePage() {
       ro.disconnect();
     };
   }, [updateTlNav, matchDays]);
+
+  // Recentrage de la timeline sur la journée sélectionnée. Sans lui elle
+  // s'ouvre sur la PREMIÈRE journée de la ligue (les journées sont triées par
+  // date croissante) : la pilule du jour, des dizaines de journées plus loin,
+  // reste hors écran. Premier positionnement sec, puis glissé.
+  const centrageFait = useRef(false);
+  useEffect(() => {
+    const el = timelineRef.current;
+    if (!el || !selectedDayId) return;
+    const chip = el.querySelector<HTMLElement>(`[data-day-id="${CSS.escape(selectedDayId)}"]`);
+    if (!chip) return;
+    const decalage = decalageCentrage(el.getBoundingClientRect(), chip.getBoundingClientRect());
+    if (decalage !== 0) {
+      el.scrollBy({ left: decalage, behavior: centrageFait.current ? 'smooth' : 'auto' });
+    }
+    centrageFait.current = true;
+  }, [selectedDayId, matchDays]);
 
   function scrollTimeline(direction: 1 | -1) {
     timelineRef.current?.scrollBy({ left: direction * 240, behavior: 'smooth' });
@@ -536,6 +546,7 @@ export default function LeaguePage() {
                 return (
                   <button
                     key={day.id}
+                    data-day-id={day.id}
                     className={`${styles.dayChip} ${active ? styles.dayChipActive : ''} ${
                       !active && today ? styles.dayChipToday : ''
                     } ${!active && !today && day.deadlinePassed ? styles.dayChipPast : ''}`}

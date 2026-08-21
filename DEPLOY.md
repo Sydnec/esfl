@@ -207,6 +207,26 @@ docker compose ps                     # colonne STATUS : healthy / unhealthy
 docker inspect --format '{{json .State.Health}}' esfl-data-service-1
 ```
 
+### Savoir quelle version tourne
+
+`scripts/deploy.sh` lit la version dans le `package.json` du commit qu'il
+déploie et le hash court de ce commit, puis les grave dans les cinq images
+(`ESFL_VERSION` / `ESFL_COMMIT` → `x-identite-build` du compose → `ARG` du
+Dockerfile → `APP_VERSION` / `APP_COMMIT`). Chaque service les renvoie ensuite
+sur son `/health`, et la page admin affiche celle du gateway en en-tête.
+
+```bash
+curl -s https://api-esfl.simonbourlier.fr/health
+# {"status":"ok","service":"gateway","version":"0.2.0","commit":"a1b2c3d"}
+```
+
+Le couple version + commit, et non la version seule : entre deux publications,
+plusieurs commits portent le même numéro. Le témoin `.deploye` reste la
+référence côté hôte, mais il dit ce que le script croit avoir déployé ; `/health`
+dit ce qui répond vraiment. Les deux doivent concorder.
+
+Les règles d'incrément sont dans [docs/versionnement.md](docs/versionnement.md).
+
 ### Un conteneur refuse de démarrer sur « Configuration incomplète »
 
 Une URL de service interne manque dans `docker-compose.yml` (`environment` du

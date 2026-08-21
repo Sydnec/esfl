@@ -101,3 +101,41 @@ describe('dayCompleteness — le gel attend des stats cohérentes', () => {
     expect(result.complete).toBe(true);
   });
 });
+
+/**
+ * Le rattrapage des notes côté scoring interroge cette liste : il ne veut que
+ * les matchs TERMINÉS d'une fenêtre récente, pas tout l'historique (un match en
+ * cours est re-noté à chaque passe de stats live, puis au coup de sifflet).
+ */
+describe('distinctStatsMatchIds', () => {
+  function service() {
+    const filtres: unknown[] = [];
+    const prisma = {
+      playerMatchStats: {
+        findMany: vi.fn(async ({ where }: { where: unknown }) => {
+          filtres.push(where);
+          return [{ matchId: 'm1' }, { matchId: 'm2' }];
+        }),
+      },
+    };
+    return { catalog: new CatalogService(prisma as unknown as PrismaService), filtres };
+  }
+
+  it('sans `since` : tous les matchs à stats, sans filtre (recalcul complet)', async () => {
+    const { catalog, filtres } = service();
+    expect(await catalog.distinctStatsMatchIds()).toEqual(['m1', 'm2']);
+    expect(filtres.at(0)).toEqual({});
+  });
+
+  it('avec `since` : matchs terminés commencés depuis cette date', async () => {
+    const { catalog, filtres } = service();
+    const since = new Date('2026-07-01T00:00:00Z');
+    await catalog.distinctStatsMatchIds(since);
+    expect(filtres.at(0)).toEqual({
+      match: {
+        status: 'finished',
+        OR: [{ beginAt: { gte: since } }, { beginAt: null, scheduledAt: { gte: since } }],
+      },
+    });
+  });
+});

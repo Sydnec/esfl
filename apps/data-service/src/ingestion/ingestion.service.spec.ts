@@ -537,3 +537,65 @@ describe('backfillTeamPlayers', () => {
     expect(add.mock.calls[0][0]).toBe('ingest-stats');
   });
 });
+
+/**
+ * Fenêtre live : un match resté « en cours » sort de la fenêtre de 12 h au bout
+ * d'une demi-journée et plus rien ne le repasse à `finished` — ses stats
+ * continuent pourtant d'être ingérées, mais ses points restent provisoires,
+ * donc invisibles sur la fiche du joueur. La fenêtre se rouvre jusqu'à lui.
+ */
+describe('syncLiveWindow — rattrapage des matchs restés « en cours »', () => {
+  function liveSetup(bloques: Array<{ competitionId: string; beginAt: Date | null }>) {
+    const fenetres: Array<{ from: Date; to: Date }> = [];
+    let appelsGroupBy = 0;
+    const prisma = {
+      match: {
+        groupBy: vi.fn(async () => {
+          appelsGroupBy += 1;
+          // 1er appel : compétitions concernées. 2e : matchs bloqués.
+          return appelsGroupBy === 1
+            ? [{ competitionId: 'c1' }]
+            : bloques.map((row) => ({
+                competitionId: row.competitionId,
+                _min: { beginAt: row.beginAt },
+              }));
+        }),
+      },
+      competition: {
+        findMany: vi.fn(async () => [{ id: 'c1', gameId: 'cs2', pandascoreId: 42, name: 'C1' }]),
+      },
+    } as unknown as PrismaService;
+    const pandascore = {
+      listMatchesInWindow: vi.fn(async (_g: string, _s: number, from: Date, to: Date) => {
+        fenetres.push({ from, to });
+        return [];
+      }),
+    };
+    const config = { get: vi.fn(() => undefined) } as unknown as ConfigService;
+    const service = new IngestionService(
+      prisma,
+      pandascore as never,
+      {} as never,
+      config,
+      ...providersFactices(),
+      { add: vi.fn(), getJob: vi.fn() } as unknown as Queue,
+    );
+    return { service, fenetres };
+  }
+
+  it('rouvre la fenêtre jusqu’au match bloqué de la compétition', async () => {
+    const bloque = new Date(Date.now() - 3 * 24 * 3600 * 1000);
+    const { service, fenetres } = liveSetup([{ competitionId: 'c1', beginAt: bloque }]);
+    await service.syncLiveWindow();
+    // Une heure de marge sous le début du match, pour l'englober dans la borne.
+    expect(fenetres[0]?.from.getTime()).toBe(bloque.getTime() - 3600 * 1000);
+  });
+
+  it('garde la fenêtre de 12 h quand aucun match n’est bloqué', async () => {
+    const { service, fenetres } = liveSetup([]);
+    await service.syncLiveWindow();
+    const heures = (Date.now() - (fenetres[0]?.from.getTime() ?? 0)) / 3600_000;
+    expect(heures).toBeGreaterThan(11.9);
+    expect(heures).toBeLessThan(12.1);
+  });
+});

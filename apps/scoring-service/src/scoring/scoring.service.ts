@@ -21,7 +21,14 @@ const TOP_PLAYERS_PER_GAME = 100;
 
 /** Fenêtre de balayage du gel automatique (jours en arrière depuis hier). */
 const FREEZE_SCAN_DAYS = 10;
-/** Échéance dure : une journée incomplète est gelée quand même à J+3. */
+/**
+ * Horizon du rattrapage des matchs restés sans note : celui du gel. Au-delà,
+ * toutes les journées sont gelées et l'absence de note est voulue — les
+ * re-sonder à chaque heure ne ferait que du bruit.
+ */
+const SCORE_BACKFILL_DAYS = FREEZE_SCAN_DAYS;
+/** Matchs rattrapés par passage : un arriéré s'écoule sur plusieurs tirs. */
+const SCORE_BACKFILL_BATCH = 50;
 /** TTL du cache mémoire des dates gelées. */
 const FROZEN_CACHE_TTL_MS = 60_000;
 
@@ -56,7 +63,9 @@ export class ScoringService {
   /**
    * Dates Paris gelées : leurs notes et scores sont immuables (garantie du
    * scoreboard des ligues). Gel absolu — aucun recalcul, même admin ; seule
-   * porte de sortie, le dégel manuel de la date.
+   * porte de sortie, le dégel manuel de la date. C'est l'échéance du gel
+   * (`FREEZE_DEADLINE_DAYS`), et elle seule, qui décide combien de temps une
+   * stat tardive peut encore produire une note.
    */
   private async frozenDates(): Promise<Set<string>> {
     if (this.frozenCache && Date.now() - this.frozenCache.at < FROZEN_CACHE_TTL_MS) {
@@ -99,6 +108,50 @@ export class ScoringService {
       `${match.name} : ${playersScored} joueurs notés, ${rostersUpdated} rosters mis à jour`,
     );
     return { playersScored, rostersUpdated };
+  }
+
+  /**
+   * Rattrapage des matchs restés SANS note alors que leurs stats sont en base.
+   *
+   * `stats.ingested` est le seul déclencheur du scoring : un scoring-service
+   * indisponible au moment de la publication (déploiement, redémarrage) ou une
+   * lecture data en échec, et le match n'est plus jamais noté — ses stats
+   * s'affichent pourtant sur la fiche du joueur, colonne « Pts fantasy » vide.
+   * Ce balayage horaire compare les matchs terminés ayant des stats aux matchs
+   * notés et comble l'écart, tant que la journée n'est pas gelée : passé
+   * l'échéance, l'absence de note est une décision, pas un trou.
+   *
+   * Borné en fenêtre et en volume : un arriéré s'écoule sur plusieurs passages
+   * plutôt que de saturer le data-service d'un coup.
+   */
+  async backfillMissingScores(): Promise<{ missing: number; scored: number }> {
+    const since = new Date(Date.now() - SCORE_BACKFILL_DAYS * 24 * 3600 * 1000);
+    const avecStats = await this.data.listStatsMatchIds(since);
+    if (avecStats.length === 0) return { missing: 0, scored: 0 };
+    const notes = await this.prisma.fantasyPoints.findMany({
+      where: { matchId: { in: avecStats } },
+      distinct: ['matchId'],
+      select: { matchId: true },
+    });
+    const dejaNotes = new Set(notes.map((row) => row.matchId));
+    const manquants = avecStats.filter((matchId) => !dejaNotes.has(matchId));
+    if (manquants.length === 0) return { missing: 0, scored: 0 };
+
+    let scored = 0;
+    for (const matchId of manquants.slice(0, SCORE_BACKFILL_BATCH)) {
+      // Un match introuvable côté data (fiche supprimée) ou un échec ponctuel
+      // ne doit pas emporter le reste du lot : le prochain tir le reverra.
+      // `computeForMatch` refuse de lui-même les journées gelées.
+      const result = await this.computeForMatch(matchId).catch((error) => {
+        this.logger.warn(`Rattrapage de note impossible pour ${matchId} : ${String(error)}`);
+        return null;
+      });
+      if (result && result.playersScored > 0) scored += 1;
+    }
+    this.logger.log(
+      `Rattrapage des notes : ${manquants.length} match(s) sans note, ${scored} noté(s) sur ce passage`,
+    );
+    return { missing: manquants.length, scored };
   }
 
   /**
@@ -519,8 +572,9 @@ export class ScoringService {
   /**
    * Gel automatique : balaie les journées passées (J-1 à J-10) non gelées et
    * gèle celles dont les données sont complètes — ou, passé l'échéance dure
-   * (J+3), gèle quand même (les stats manquantes n'arriveront plus). Le gel
-   * fige l'état après un dernier re-score complet de la journée.
+   * (`FREEZE_DEADLINE_DAYS`), gèle quand même : les stats encore manquantes
+   * n'arriveront plus. Le gel fige l'état après un dernier re-score complet de
+   * la journée.
    */
   async freezeEligibleDays(): Promise<string[]> {
     const alreadyFrozen = await this.frozenDates();
@@ -599,11 +653,21 @@ export class ScoringService {
     });
   }
 
-  /** Points fantasy d'une liste de joueurs (détail par match). */
-  playerPoints(playerIds: string[]) {
+  /**
+   * Points fantasy d'une liste de joueurs (détail par match).
+   *
+   * `matchIds` cible les notes d'un match précis : sans lui, la page match
+   * demandait toutes les notes de ses dix joueurs et le plafond de 500 lignes
+   * (les plus récemment calculées) pouvait laisser dehors celles d'un match
+   * ancien — qui s'affichait alors comme non noté.
+   */
+  playerPoints(playerIds: string[], matchIds: string[] = []) {
     if (playerIds.length === 0) return [];
     return this.prisma.fantasyPoints.findMany({
-      where: { playerId: { in: playerIds } },
+      where: {
+        playerId: { in: playerIds },
+        ...(matchIds.length > 0 ? { matchId: { in: matchIds } } : {}),
+      },
       orderBy: { computedAt: 'desc' },
       take: 500,
     });

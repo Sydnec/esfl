@@ -1,11 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { GAME_LABELS, GameId } from '@esfl/contracts';
 import { useAuth } from '@/components/AuthProvider';
+import { API_URL } from '@/lib/api';
 import { gameProfile } from '@/lib/game-profile';
 import { formatDateTime } from '@/lib/format';
+import { datesDeRattrapage } from './degel-rattrapage';
 import { TeamMatcher } from './TeamMatcher';
 import styles from './page.module.css';
 
@@ -72,6 +74,12 @@ interface QueueSnapshot {
   jobs: QueueJob[];
 }
 
+/** Réponse de `/health` du gateway : ce qui tourne réellement côté API. */
+interface IdentiteApi {
+  version: string;
+  commit: string;
+}
+
 interface IngestionHealth {
   generatedAt: string;
   parJeu: Record<string, { enCours: number; aVenir24h: number; finis: number; avecStats: number }>;
@@ -127,8 +135,12 @@ export default function AdminPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
+  /** Version de l'API en service (null tant qu'elle n'a pas répondu). */
+  const [api, setApi] = useState<IdentiteApi | null>(null);
   /** URL VLR saisie par match (matchs Valorant sans stats). */
   const [vlrUrl, setVlrUrl] = useState<Record<string, string>>({});
+  /** TEMPORAIRE — fenêtre du dégel de rattrapage, figée pour la visite. */
+  const fenetreDegel = useMemo(() => datesDeRattrapage(), []);
 
   const load = useCallback(async () => {
     try {
@@ -155,6 +167,23 @@ export default function AdminPage() {
     }, REFRESH_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [loading, user, load]);
+
+  // Lu une seule fois : la version ne change qu'au redéploiement, qui recharge
+  // de toute façon la page. Sonde publique du gateway, donc sans jeton — et
+  // c'est bien l'API qu'on interroge, pas le front, déployé séparément.
+  useEffect(() => {
+    if (loading || !user?.isAdmin) return;
+    let annule = false;
+    void fetch(`${API_URL}/health`)
+      .then((response) => (response.ok ? (response.json() as Promise<IdentiteApi>) : null))
+      .then((identite) => {
+        if (!annule) setApi(identite);
+      })
+      .catch(() => undefined);
+    return () => {
+      annule = true;
+    };
+  }, [loading, user]);
 
   // La file n'est rafraîchie que quand son onglet est ouvert (requêtes Redis).
   useEffect(() => {
@@ -285,6 +314,35 @@ export default function AdminPage() {
     }
   }
 
+  /**
+   * TEMPORAIRE — à supprimer avec `degel-rattrapage.ts`. Dégèle la fenêtre
+   * gelée trop tôt par l'ancienne échéance, puis relance le rattrapage des
+   * notes manquantes.
+   */
+  async function degelerRattrapage() {
+    const dates = fenetreDegel;
+    if (!window.confirm(`Dégeler les journées ${dates.at(-1)} → ${dates[0]} et re-noter ?`)) return;
+    setPending('degel-rattrapage');
+    setError(null);
+    setNotice(null);
+    try {
+      for (const date of dates) {
+        await authedFetch(`/scoring/admin/freeze/${date}`, { method: 'DELETE' });
+      }
+      const { missing, scored } = await authedFetch<{ missing: number; scored: number }>(
+        '/scoring/admin/backfill-scores',
+        { method: 'POST' },
+      );
+      setNotice(
+        `${dates.length} journée(s) dégelée(s) — ${scored} match(s) noté(s) sur ${missing} sans note.`,
+      );
+    } catch {
+      setError('Dégel de rattrapage impossible');
+    } finally {
+      setPending(null);
+    }
+  }
+
   async function forceSync(job: string) {
     setPending(job);
     setNotice(null);
@@ -311,11 +369,18 @@ export default function AdminPage() {
     <main className={styles.main}>
       <div className={styles.headerRow}>
         <h1 className={styles.title}>Administration</h1>
-        {health && (
-          <span className={styles.generatedAt}>
-            Actualisé à {formatDateTime(health.generatedAt)}
-          </span>
-        )}
+        <div className={styles.headerMeta}>
+          {api && (
+            <span className={styles.version} title={`Commit ${api.commit}`}>
+              API v{api.version} · {api.commit}
+            </span>
+          )}
+          {health && (
+            <span className={styles.generatedAt}>
+              Actualisé à {formatDateTime(health.generatedAt)}
+            </span>
+          )}
+        </div>
       </div>
 
       <nav className={styles.tabs}>
@@ -646,6 +711,30 @@ export default function AdminPage() {
                 </table>
               </div>
             )}
+          </section>
+
+          {/* TEMPORAIRE — à supprimer avec `degel-rattrapage.ts` et
+              `degelerRattrapage`. */}
+          <section className={styles.section}>
+            <h2 className={styles.sectionTitle}>Dégel de rattrapage (temporaire)</h2>
+            <p className={styles.hint}>
+              L’échéance du gel est passée de 3 à 7 jours. Les journées gelées sous l’ancienne règle
+              le restent, et leurs matchs dont les stats sont arrivées après coup n’ont jamais eu de
+              note. Ce bouton rouvre {fenetreDegel.at(-1)} → {fenetreDegel[0]}, puis relance le
+              rattrapage des notes. Le gel automatique refermera ces journées de lui-même, après un
+              dernier re-score. À retirer une fois le rattrapage fait.
+            </p>
+            <div className={styles.actions}>
+              <button
+                className={styles.action}
+                disabled={pending === 'degel-rattrapage'}
+                onClick={() => void degelerRattrapage()}
+              >
+                {pending === 'degel-rattrapage'
+                  ? 'Dégel en cours…'
+                  : 'Dégeler la fenêtre et re-noter'}
+              </button>
+            </div>
           </section>
 
           <section className={styles.section}>

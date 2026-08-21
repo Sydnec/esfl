@@ -63,6 +63,13 @@ function bestTier(tournaments?: Array<{ tier: string | null }> | null): string |
   return best;
 }
 
+/**
+ * Profondeur maximale de rattrapage d'un match resté « en cours » (jours) :
+ * au-delà, la source ne le corrigera plus et rouvrir la fenêtre ne ferait que
+ * consommer le quota Pandascore.
+ */
+const LIVE_RECOVERY_DAYS = 7;
+
 /** Filtre catalogue : tiers S/A/B uniquement (tier null accepté, c/d exclus). */
 const TIER_ALLOWED: Prisma.CompetitionWhereInput = {
   OR: [{ tier: null }, { tier: { notIn: ['c', 'd'] } }],
@@ -655,6 +662,29 @@ export class IngestionService {
         OR: [{ status: 'running' }, { scheduledAt: { gte: from, lte: to } }],
       },
     });
+    // Matchs restés `running` : leur passage à `finished` n'est jamais arrivé
+    // (service coupé au mauvais moment, source en retard). Passé 12 h ils
+    // sortent de la fenêtre et plus rien ne les rattrape — `sync-matches`
+    // ignore les compétitions tier c/d, masquées ou finies depuis 3 jours. Le
+    // match reste alors « en cours » à vie : ses stats live continuent d'être
+    // ingérées, mais ses points fantasy ne sont jamais définitifs, donc jamais
+    // affichés. On rouvre la fenêtre de la compétition jusqu'à ce match.
+    const plancher = new Date(Date.now() - LIVE_RECOVERY_DAYS * 24 * 3600 * 1000);
+    const bloques = await this.prisma.match.groupBy({
+      by: ['competitionId'],
+      // Bornée au plancher : un match encore « en cours » au-delà, c'est la
+      // source elle-même qui le dit — rouvrir la fenêtre à chaque tir ne ferait
+      // que brûler le quota.
+      where: { status: 'running', beginAt: { gte: plancher, lt: from } },
+      _min: { beginAt: true },
+    });
+    const depuisParCompetition = new Map(
+      bloques.flatMap((group) => {
+        const debut = group._min.beginAt;
+        // Une heure de marge : la borne `range[begin_at]` doit englober le match.
+        return debut ? [[group.competitionId, new Date(debut.getTime() - 3600 * 1000)]] : [];
+      }),
+    );
     const competitions = await this.prisma.competition.findMany({
       where: { id: { in: concerned.map((group) => group.competitionId) } },
     });
@@ -663,7 +693,7 @@ export class IngestionService {
         const matches = await this.pandascore.listMatchesInWindow(
           competition.gameId as GameId,
           competition.pandascoreId,
-          from,
+          depuisParCompetition.get(competition.id) ?? from,
           to,
         );
         for (const match of matches) {
@@ -821,7 +851,13 @@ export class IngestionService {
     if (enqueueStats && saved.status === 'finished' && !saved.forfeit && !saved.finishedEventSent) {
       const finishedAt = saved.endAt ?? saved.beginAt ?? saved.scheduledAt;
       const isRecent = !finishedAt || Date.now() - finishedAt.getTime() < 48 * 3600 * 1000;
-      if (isRecent) {
+      // Un match qu'on suivait EN COURS et qui vient de passer terminé mérite
+      // son fetch final même au-delà de 48 h : c'est exactement le cas du match
+      // resté bloqué « en cours » plusieurs jours, dont on n'a que des stats
+      // live. La fenêtre de 48 h vise les matchs anciens d'un backfill, pas
+      // celui-là (`finishedEventSent` garantit un seul enfilement).
+      const sortDuLive = current?.status === 'running';
+      if (isRecent || sortDuLive) {
         await enqueueIngestStats(this.ingestionQueue, saved.id);
         // Flag posé après l'enqueue : s'il échoue, il n'est pas persisté et
         // le cycle suivant retente (jobId déterministe, pas de doublon).
@@ -841,7 +877,7 @@ export class IngestionService {
    *   n'enqueue qu'une fois à la fin du match ; si la source (bo3, upload
    *   ballchasing…) ne publie qu'après, le match resterait sans stats à vie.
    * - **Stats présentes mais incohérentes** (map absente, roster ou manches
-   *   tronqués) jusqu'au gel de la journée (J+3) : un fetch prématuré a figé des
+   *   tronqués) jusqu'au gel de la journée : un fetch prématuré a figé des
    *   données partielles, aucune chaîne de retry n'est plus vivante. On les
    *   ré-arme tant que la note peut encore changer.
    *
@@ -867,7 +903,7 @@ export class IngestionService {
       select: { id: true },
     });
 
-    // Matchs récents (≤ J+3, avant gel) déjà notés mais aux stats incohérentes :
+    // Matchs récents (avant gel) déjà notés mais aux stats incohérentes :
     // la cohérence se calcule à la volée sur le lot borné.
     const gelCutoff = new Date(Date.now() - FREEZE_DEADLINE_DAYS * 24 * 3600 * 1000);
     const avecStats = await this.prisma.match.findMany({

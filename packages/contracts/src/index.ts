@@ -5,3 +5,4 @@ export * from './stats';
 export * from './fantasy';
 export * from './paris-date';
 export * from './services-internes';
+export * from './version';
