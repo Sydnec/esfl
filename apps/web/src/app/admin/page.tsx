@@ -385,11 +385,25 @@ export default function AdminPage() {
       <div className={styles.headerRow}>
         <h1 className={styles.title}>Administration</h1>
         <div className={styles.headerMeta}>
-          {api && (
-            <span className={styles.version} title={`Commit ${api.commit}`}>
-              API v{api.version} · {api.commit}
-            </span>
-          )}
+          {api &&
+            (api.version && api.commit ? (
+              <span className={styles.version} title={`Commit ${api.commit}`}>
+                API v{api.version} · {api.commit}
+              </span>
+            ) : (
+              // `identiteVersion` ne rend jamais de champ vide : à défaut de
+              // variables injectées au build, elle répond « dev / local ». Des
+              // champs ABSENTS ne peuvent donc venir que d'une image antérieure
+              // au suivi de version — autrement dit d'un backend pas à jour.
+              // Le dire, plutôt qu'afficher un « API v · » qui ressemble à un
+              // bug d'affichage au moment précis où l'on enquête.
+              <span
+                className={styles.version}
+                title="Le /health de l’API ne renvoie ni version ni commit"
+              >
+                API : version inconnue (backend antérieur au suivi de version)
+              </span>
+            ))}
           {health && (
             <span className={styles.generatedAt}>
               Actualisé à {formatDateTime(health.generatedAt)}
