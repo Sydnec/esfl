@@ -21,6 +21,10 @@ const TOP_PLAYERS_PER_GAME = 100;
 
 /** Fenêtre de balayage du gel automatique (jours en arrière depuis hier). */
 const FREEZE_SCAN_DAYS = 10;
+/** Horizon du rattrapage des matchs restés sans note (jours). */
+const SCORE_BACKFILL_DAYS = 30;
+/** Matchs rattrapés par passage : un arriéré s'écoule sur plusieurs tirs. */
+const SCORE_BACKFILL_BATCH = 50;
 /** Échéance dure : une journée incomplète est gelée quand même à J+3. */
 /** TTL du cache mémoire des dates gelées. */
 const FROZEN_CACHE_TTL_MS = 60_000;
@@ -54,9 +58,11 @@ export class ScoringService {
   ) {}
 
   /**
-   * Dates Paris gelées : leurs notes et scores sont immuables (garantie du
-   * scoreboard des ligues). Gel absolu — aucun recalcul, même admin ; seule
-   * porte de sortie, le dégel manuel de la date.
+   * Dates Paris gelées : leurs notes POSÉES et leurs scores de roster sont
+   * immuables (garantie du scoreboard des ligues). Aucun recalcul, même admin ;
+   * seule porte de sortie, le dégel manuel de la date. Seule exception, un
+   * match encore jamais noté : sa première note ne réécrit rien (cf.
+   * `computeForMatch`) et ne touche pas aux scores de rosters.
    */
   private async frozenDates(): Promise<Set<string>> {
     if (this.frozenCache && Date.now() - this.frozenCache.at < FROZEN_CACHE_TTL_MS) {
@@ -86,12 +92,29 @@ export class ScoringService {
     matchId: string,
   ): Promise<{ playersScored: number; rostersUpdated: number }> {
     const match = await this.data.getMatch(matchId);
-    // Journée gelée : ses notes sont immuables (stats.ingested tardif ou
-    // recompute admin compris). Dégeler la date d'abord pour corriger.
+    // Journée gelée : ses notes POSÉES sont immuables (stats.ingested tardif ou
+    // recompute admin compris). Dégeler la date d'abord pour les corriger.
     const date = this.matchDate(match);
     if (date && (await this.frozenDates()).has(date)) {
-      this.logger.log(`${match.name} : journée ${date} gelée, recalcul ignoré`);
-      return { playersScored: 0, rostersUpdated: 0 };
+      // Une note JAMAIS calculée n'a rien à protéger. Le gel garantit que les
+      // notes posées et le scoreboard ne bougent plus — pas qu'un match dont
+      // les stats sont arrivées après le gel (source tardive, événement perdu)
+      // reste à vie sans note sur les fiches joueurs. On la calcule donc une
+      // première fois, sans toucher aux scores de rosters, eux bien gelés.
+      // Match TERMINÉ seulement : la note d'un match en cours est provisoire,
+      // et sur une journée gelée elle ne serait jamais reprise.
+      const dejaNotes = await this.prisma.fantasyPoints.count({ where: { matchId: match.id } });
+      if (dejaNotes > 0 || match.status !== 'finished') {
+        this.logger.log(`${match.name} : journée ${date} gelée, recalcul ignoré`);
+        return { playersScored: 0, rostersUpdated: 0 };
+      }
+      const premieresNotes = await this.scorePlayers(match);
+      if (premieresNotes > 0) {
+        this.logger.warn(
+          `${match.name} : journée ${date} gelée, ${premieresNotes} première(s) note(s) posée(s) — scoreboard inchangé`,
+        );
+      }
+      return { playersScored: premieresNotes, rostersUpdated: 0 };
     }
     const playersScored = await this.scorePlayers(match);
     const rostersUpdated = await this.updateRosterScores(match);
@@ -99,6 +122,48 @@ export class ScoringService {
       `${match.name} : ${playersScored} joueurs notés, ${rostersUpdated} rosters mis à jour`,
     );
     return { playersScored, rostersUpdated };
+  }
+
+  /**
+   * Rattrapage des matchs restés SANS note alors que leurs stats sont en base.
+   *
+   * `stats.ingested` est le seul déclencheur du scoring : un scoring-service
+   * indisponible au moment de la publication (déploiement, redémarrage), une
+   * lecture data en échec, ou des stats arrivées après le gel de la journée, et
+   * le match n'est plus jamais noté — ses stats s'affichent pourtant sur la
+   * fiche du joueur, colonne « Pts fantasy » vide. Ce balayage horaire compare
+   * les matchs terminés ayant des stats aux matchs notés et comble l'écart.
+   *
+   * Borné en fenêtre et en volume : un arriéré s'écoule sur plusieurs passages
+   * plutôt que de saturer le data-service d'un coup.
+   */
+  async backfillMissingScores(): Promise<{ missing: number; scored: number }> {
+    const since = new Date(Date.now() - SCORE_BACKFILL_DAYS * 24 * 3600 * 1000);
+    const avecStats = await this.data.listStatsMatchIds(since);
+    if (avecStats.length === 0) return { missing: 0, scored: 0 };
+    const notes = await this.prisma.fantasyPoints.findMany({
+      where: { matchId: { in: avecStats } },
+      distinct: ['matchId'],
+      select: { matchId: true },
+    });
+    const dejaNotes = new Set(notes.map((row) => row.matchId));
+    const manquants = avecStats.filter((matchId) => !dejaNotes.has(matchId));
+    if (manquants.length === 0) return { missing: 0, scored: 0 };
+
+    let scored = 0;
+    for (const matchId of manquants.slice(0, SCORE_BACKFILL_BATCH)) {
+      // Un match introuvable côté data (fiche supprimée) ou un échec ponctuel
+      // ne doit pas emporter le reste du lot : le prochain tir le reverra.
+      const result = await this.computeForMatch(matchId).catch((error) => {
+        this.logger.warn(`Rattrapage de note impossible pour ${matchId} : ${String(error)}`);
+        return null;
+      });
+      if (result && result.playersScored > 0) scored += 1;
+    }
+    this.logger.log(
+      `Rattrapage des notes : ${manquants.length} match(s) sans note, ${scored} noté(s) sur ce passage`,
+    );
+    return { missing: manquants.length, scored };
   }
 
   /**
@@ -599,11 +664,21 @@ export class ScoringService {
     });
   }
 
-  /** Points fantasy d'une liste de joueurs (détail par match). */
-  playerPoints(playerIds: string[]) {
+  /**
+   * Points fantasy d'une liste de joueurs (détail par match).
+   *
+   * `matchIds` cible les notes d'un match précis : sans lui, la page match
+   * demandait toutes les notes de ses dix joueurs et le plafond de 500 lignes
+   * (les plus récemment calculées) pouvait laisser dehors celles d'un match
+   * ancien — qui s'affichait alors comme non noté.
+   */
+  playerPoints(playerIds: string[], matchIds: string[] = []) {
     if (playerIds.length === 0) return [];
     return this.prisma.fantasyPoints.findMany({
-      where: { playerId: { in: playerIds } },
+      where: {
+        playerId: { in: playerIds },
+        ...(matchIds.length > 0 ? { matchId: { in: matchIds } } : {}),
+      },
       orderBy: { computedAt: 'desc' },
       take: 500,
     });

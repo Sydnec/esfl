@@ -128,10 +128,14 @@ export class CatalogController {
     return this.catalog.listStats(parseIds(matchIds));
   }
 
-  /** Ids des matchs ayant des stats (recalcul en masse du scoring, appel interne). */
+  /**
+   * Ids des matchs ayant des stats (recalcul en masse du scoring, appel
+   * interne). `?since=ISO` restreint aux matchs terminés depuis cette date :
+   * le rattrapage des notes manquantes n'a pas besoin de tout l'historique.
+   */
   @Get('internal/stats/match-ids')
-  statsMatchIds() {
-    return this.catalog.distinctStatsMatchIds();
+  statsMatchIds(@Query('since') since?: string) {
+    return this.catalog.distinctStatsMatchIds(parseDate(since, 'since'));
   }
 
   /** Métadonnées de tous les joueurs (analytics de points, appel interne scoring). */

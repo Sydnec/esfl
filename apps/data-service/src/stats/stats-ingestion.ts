@@ -874,6 +874,13 @@ export class StatsIngestionService {
       ingestedAt: new Date().toISOString(),
     };
     await this.statsIngestedQueue.add('stats-ingested', event, {
+      // Sans retries (défaut BullMQ : une seule tentative), un scoring-service
+      // qui redémarre — un déploiement suffit — ou une lecture data en échec
+      // perdait la note du match POUR DE BON : les stats restaient en base,
+      // affichées, mais le match n'était plus jamais noté. Le rattrapage
+      // horaire du scoring reste le filet de dernier recours.
+      attempts: 5,
+      backoff: { type: 'exponential', delay: 30_000 },
       removeOnComplete: 1000,
       removeOnFail: 5000,
     });

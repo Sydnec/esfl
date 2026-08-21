@@ -142,8 +142,19 @@ export class CatalogService {
   constructor(private readonly prisma: PrismaService) {}
 
   /** Ids distincts des matchs ayant au moins une ligne de stats. */
-  async distinctStatsMatchIds(): Promise<string[]> {
+  async distinctStatsMatchIds(since?: Date): Promise<string[]> {
     const rows = await this.prisma.playerMatchStats.findMany({
+      // `since` borne le rattrapage des notes manquantes côté scoring : seuls
+      // les matchs TERMINÉS de la fenêtre l'intéressent (un match en cours est
+      // re-noté à chaque passe de stats live, puis au coup de sifflet).
+      where: since
+        ? {
+            match: {
+              status: 'finished',
+              OR: [{ beginAt: { gte: since } }, { beginAt: null, scheduledAt: { gte: since } }],
+            },
+          }
+        : {},
       distinct: ['matchId'],
       select: { matchId: true },
     });
