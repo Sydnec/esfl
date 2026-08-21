@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { GAME_LABELS, GameId } from '@esfl/contracts';
 import { useAuth } from '@/components/AuthProvider';
-import { API_URL } from '@/lib/api';
+import { API_URL, ApiError } from '@/lib/api';
 import { gameProfile } from '@/lib/game-profile';
 import { formatDateTime } from '@/lib/format';
 import { datesDeRattrapage } from './degel-rattrapage';
@@ -325,9 +325,14 @@ export default function AdminPage() {
     setPending('degel-rattrapage');
     setError(null);
     setNotice(null);
+    // Ce qui a RÉELLEMENT abouti : le dégel d'une journée ne se défait pas
+    // parce que l'étape suivante échoue. Un message « impossible » ferait
+    // croire à un non-événement et on rejouerait à l'aveugle.
+    const degelees: string[] = [];
     try {
       for (const date of dates) {
         await authedFetch(`/scoring/admin/freeze/${date}`, { method: 'DELETE' });
+        degelees.push(date);
       }
       const { missing, scored } = await authedFetch<{ missing: number; scored: number }>(
         '/scoring/admin/backfill-scores',
@@ -336,8 +341,18 @@ export default function AdminPage() {
       setNotice(
         `${dates.length} journée(s) dégelée(s) — ${scored} match(s) noté(s) sur ${missing} sans note.`,
       );
-    } catch {
-      setError('Dégel de rattrapage impossible');
+    } catch (err) {
+      // Le statut distingue les causes : 404 = l'API n'a pas encore cette route
+      // (backend pas déployé), 401 = session admin expirée, 5xx = panne côté
+      // scoring. Les confondre sous « impossible » coûte une enquête entière.
+      const raison = err instanceof ApiError ? `${err.status} — ${err.message}` : 'erreur réseau';
+      const etape =
+        degelees.length === dates.length
+          ? 'le rattrapage des notes'
+          : `le dégel de ${dates[degelees.length]}`;
+      setError(
+        `Échec sur ${etape} (${raison}) — ${degelees.length} journée(s) dégelée(s) au passage.`,
+      );
     } finally {
       setPending(null);
     }
@@ -370,11 +385,25 @@ export default function AdminPage() {
       <div className={styles.headerRow}>
         <h1 className={styles.title}>Administration</h1>
         <div className={styles.headerMeta}>
-          {api && (
-            <span className={styles.version} title={`Commit ${api.commit}`}>
-              API v{api.version} · {api.commit}
-            </span>
-          )}
+          {api &&
+            (api.version && api.commit ? (
+              <span className={styles.version} title={`Commit ${api.commit}`}>
+                API v{api.version} · {api.commit}
+              </span>
+            ) : (
+              // `identiteVersion` ne rend jamais de champ vide : à défaut de
+              // variables injectées au build, elle répond « dev / local ». Des
+              // champs ABSENTS ne peuvent donc venir que d'une image antérieure
+              // au suivi de version — autrement dit d'un backend pas à jour.
+              // Le dire, plutôt qu'afficher un « API v · » qui ressemble à un
+              // bug d'affichage au moment précis où l'on enquête.
+              <span
+                className={styles.version}
+                title="Le /health de l’API ne renvoie ni version ni commit"
+              >
+                API : version inconnue (backend antérieur au suivi de version)
+              </span>
+            ))}
           {health && (
             <span className={styles.generatedAt}>
               Actualisé à {formatDateTime(health.generatedAt)}
