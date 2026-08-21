@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
+import { FREEZE_DEADLINE_DAYS } from '@esfl/contracts';
 import type { Match, Team } from '../../generated/client';
+import { FENETRE_ARBITRAGE_MS } from '../ingestion/ingestion.constants';
 import type { PrismaService } from '../prisma.service';
 import type { Bo3StatsProvider } from './bo3.provider';
 import type { LeaguepediaStatsProvider } from './leaguepedia.provider';
@@ -132,24 +134,32 @@ function line(externalName: string, side: 'A' | 'B' | null): ProviderResult['lin
   return { externalName, side, raw: {}, normalized: { kills: 1 } };
 }
 
+/**
+ * Les deux horizons se mesurent en jours depuis la fin du match : on les
+ * exprime relativement aux constantes, sinon déplacer l'échéance du gel casse
+ * les tests sans que l'échec dise quoi que ce soit d'une régression.
+ */
 describe('relanceInutile', () => {
   const maintenant = new Date('2026-07-22T18:00:00Z').getTime();
   const ilYA = (heures: number) => new Date(maintenant - heures * 3600 * 1000);
+  const jours = (n: number) => ilYA(n * 24);
 
-  it('renonce sur une absence passé le gel de la journée (J+3)', () => {
-    expect(relanceInutile('no-coverage', ilYA(24 * 4), maintenant)).toBe(true);
+  it('renonce sur une absence passé le gel de la journée', () => {
+    expect(relanceInutile('no-coverage', jours(FREEZE_DEADLINE_DAYS + 1), maintenant)).toBe(true);
   });
 
   it('persiste tant que la note peut encore bouger', () => {
-    expect(relanceInutile('no-coverage', ilYA(48), maintenant)).toBe(false);
+    expect(relanceInutile('no-coverage', jours(FREEZE_DEADLINE_DAYS - 1), maintenant)).toBe(false);
   });
 
   it('persiste sur un name-mismatch tant que la page admin l’expose', () => {
-    expect(relanceInutile('name-mismatch', ilYA(72), maintenant)).toBe(false);
+    const dansLaFenetre = new Date(maintenant - FENETRE_ARBITRAGE_MS + 3600 * 1000);
+    expect(relanceInutile('name-mismatch', dansLaFenetre, maintenant)).toBe(false);
   });
 
   it('renonce sur un name-mismatch sorti de la fenêtre d’arbitrage', () => {
-    expect(relanceInutile('name-mismatch', ilYA(24 * 8), maintenant)).toBe(true);
+    const horsFenetre = new Date(maintenant - FENETRE_ARBITRAGE_MS - 3600 * 1000);
+    expect(relanceInutile('name-mismatch', horsFenetre, maintenant)).toBe(true);
   });
 
   it('persiste quand la date de fin est inconnue : rien pour juger', () => {
@@ -159,14 +169,14 @@ describe('relanceInutile', () => {
 
 describe('avantGel', () => {
   const maintenant = new Date('2026-07-22T18:00:00Z').getTime();
-  const ilYA = (heures: number) => new Date(maintenant - heures * 3600 * 1000);
+  const jours = (n: number) => new Date(maintenant - n * 24 * 3600 * 1000);
 
-  it('autorise la relance tant que la journée n’est pas gelée (< J+3)', () => {
-    expect(avantGel(ilYA(48), maintenant)).toBe(true);
+  it('autorise la relance tant que la journée n’est pas gelée', () => {
+    expect(avantGel(jours(FREEZE_DEADLINE_DAYS - 1), maintenant)).toBe(true);
   });
 
-  it('renonce passé le gel de la journée (> J+3)', () => {
-    expect(avantGel(ilYA(24 * 4), maintenant)).toBe(false);
+  it('renonce passé le gel de la journée', () => {
+    expect(avantGel(jours(FREEZE_DEADLINE_DAYS + 1), maintenant)).toBe(false);
   });
 
   it('laisse la porte ouverte quand la fin de match est inconnue', () => {
@@ -236,7 +246,8 @@ describe('ingestForMatchId — relance sur incohérence', () => {
 
   const recent = new Date('2026-07-22T20:28:00Z');
   const maintenant = new Date('2026-07-22T22:00:00Z');
-  const vieux = new Date('2026-07-18T20:28:00Z'); // > J+3
+  /** Fin de match hors échéance du gel : plus rien à relancer. */
+  const vieux = new Date(maintenant.getTime() - (FREEZE_DEADLINE_DAYS + 1) * 24 * 3600 * 1000);
 
   it('court-circuite sans re-fetch quand les stats sont cohérentes', async () => {
     vi.setSystemTime(maintenant);

@@ -42,7 +42,7 @@ const LINEUP_SIZE = 5;
 
 /**
  * Delai au-delà duquel l'absence d'un match chez sa source est tenue pour
- * définitive. Calé sur le gel des journées du scoring (J+3) : passé ce point
+ * définitive. Calé sur le gel des journées du scoring : passé ce point
  * la note est figée, une stat qui arriverait enfin ne changerait plus rien.
  * Les sources publient de toute façon dans l'heure qui suit une rencontre.
  */
@@ -77,7 +77,7 @@ export function relanceInutile(
 
 /**
  * Peut-on encore espérer qu'une correction de stats serve à quelque chose ?
- * Non passé le gel de la journée (J+3, `FENETRE_PUBLICATION_MS`) : la note est
+ * Non passé le gel de la journée (`FENETRE_PUBLICATION_MS`) : la note est
  * figée, relancer ne changerait plus rien. Une fin de match inconnue (trou
  * Pandascore) laisse la porte ouverte, la borne large du backfill fera le reste.
  */

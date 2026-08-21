@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { parisDate } from '@esfl/contracts';
+import { FREEZE_DEADLINE_DAYS, parisDate } from '@esfl/contracts';
 import type { PrismaService } from '../prisma.service';
 import type { DataClient } from '../clients/data.client';
 import type { FantasyClient } from '../clients/fantasy.client';
@@ -89,31 +89,12 @@ const LIGNE_CS2 = {
 };
 
 describe('gel des journées', () => {
-  it('computeForMatch ne re-note pas un match déjà noté d’une journée gelée', async () => {
-    const date = daysAgo(2);
-    const { service, prisma } = setup({
-      frozen: [date],
-      notes: ['m1'],
-      stats: [LIGNE_CS2],
-      match: {
-        id: 'm1',
-        name: 'X vs Y',
-        beginAt: new Date(Date.now() - 2 * 24 * 3600 * 1000).toISOString(),
-      },
-    });
-    const result = await service.computeForMatch('m1');
-    expect(result).toEqual({ playersScored: 0, rostersUpdated: 0 });
-    // Les notes posées d'une journée gelée ne bougent plus.
-    expect(prisma.fantasyPoints.upsert).not.toHaveBeenCalled();
-  });
-
-  it('computeForMatch pose la PREMIÈRE note d’un match gelé sans toucher aux rosters', async () => {
-    // Stats arrivées après le gel (source tardive, événement perdu) : sans
-    // cette exception le match resterait à vie sans note sur les fiches joueurs.
+  it('computeForMatch ignore un match d’une journée gelée (gel absolu)', async () => {
     const date = daysAgo(2);
     const { service, prisma, fantasy } = setup({
       frozen: [date],
       notes: [],
+      // Des stats sont bien là : c'est le gel, et lui seul, qui refuse la note.
       stats: [LIGNE_CS2],
       match: {
         id: 'm1',
@@ -124,29 +105,10 @@ describe('gel des journées', () => {
       },
     });
     const result = await service.computeForMatch('m1');
-    expect(result).toEqual({ playersScored: 1, rostersUpdated: 0 });
-    expect(prisma.fantasyPoints.upsert).toHaveBeenCalledOnce();
-    // Le scoreboard, lui, reste gelé : aucun score de roster recalculé.
-    expect(fantasy.rostersForDate).not.toHaveBeenCalled();
-  });
-
-  it('computeForMatch ne note pas un match EN COURS d’une journée gelée', async () => {
-    // Note provisoire, et sur une journée gelée elle ne serait jamais reprise.
-    const date = daysAgo(2);
-    const { service, prisma } = setup({
-      frozen: [date],
-      notes: [],
-      stats: [LIGNE_CS2],
-      match: {
-        id: 'm1',
-        name: 'X vs Y',
-        gameId: 'cs2',
-        status: 'running',
-        beginAt: new Date(Date.now() - 2 * 24 * 3600 * 1000).toISOString(),
-      },
-    });
-    expect(await service.computeForMatch('m1')).toEqual({ playersScored: 0, rostersUpdated: 0 });
+    expect(result).toEqual({ playersScored: 0, rostersUpdated: 0 });
+    // Aucune note écrite, aucun score de roster touché.
     expect(prisma.fantasyPoints.upsert).not.toHaveBeenCalled();
+    expect(fantasy.rostersForDate).not.toHaveBeenCalled();
   });
 
   it('resetAndRecompute épargne les points et scores des journées gelées', async () => {
@@ -171,8 +133,10 @@ describe('gel des journées', () => {
 
   it('freezeEligibleDays gèle une journée complète et une journée à l’échéance', async () => {
     const complete = daysAgo(1);
-    const recentIncomplete = daysAgo(2);
-    const deadline = daysAgo(3);
+    // Incomplète mais AVANT l'échéance : elle reste ouverte, une stat tardive
+    // peut encore produire sa note.
+    const recentIncomplete = daysAgo(FREEZE_DEADLINE_DAYS - 1);
+    const deadline = daysAgo(FREEZE_DEADLINE_DAYS);
     const { service, frozenUpserts } = setup({
       completenessByDate: {
         [complete]: { totalMatches: 4, pendingCount: 0, missingCount: 0, complete: true },

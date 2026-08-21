@@ -877,7 +877,7 @@ export class IngestionService {
    *   n'enqueue qu'une fois à la fin du match ; si la source (bo3, upload
    *   ballchasing…) ne publie qu'après, le match resterait sans stats à vie.
    * - **Stats présentes mais incohérentes** (map absente, roster ou manches
-   *   tronqués) jusqu'au gel de la journée (J+3) : un fetch prématuré a figé des
+   *   tronqués) jusqu'au gel de la journée : un fetch prématuré a figé des
    *   données partielles, aucune chaîne de retry n'est plus vivante. On les
    *   ré-arme tant que la note peut encore changer.
    *
@@ -903,7 +903,7 @@ export class IngestionService {
       select: { id: true },
     });
 
-    // Matchs récents (≤ J+3, avant gel) déjà notés mais aux stats incohérentes :
+    // Matchs récents (avant gel) déjà notés mais aux stats incohérentes :
     // la cohérence se calcule à la volée sur le lot borné.
     const gelCutoff = new Date(Date.now() - FREEZE_DEADLINE_DAYS * 24 * 3600 * 1000);
     const avecStats = await this.prisma.match.findMany({

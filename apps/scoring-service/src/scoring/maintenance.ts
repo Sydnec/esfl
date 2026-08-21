@@ -14,13 +14,13 @@ export const SCORING_MAINTENANCE_QUEUE = 'scoring-maintenance';
  *   base mais qui n'ont jamais été notés (événement `stats.ingested` perdu,
  *   service indisponible au moment de la publication, stats arrivées après le
  *   gel). Sans lui, ces matchs restent à vie sans note sur les fiches joueurs.
- * - `freeze-days` : les journées passées complètes (ou à l'échéance J+3) sont
+ * - `freeze-days` : les journées passées complètes (ou à l'échéance dure) sont
  *   re-notées une dernière fois puis gelées — le scoreboard des ligues
  *   fantasy devient immuable.
  *
  * `SCORING_FREEZE_ENABLED=0` désactive le GEL (et retire un scheduler déjà
  * enregistré) : indispensable pendant une ré-ingestion massive, sans quoi
- * l'échéance J+3 gèlerait des journées encore incomplètes avec des
+ * l'échéance dure gèlerait des journées encore incomplètes avec des
  * distributions de mi-parcours. Réactiver après le reset-scores final. Le
  * rattrapage, lui, ne fige rien : il reste planifié dans tous les cas.
  */

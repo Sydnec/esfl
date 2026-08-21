@@ -453,7 +453,7 @@ export class CatalogService {
    *
    * Un match diagnostiqué `no-coverage` n'est pas récupérable : la source ne le
    * référence pas, il n'aura jamais de stats. L'y compter empêcherait la
-   * journée d'être complète et la ferait geler à l'échéance de trois jours,
+   * journée d'être complète et la ferait geler à l'échéance dure,
    * avec un classement figé sur des données partielles. Un `name-mismatch`,
    * lui, reste comptabilisé : il se corrige par un alias depuis /admin, et
    * c'est justement cette pression qui doit rester visible.
@@ -504,7 +504,7 @@ export class CatalogService {
     // Match fini AVEC des stats mais incohérentes (map absente, roster ou
     // manches tronqués : fetch prématuré figé) : la journée ne doit pas être
     // tenue pour complète, sinon elle gèlerait sur des données partielles avant
-    // la correction. Le gel dur J+3 reste le garde-fou (côté scoring).
+    // la correction. Le gel à l'échéance reste le garde-fou (côté scoring).
     const incoherent = finished.filter(
       (match) => match._count.stats > 0 && !evaluerCoherence(match, match.stats).coherent,
     );

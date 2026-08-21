@@ -97,7 +97,7 @@ export function evaluerCoherence(
 
   // Niveau 1 : couverture. On ne bloque que sur une map/game TOTALEMENT absente
   // des stats — un roster partiel resterait incohérent à vie (source qui ne
-  // publie jamais un joueur) et ferait tourner la relance jusqu'à J+3 pour rien.
+  // publie jamais un joueur) et ferait tourner la relance jusqu'au gel pour rien.
   for (const { position } of jouees) {
     const couvrant = parPosition.get(position) ?? [];
     if (couvrant.length === 0) {

@@ -21,11 +21,14 @@ const TOP_PLAYERS_PER_GAME = 100;
 
 /** Fenêtre de balayage du gel automatique (jours en arrière depuis hier). */
 const FREEZE_SCAN_DAYS = 10;
-/** Horizon du rattrapage des matchs restés sans note (jours). */
-const SCORE_BACKFILL_DAYS = 30;
+/**
+ * Horizon du rattrapage des matchs restés sans note : celui du gel. Au-delà,
+ * toutes les journées sont gelées et l'absence de note est voulue — les
+ * re-sonder à chaque heure ne ferait que du bruit.
+ */
+const SCORE_BACKFILL_DAYS = FREEZE_SCAN_DAYS;
 /** Matchs rattrapés par passage : un arriéré s'écoule sur plusieurs tirs. */
 const SCORE_BACKFILL_BATCH = 50;
-/** Échéance dure : une journée incomplète est gelée quand même à J+3. */
 /** TTL du cache mémoire des dates gelées. */
 const FROZEN_CACHE_TTL_MS = 60_000;
 
@@ -58,11 +61,11 @@ export class ScoringService {
   ) {}
 
   /**
-   * Dates Paris gelées : leurs notes POSÉES et leurs scores de roster sont
-   * immuables (garantie du scoreboard des ligues). Aucun recalcul, même admin ;
-   * seule porte de sortie, le dégel manuel de la date. Seule exception, un
-   * match encore jamais noté : sa première note ne réécrit rien (cf.
-   * `computeForMatch`) et ne touche pas aux scores de rosters.
+   * Dates Paris gelées : leurs notes et scores sont immuables (garantie du
+   * scoreboard des ligues). Gel absolu — aucun recalcul, même admin ; seule
+   * porte de sortie, le dégel manuel de la date. C'est l'échéance du gel
+   * (`FREEZE_DEADLINE_DAYS`), et elle seule, qui décide combien de temps une
+   * stat tardive peut encore produire une note.
    */
   private async frozenDates(): Promise<Set<string>> {
     if (this.frozenCache && Date.now() - this.frozenCache.at < FROZEN_CACHE_TTL_MS) {
@@ -92,29 +95,12 @@ export class ScoringService {
     matchId: string,
   ): Promise<{ playersScored: number; rostersUpdated: number }> {
     const match = await this.data.getMatch(matchId);
-    // Journée gelée : ses notes POSÉES sont immuables (stats.ingested tardif ou
-    // recompute admin compris). Dégeler la date d'abord pour les corriger.
+    // Journée gelée : ses notes sont immuables (stats.ingested tardif ou
+    // recompute admin compris). Dégeler la date d'abord pour corriger.
     const date = this.matchDate(match);
     if (date && (await this.frozenDates()).has(date)) {
-      // Une note JAMAIS calculée n'a rien à protéger. Le gel garantit que les
-      // notes posées et le scoreboard ne bougent plus — pas qu'un match dont
-      // les stats sont arrivées après le gel (source tardive, événement perdu)
-      // reste à vie sans note sur les fiches joueurs. On la calcule donc une
-      // première fois, sans toucher aux scores de rosters, eux bien gelés.
-      // Match TERMINÉ seulement : la note d'un match en cours est provisoire,
-      // et sur une journée gelée elle ne serait jamais reprise.
-      const dejaNotes = await this.prisma.fantasyPoints.count({ where: { matchId: match.id } });
-      if (dejaNotes > 0 || match.status !== 'finished') {
-        this.logger.log(`${match.name} : journée ${date} gelée, recalcul ignoré`);
-        return { playersScored: 0, rostersUpdated: 0 };
-      }
-      const premieresNotes = await this.scorePlayers(match);
-      if (premieresNotes > 0) {
-        this.logger.warn(
-          `${match.name} : journée ${date} gelée, ${premieresNotes} première(s) note(s) posée(s) — scoreboard inchangé`,
-        );
-      }
-      return { playersScored: premieresNotes, rostersUpdated: 0 };
+      this.logger.log(`${match.name} : journée ${date} gelée, recalcul ignoré`);
+      return { playersScored: 0, rostersUpdated: 0 };
     }
     const playersScored = await this.scorePlayers(match);
     const rostersUpdated = await this.updateRosterScores(match);
@@ -128,11 +114,12 @@ export class ScoringService {
    * Rattrapage des matchs restés SANS note alors que leurs stats sont en base.
    *
    * `stats.ingested` est le seul déclencheur du scoring : un scoring-service
-   * indisponible au moment de la publication (déploiement, redémarrage), une
-   * lecture data en échec, ou des stats arrivées après le gel de la journée, et
-   * le match n'est plus jamais noté — ses stats s'affichent pourtant sur la
-   * fiche du joueur, colonne « Pts fantasy » vide. Ce balayage horaire compare
-   * les matchs terminés ayant des stats aux matchs notés et comble l'écart.
+   * indisponible au moment de la publication (déploiement, redémarrage) ou une
+   * lecture data en échec, et le match n'est plus jamais noté — ses stats
+   * s'affichent pourtant sur la fiche du joueur, colonne « Pts fantasy » vide.
+   * Ce balayage horaire compare les matchs terminés ayant des stats aux matchs
+   * notés et comble l'écart, tant que la journée n'est pas gelée : passé
+   * l'échéance, l'absence de note est une décision, pas un trou.
    *
    * Borné en fenêtre et en volume : un arriéré s'écoule sur plusieurs passages
    * plutôt que de saturer le data-service d'un coup.
@@ -154,6 +141,7 @@ export class ScoringService {
     for (const matchId of manquants.slice(0, SCORE_BACKFILL_BATCH)) {
       // Un match introuvable côté data (fiche supprimée) ou un échec ponctuel
       // ne doit pas emporter le reste du lot : le prochain tir le reverra.
+      // `computeForMatch` refuse de lui-même les journées gelées.
       const result = await this.computeForMatch(matchId).catch((error) => {
         this.logger.warn(`Rattrapage de note impossible pour ${matchId} : ${String(error)}`);
         return null;
@@ -584,8 +572,9 @@ export class ScoringService {
   /**
    * Gel automatique : balaie les journées passées (J-1 à J-10) non gelées et
    * gèle celles dont les données sont complètes — ou, passé l'échéance dure
-   * (J+3), gèle quand même (les stats manquantes n'arriveront plus). Le gel
-   * fige l'état après un dernier re-score complet de la journée.
+   * (`FREEZE_DEADLINE_DAYS`), gèle quand même : les stats encore manquantes
+   * n'arriveront plus. Le gel fige l'état après un dernier re-score complet de
+   * la journée.
    */
   async freezeEligibleDays(): Promise<string[]> {
     const alreadyFrozen = await this.frozenDates();
