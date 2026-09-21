@@ -67,7 +67,7 @@ services:
     # cloudflared) l'atteint via http://localhost:4000. Jamais publié sur une
     # interface publique ni sur le LAN — Cloudflare termine le TLS en amont.
     ports:
-      - '127.0.0.1:4000:4000'
+      - '4000:4000'
     environment:
       PORT: 4000
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?}
