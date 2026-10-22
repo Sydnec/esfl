@@ -10,8 +10,9 @@
 #   sh scripts/deploy.sh              # déploie origin/main
 #   sh scripts/deploy.sh <sha>        # déploie un commit précis
 #
-# Séquence : sauvegarde → bascule du code → build → attente des sondes →
-# test de fumée public. Tout échec après le build ramène au commit précédent.
+# Séquence : images du registre → sauvegarde → bascule du code → build →
+# attente des sondes → test de fumée public. Tout échec à partir du build
+# ramène au commit précédent.
 set -eu
 
 RACINE="${ESFL_DIR:-/home/sydnec/ESFL}"
@@ -47,6 +48,13 @@ identite_build() {
 
 compose() {
   docker compose --env-file "$ENV_FICHIER" "$@"
+}
+
+# Build séparé du `up`, options du build en arguments (`--pull` au déploiement
+# seulement) : un build qui échoue s'arrête avant de toucher aux conteneurs, et
+# la prod continue de tourner sur ses images.
+construire_et_lancer() {
+  compose build "$@" && compose up -d --no-build
 }
 
 # Attend que les cinq services applicatifs soient `healthy`. Un conteneur qui
@@ -120,6 +128,21 @@ fi
 # déploie, quitte à reconstruire des images identiques. Rejouer un build coûte
 # du temps ; rester sur un état incertain coûte une panne.
 
+# Images du registre (postgres, redis) : `up -d` ne tire jamais une image déjà
+# présente, si bien que leurs correctifs de sécurité n'arriveraient jamais.
+# Tirées AVANT la sauvegarde : tirer ne touche pas aux conteneurs en service,
+# donc un registre injoignable arrête tout ici, quand rien n'a encore bougé.
+# Les majeures sont épinglées dans le compose (postgres:17, redis:7) : n'arrivent
+# que mineures et correctifs, compatibles avec les données en place. Le compose
+# lu ici est encore celui du commit en service : une image qu'ajouterait le
+# commit visé est tirée par `up`, après la bascule, et un échec y déclenche le
+# retour arrière comme n'importe quel autre.
+journal "rafraîchissement des images du registre"
+if ! compose pull --quiet --ignore-buildable; then
+  journal "ÉCHEC : images du registre impossibles à tirer — déploiement annulé, rien n'a changé"
+  exit 1
+fi
+
 # Sauvegarde AVANT la bascule : le démarrage des conteneurs applique
 # `prisma migrate deploy`, qui ne se défait pas. Réutilise scripts/backup.sh,
 # qui sait déjà refuser un dump vide (cf. le piège `pg_dump | gzip`).
@@ -133,7 +156,9 @@ journal "bascule $PRECEDENT -> $NOUVEAU"
 git reset --hard --quiet "$NOUVEAU"
 identite_build
 
-if compose up -d --build && attendre_sante && fumee; then
+# `--pull` : sans lui, une image de base déjà présente sur l'hôte (node:24-alpine)
+# sert indéfiniment, et les correctifs de Node n'atteignent jamais la prod.
+if construire_et_lancer --pull && attendre_sante && fumee; then
   echo "$NOUVEAU" > "$TEMOIN"
   journal "déploiement de $NOUVEAU réussi"
   # Les builds successifs empilent images et couches intermédiaires. Sans purge,
@@ -150,7 +175,11 @@ fi
 journal "ÉCHEC du déploiement — retour arrière vers $PRECEDENT"
 git reset --hard --quiet "$PRECEDENT"
 identite_build
-if compose up -d --build && attendre_sante; then
+# Sans `--pull` : le retour arrière n'a rien à mettre à jour, il doit remettre
+# l'ancien code en dépendant le moins possible du réseau, donc au plus près du
+# cache de build. Les images du registre restent celles que le déploiement vient
+# de tirer : ramener le code ne les ramène pas.
+if construire_et_lancer && attendre_sante; then
   echo "$PRECEDENT" > "$TEMOIN"
   journal "retour arrière effectué : la prod tourne à nouveau sur $PRECEDENT"
 else

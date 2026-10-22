@@ -35,9 +35,13 @@ async function bootstrap() {
   app.use(contexteUtilisateur(jwtSecret));
 
   // Anti-brute-force sur les points d'authentification sensibles (login,
-  // inscription). Derrière le tunnel Cloudflare, l'IP source vue par Express est
-  // 127.0.0.1 (cloudflared) : on clé sur `CF-Connecting-IP` (posé par
-  // Cloudflare), avec repli sur X-Forwarded-For puis req.ip en local.
+  // inscription). Derrière Cloudflare puis NPM, l'IP source vue par Express est
+  // celle de la VM NPM, commune à tous les clients : on clé sur
+  // `CF-Connecting-IP` (posé par Cloudflare, relayé tel quel par NPM), avec
+  // repli sur X-Forwarded-For puis req.ip en local. Cet en-tête ne vaut que
+  // parce que le port 4000 n'accepte que NPM (règle DOCKER-USER) et que NPM
+  // n'accepte ce hostname que de cloudflared ($realip_remote_addr, cf. DEPLOY.md) :
+  // joignable d'ailleurs, n'importe qui le forgerait pour changer de clé.
   const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     limit: 20,
@@ -54,8 +58,9 @@ async function bootstrap() {
       }
       return req.ip ?? 'inconnu';
     },
-    // req.ip est toujours loopback derrière le tunnel : les validations
-    // trust-proxy / X-Forwarded-For d'express-rate-limit ne s'appliquent pas.
+    // En production, req.ip est toujours l'adresse de NPM et la clé ne s'y
+    // rabat qu'en local : les validations trust-proxy / X-Forwarded-For
+    // d'express-rate-limit ne s'appliquent pas.
     validate: false,
   });
   app.use(['/auth/login', '/auth/register'], authLimiter);

@@ -1,20 +1,24 @@
 # Déploiement ESFL
 
-Backend (5 micro-services + Postgres + Redis) sur un serveur via Docker Compose,
-exposé par un tunnel Cloudflare (`cloudflared`) qui termine le TLS — pas de
-reverse proxy dans le stack. Frontend Next.js sur Vercel.
+Backend (5 micro-services + Postgres + Redis) sur une VM via Docker Compose. Le
+trafic public passe par Cloudflare, qui termine le TLS, puis par un tunnel
+`cloudflared` et Nginx Proxy Manager (NPM), chacun sur sa propre VM, jusqu'au
+port 4000 du gateway — pas de reverse proxy dans le stack. Frontend Next.js sur
+Vercel.
 
 > Pour la **toute première mise en route** (création de la base, compte admin,
 > ingestion automatique de l'historique), voir [docs/premier-lancement.md](docs/premier-lancement.md).
 
 ## 1. Prérequis
 
-- Un serveur avec Docker + le plugin compose.
-- Un tunnel Cloudflare (`cloudflared`, service hôte) et un domaine géré par
-  Cloudflare. Le tunnel route un hostname public (ex. `api.mondomaine.fr`) vers
-  le gateway publié en loopback (`http://localhost:4000`). Le routage se
-  configure dans le dashboard Cloudflare (tunnel token-managed) ; Cloudflare
-  gère le certificat TLS — le stack n'expose donc aucun port public.
+- Une VM avec Docker + le plugin compose.
+- Un domaine géré par Cloudflare, un tunnel `cloudflared` et un Nginx Proxy
+  Manager, chacun sur sa VM. Le tunnel (token-managed, routage dans le
+  dashboard Cloudflare) remet un hostname public (ex. `api.mondomaine.fr`) à
+  NPM, dont le proxy host le relaie à `http://<IP_ESFL>:4000`. Cloudflare gère
+  le certificat TLS public.
+- Le port 4000 de la VM réservé à NPM par le pare-feu : il est publié sur toutes
+  les interfaces pour que NPM l'atteigne — voir « Pare-feu » plus bas.
 - Comptes externes :
   - **Pandascore** : token API (gratuit) → `PANDASCORE_TOKEN`
   - **Discord** : application OAuth (redirect `https://api.mondomaine.fr/auth/oauth/discord/callback`)
@@ -86,6 +90,67 @@ Au **premier démarrage sur une base vide**, un job `backfill-history` ingère e
 l'historique depuis `HISTORY_BACKFILL_SINCE` (défaut `2026-01-01`) : catalogue, matchs et stats des
 matchs finis. Détails et suivi dans [docs/premier-lancement.md](docs/premier-lancement.md).
 
+### Pare-feu : le port 4000 réservé à NPM
+
+Le gateway est publié en `4000:4000`, donc joignable de tout le LAN, et ufw n'y
+peut rien : Docker publie ses ports par DNAT, et ce trafic traverse la chaîne
+`FORWARD` sans jamais passer par `INPUT`, où ufw filtre. Un hôte du LAN
+contournerait alors Cloudflare et forgerait `CF-Connecting-IP`, la clé du rate
+limiter de login. Le seul point de filtrage que Docker respecte est la chaîne
+`DOCKER-USER` :
+
+```bash
+sudo iptables -I DOCKER-USER -i <INTERFACE_LAN> -p tcp --dport 4000 ! -s <IP_NPM> -j DROP
+```
+
+- `<INTERFACE_LAN>` : l'interface par laquelle arrive NPM (`ip -br addr`, ex.
+  `ens18`). Sans `-i`, la règle couperait aussi le trafic d'un conteneur à
+  l'autre vers le port 4000.
+- `--dport` est lu **après** la DNAT : c'est le port du conteneur. Avec
+  `4000:4000` les deux coïncident ; si le port hôte change un jour
+  (`8080:4000`), garder `--dport 4000`, ou viser le port hôte avec
+  `-m conntrack --ctorigdstport 8080 --ctdir ORIGINAL`.
+
+La règle survit à un redémarrage de Docker, pas à celui de la VM. Avec ufw, la
+rendre permanente en ajoutant à la fin de `/etc/ufw/after.rules` :
+
+```text
+*filter
+:DOCKER-USER - [0:0]
+-A DOCKER-USER -i <INTERFACE_LAN> -p tcp --dport 4000 ! -s <IP_NPM> -j DROP
+COMMIT
+```
+
+puis `sudo ufw reload`. La déclaration `:DOCKER-USER` vide la chaîne à chaque
+chargement, donc la règle ne se duplique pas, et Docker garde telle quelle une
+chaîne `DOCKER-USER` qui existe déjà. Sans ufw, rejouer la commande `iptables`
+au démarrage, après `docker.service`.
+
+Si la VM a une adresse IPv6 joignable du LAN, poser la même règle avec
+`ip6tables` et l'IPv6 de NPM, et la rendre permanente dans
+`/etc/ufw/after6.rules`.
+
+Ce filtre ne suffit pas à lui seul à rendre `CF-Connecting-IP` fiable : NPM
+relaie les en-têtes du client tels quels, et il est lui-même joignable du LAN.
+Restreindre aussi le proxy host de l'API, dans NPM, à la seule VM `cloudflared`.
+Sinon, un hôte du LAN passe par NPM avec `Host: api.mondomaine.fr` et un
+`CF-Connecting-IP` forgé. Une Access List NPM n'y suffit pas : NPM croit l'en-tête
+`X-Real-IP` de toutes les plages privées (`set_real_ip_from 192.168.0.0/16`…),
+donc un hôte du LAN qui envoie `X-Real-IP: <IP_CLOUDFLARED>` passerait le
+filtre. Tester plutôt l'adresse d'origine, que ce mécanisme ne réécrit pas :
+dans le proxy host, onglet **Advanced**, champ « Custom Nginx Configuration » :
+
+```nginx
+if ($realip_remote_addr != "<IP_CLOUDFLARED>") { return 403; }
+```
+
+Vérifier depuis une autre machine du LAN, puis depuis NPM (et en IPv6 si la VM
+en a une) :
+
+```bash
+curl -m 5 http://<IP_ESFL>:4000/health   # LAN : timeout attendu ; NPM : {"status":"ok",…}
+```
+
 ## 3. Frontend sur Vercel
 
 1. Importer le repo dans Vercel.
@@ -125,13 +190,16 @@ Un merge sur `main` déploie. Le chemin complet :
 3. Le CD s'exécute sur le **runner self-hosted de cette machine** (label
    `esfl-prod`) et lance `scripts/deploy.sh`.
 
-`scripts/deploy.sh` enchaîne : sauvegarde pré-migration (via `backup.sh --once`,
-car `prisma migrate deploy` s'applique au démarrage des conteneurs et ne se
-défait pas) → `git reset --hard` sur le commit visé → `docker compose up -d
---build` → attente des cinq sondes `healthy` → test de fumée sur
-`https://api-esfl.simonbourlier.fr/health`, **à travers le tunnel** et non en
-loopback, seule façon de détecter une panne de routage Cloudflare. Tout échec
-après le build ramène au commit précédent.
+`scripts/deploy.sh` enchaîne : `docker compose pull --ignore-buildable`
+(postgres, redis) → sauvegarde pré-migration (via `backup.sh --once`, car
+`prisma migrate deploy` s'applique au démarrage des conteneurs et ne se défait
+pas) → `git reset --hard` sur le commit visé → `docker compose build --pull`
+puis `up -d` → attente des cinq sondes `healthy` → test de fumée sur
+`https://api-esfl.simonbourlier.fr/health`, **à travers Cloudflare, le tunnel et
+NPM** et non en local, seule façon de détecter une panne sur ce chemin. Un
+registre injoignable arrête tout à la première étape, avant que rien ne bouge.
+Tout échec à partir du build ramène au commit précédent, reconstruit sans
+`--pull`.
 
 > **Le retour arrière ramène le code, pas le schéma.** Une migration Prisma déjà
 > appliquée reste en place et l'ancien code peut ne pas savoir la lire. Dans ce
@@ -153,6 +221,27 @@ sh /home/sydnec/ESFL/scripts/deploy.sh
 
 Il accepte un commit précis en argument (`sh scripts/deploy.sh <sha>`) et
 s'arrête sans rien toucher si la prod est déjà sur ce commit.
+
+### Correctifs de sécurité des images
+
+Sans `--pull`, le build se contente de l'image `node:24-alpine` déjà présente
+sur la VM, et `up -d` ne tire jamais à nouveau une image qu'il a déjà : les
+correctifs de Node, Postgres et Redis n'atteindraient jamais la production.
+`deploy.sh` tire donc des images fraîches à chaque déploiement. Les majeures
+restent épinglées (`node:24`, `postgres:17`, `redis:7`) : n'arrivent que
+mineures et correctifs, et changer de majeure reste un commit.
+
+Un déploiement n'a lieu que sur un nouveau commit. Pour appliquer un correctif
+tout de suite, sans changement de code :
+
+```bash
+cd /home/sydnec/ESFL
+# Identité du build, sinon les images se déclarent `dev` / `local` sur /health.
+export ESFL_VERSION=$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' package.json | head -1)
+export ESFL_COMMIT=$(git rev-parse --short HEAD)
+docker compose --env-file .env.prod build --pull && docker compose --env-file .env.prod pull --ignore-buildable && docker compose --env-file .env.prod up -d
+docker compose --env-file .env.prod exec auth-service node -v   # la version corrigée
+```
 
 ### Le runner
 
