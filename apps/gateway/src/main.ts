@@ -40,7 +40,7 @@ async function bootstrap() {
   // `CF-Connecting-IP` (posé par Cloudflare, relayé tel quel par NPM), avec
   // repli sur X-Forwarded-For puis req.ip en local. Cet en-tête ne vaut que
   // parce que le port 4000 n'accepte que NPM (règle DOCKER-USER) et que NPM
-  // n'accepte ce hostname que de cloudflared (Access List, cf. DEPLOY.md) :
+  // n'accepte ce hostname que de cloudflared ($realip_remote_addr, cf. DEPLOY.md) :
   // joignable d'ailleurs, n'importe qui le forgerait pour changer de clé.
   const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,

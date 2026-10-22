@@ -132,9 +132,17 @@ Si la VM a une adresse IPv6 joignable du LAN, poser la même règle avec
 
 Ce filtre ne suffit pas à lui seul à rendre `CF-Connecting-IP` fiable : NPM
 relaie les en-têtes du client tels quels, et il est lui-même joignable du LAN.
-Restreindre aussi le proxy host de l'API, dans NPM, à la seule VM `cloudflared`
-(Access List : `allow <IP_CLOUDFLARED>`, `deny all`). Sinon, un hôte du LAN
-passe par NPM avec `Host: api.mondomaine.fr` et un `CF-Connecting-IP` forgé.
+Restreindre aussi le proxy host de l'API, dans NPM, à la seule VM `cloudflared`.
+Sinon, un hôte du LAN passe par NPM avec `Host: api.mondomaine.fr` et un
+`CF-Connecting-IP` forgé. Une Access List NPM n'y suffit pas : NPM croit l'en-tête
+`X-Real-IP` de toutes les plages privées (`set_real_ip_from 192.168.0.0/16`…),
+donc un hôte du LAN qui envoie `X-Real-IP: <IP_CLOUDFLARED>` passerait le
+filtre. Tester plutôt l'adresse d'origine, que ce mécanisme ne réécrit pas :
+dans le proxy host, onglet **Advanced**, champ « Custom Nginx Configuration » :
+
+```nginx
+if ($realip_remote_addr != "<IP_CLOUDFLARED>") { return 403; }
+```
 
 Vérifier depuis une autre machine du LAN, puis depuis NPM (et en IPv6 si la VM
 en a une) :
