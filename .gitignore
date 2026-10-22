@@ -11,6 +11,9 @@ out/
 # suivi, il changerait à chaque bascule dev ↔ build (Next 16 recommande de
 # l'ignorer ; le script typecheck de apps/web le recrée via `next typegen`).
 next-env.d.ts
+# Généré par `next dev` (Next 16) dès qu'il détecte un agent IA : consignes
+# destinées aux agents, à ne pas versionner par mégarde.
+apps/web/AGENTS.md
 
 # Environnement
 .env
