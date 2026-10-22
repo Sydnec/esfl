@@ -11,7 +11,7 @@
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "jsx": "preserve",
+    "jsx": "react-jsx",
     "incremental": true,
     "plugins": [
       {
@@ -22,6 +22,17 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  // Next réécrit ce fichier (et casse son formatage Prettier) dès qu'il y manque
+  // les types générés de son distDir courant : `.next` en dev et sur Vercel,
+  // `.next-build` en build local (cf. next.config.ts). Les quatre chemins restent donc listés.
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts",
+    ".next-build/types/**/*.ts",
+    ".next-build/dev/types/**/*.ts"
+  ],
   "exclude": ["node_modules", "**/*.spec.ts", "**/*.spec.tsx"]
 }
