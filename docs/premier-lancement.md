@@ -2,12 +2,14 @@
 
 Ce guide couvre la **toute première mise en route** : création de la base,
 compte administrateur, et ingestion automatique de l'historique. Pour la
-configuration détaillée du VPS, du domaine et des secrets, voir
+configuration détaillée de la VM, du domaine et des secrets, voir
 [DEPLOY.md](../DEPLOY.md).
 
 ## 1. Prérequis
 
-- VPS avec Docker + plugin compose, un domaine (`api.mondomaine.fr` → IP).
+- VM avec Docker + plugin compose, un hostname public (`api.mondomaine.fr`)
+  routé par le tunnel Cloudflare puis NPM jusqu'au gateway (voir
+  [DEPLOY.md](../DEPLOY.md)).
 - `.env` à la racine rempli (voir [DEPLOY.md](../DEPLOY.md) pour la liste
   complète). Pour l'ingestion, au minimum :
   - `PANDASCORE_TOKEN` — **indispensable**, sinon aucune ingestion.

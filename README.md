@@ -61,7 +61,8 @@ pnpm test    # vitest dans tous les workspaces (lock fantasy, calculateurs, inge
 
 ## Déploiement
 
-Voir [DEPLOY.md](DEPLOY.md) — backend Docker Compose sur VPS (Caddy TLS), frontend Vercel.
+Voir [DEPLOY.md](DEPLOY.md) — backend Docker Compose sur une VM derrière Cloudflare et Nginx
+Proxy Manager, frontend Vercel.
 Premier lancement (création de la base, compte admin, backfill historique) :
 [docs/premier-lancement.md](docs/premier-lancement.md).
 
