@@ -7,6 +7,10 @@ dist/
 .next-build/
 out/
 *.tsbuildinfo
+# Régénéré par next dev/build/typegen avec les chemins du distDir courant :
+# suivi, il changerait à chaque bascule dev ↔ build (Next 16 recommande de
+# l'ignorer ; le script typecheck de apps/web le recrée via `next typegen`).
+next-env.d.ts
 
 # Environnement
 .env
